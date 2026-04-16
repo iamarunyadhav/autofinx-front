@@ -1,0 +1,226 @@
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/600.css';
+@import '@fontsource-variable/inter';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* AutoFinX Dark Trading Theme */
+    --background: 222 47% 6%;
+    --foreground: 210 40% 96%;
+
+    --card: 222 47% 8%;
+    --card-foreground: 210 40% 96%;
+
+    --popover: 222 47% 8%;
+    --popover-foreground: 210 40% 96%;
+
+    --primary: 185 84% 50%;
+    --primary-foreground: 222 47% 6%;
+
+    --secondary: 222 30% 14%;
+    --secondary-foreground: 210 40% 96%;
+
+    --muted: 222 30% 16%;
+    --muted-foreground: 215 20% 55%;
+
+    --accent: 185 70% 40%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 76% 42%;
+    --success-foreground: 210 40% 98%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 222 47% 6%;
+
+    --border: 222 30% 18%;
+    --input: 222 30% 14%;
+    --ring: 185 84% 50%;
+
+    --radius: 0.75rem;
+
+    /* Custom Trading Colors */
+    --profit: 142 76% 42%;
+    --loss: 0 72% 51%;
+    --live: 185 84% 50%;
+    --paper: 270 70% 60%;
+    --running: 142 76% 42%;
+    --paused: 38 92% 50%;
+    --error: 0 72% 51%;
+
+    /* Glass Effect */
+    --glass: 222 47% 10%;
+    --glass-border: 222 30% 20%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(185 84% 50%), hsl(200 84% 45%));
+    --gradient-surface: linear-gradient(180deg, hsl(222 47% 10%), hsl(222 47% 6%));
+    --gradient-card: linear-gradient(135deg, hsl(222 47% 10%), hsl(222 47% 7%));
+    --gradient-profit: linear-gradient(135deg, hsl(142 76% 42%), hsl(160 76% 38%));
+    --gradient-loss: linear-gradient(135deg, hsl(0 72% 51%), hsl(15 72% 45%));
+
+    /* Shadows */
+    --shadow-glow: 0 0 40px hsl(185 84% 50% / 0.15);
+    --shadow-card: 0 4px 24px hsl(222 47% 4% / 0.5);
+    --shadow-elevated: 0 8px 32px hsl(222 47% 4% / 0.6);
+
+    /* Sidebar */
+    --sidebar-background: 222 47% 7%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-primary: 185 84% 50%;
+    --sidebar-primary-foreground: 222 47% 6%;
+    --sidebar-accent: 222 30% 14%;
+    --sidebar-accent-foreground: 210 40% 96%;
+    --sidebar-border: 222 30% 15%;
+    --sidebar-ring: 185 84% 50%;
+
+    /* Typography */
+    --font-sans: 'Inter Variable', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  .dark {
+    /* Already dark by default */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-family: var(--font-sans);
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-background;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/50;
+  }
+}
+
+@layer components {
+  /* Glass card effect */
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-xl border border-border/50 rounded-xl;
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Glow effect */
+  .glow {
+    box-shadow: var(--shadow-glow);
+  }
+
+  .glow-sm {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.1);
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-primary);
+  }
+
+  /* Number styling */
+  .font-mono-numbers {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Status badges */
+  .status-live {
+    @apply bg-live/20 text-[hsl(var(--live))] border-[hsl(var(--live))]/30;
+  }
+
+  .status-paper {
+    @apply bg-paper/20 text-[hsl(var(--paper))] border-[hsl(var(--paper))]/30;
+  }
+
+  .status-running {
+    @apply bg-running/20 text-[hsl(var(--running))] border-[hsl(var(--running))]/30;
+  }
+
+  .status-paused {
+    @apply bg-paused/20 text-[hsl(var(--paused))] border-[hsl(var(--paused))]/30;
+  }
+
+  .status-error {
+    @apply bg-error/20 text-[hsl(var(--error))] border-[hsl(var(--error))]/30;
+  }
+
+  /* Pulse animation for live indicators */
+  @keyframes pulse-live {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  .animate-pulse-live {
+    animation: pulse-live 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  /* Gradient border */
+  .gradient-border {
+    position: relative;
+  }
+
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    padding: 1px;
+    border-radius: inherit;
+    background: var(--gradient-primary);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+@layer utilities {
+  /* Profit/Loss colors */
+  .text-profit {
+    color: hsl(var(--profit));
+  }
+
+  .text-loss {
+    color: hsl(var(--loss));
+  }
+
+  .bg-profit {
+    background-color: hsl(var(--profit));
+  }
+
+  .bg-loss {
+    background-color: hsl(var(--loss));
+  }
+}

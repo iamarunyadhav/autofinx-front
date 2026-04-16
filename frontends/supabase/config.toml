@@ -1,0 +1,31 @@
+project_id = "klqmpmegxyjovlynlbqd"
+
+[functions.ai-assistant]
+verify_jwt = false
+
+[functions.market-data]
+verify_jwt = false
+
+[functions.notifications]
+verify_jwt = false
+
+[functions.realtime-prices]
+verify_jwt = false
+
+[functions.risk]
+verify_jwt = false
+
+[functions.scheduler]
+verify_jwt = false
+
+[functions.strategy]
+verify_jwt = false
+
+[functions.sync-connection]
+verify_jwt = false
+
+[functions.trading]
+verify_jwt = false
+
+[functions.wallet]
+verify_jwt = false
