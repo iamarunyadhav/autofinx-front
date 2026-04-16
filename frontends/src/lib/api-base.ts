@@ -22,6 +22,11 @@ function rememberApiBase(value: string) {
   window.localStorage.setItem(STORAGE_KEY, value);
 }
 
+function forgetStoredApiBase() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(STORAGE_KEY);
+}
+
 function isLocalhostUrl(value: string) {
   try {
     const url = new URL(value);
@@ -34,11 +39,16 @@ function isLocalhostUrl(value: string) {
 function buildCandidateBases() {
   const candidates = new Set<string>();
   const stored = getStoredApiBase();
+  const configuredIsLocalhost = isLocalhostUrl(configuredApiBase);
 
-  if (stored) candidates.add(stored);
+  if (configuredIsLocalhost && stored) candidates.add(stored);
+  if (!configuredIsLocalhost && stored && stored !== configuredApiBase) {
+    forgetStoredApiBase();
+  }
+
   candidates.add(configuredApiBase);
 
-  if (isLocalhostUrl(configuredApiBase)) {
+  if (configuredIsLocalhost) {
     candidates.add("http://localhost:8001/api/v1");
     candidates.add("http://127.0.0.1:8001/api/v1");
   }
@@ -55,7 +65,7 @@ async function probeApiBase(base: string) {
       headers: { Accept: "application/json" },
     });
 
-    return response.status !== 404;
+    return response.ok && response.headers.get("content-type")?.includes("application/json") === true;
   } catch {
     return false;
   }
