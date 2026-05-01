@@ -61,6 +61,17 @@ export type LiveExecutionOrderDetail = {
   events: LiveExecutionEvent[];
 };
 
+export type PlaceLiveOrderPayload = {
+  workspace_id: string;
+  integration_id: string;
+  symbol: string;
+  side: 'buy' | 'sell';
+  type: 'market' | 'limit';
+  qty: number;
+  price?: number;
+  idempotency_key?: string;
+};
+
 export function useLiveExecutionHealth(workspaceId: string | undefined) {
   return useQuery({
     queryKey: ['live-execution-health', workspaceId],
@@ -70,6 +81,31 @@ export function useLiveExecutionHealth(workspaceId: string | undefined) {
     },
     enabled: !!workspaceId,
     refetchInterval: 15000,
+  });
+}
+
+export function usePlaceLiveOrder() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (payload: PlaceLiveOrderPayload) => {
+      return authorizedFetch('/live/orders', 'POST', payload) as Promise<{ order: LiveExecutionOrder; mode: 'live' }>;
+    },
+    onSuccess: (result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['live-orders', variables.workspace_id] });
+      queryClient.invalidateQueries({ queryKey: ['live-execution-health', variables.workspace_id] });
+      queryClient.invalidateQueries({ queryKey: ['live-execution-events', variables.workspace_id] });
+      queryClient.invalidateQueries({ queryKey: ['live-execution-anomalies', variables.workspace_id] });
+      toast({
+        title: result.order?.status === 'UNCERTAIN' ? 'Order needs review' : 'Live order submitted',
+        description: `${variables.side.toUpperCase()} ${variables.qty} ${variables.symbol}`,
+        variant: result.order?.status === 'UNCERTAIN' ? 'destructive' : 'default',
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Live order failed', description: error.message, variant: 'destructive' });
+    },
   });
 }
 

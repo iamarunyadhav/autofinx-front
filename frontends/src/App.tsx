@@ -35,6 +35,8 @@ import LiveExecutionPage from "./pages/LiveExecutionPage";
 import FuturesGroundworkPage from "./pages/FuturesGroundworkPage";
 import PortfolioIntelligencePage from "./pages/PortfolioIntelligencePage";
 import RatioBotPage from "./pages/RatioBotPage";
+import Fast2XPage from "./pages/Fast2XPage";
+import FutureTradeBotPage from "./pages/FutureTradeBotPage";
 
 const queryClient = new QueryClient();
 
@@ -186,6 +188,16 @@ const App = () => (
             <Route path="/ratio-bot" element={
               <ProtectedRoute>
                 <RatioBotPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/fast2x" element={
+              <ProtectedRoute>
+                <Fast2XPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/future-trade" element={
+              <ProtectedRoute>
+                <FutureTradeBotPage />
               </ProtectedRoute>
             } />
             <Route path="/payouts/:id" element={

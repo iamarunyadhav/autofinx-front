@@ -1,13 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AppShell } from '@/components/layout';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useCancelOrder } from '@/hooks/useTrading';
+import { useQuickTradeMetadata } from '@/hooks/useQuickTrade';
 import {
   useLiveExecutionHealth,
   useLiveOrders,
   useLiveOrderDetail,
   useLiveExecutionEvents,
   useLiveExecutionAnomalies,
+  usePlaceLiveOrder,
   useWorkspaceLiveSync,
   useReconcileLiveOrder,
 } from '@/hooks/useLiveExecution';
@@ -15,6 +17,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ShieldAlert, ActivitySquare } from 'lucide-react';
@@ -24,6 +28,12 @@ export default function LiveExecutionPage() {
   const workspaceId = currentWorkspace?.id;
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [selectedOrderId, setSelectedOrderId] = useState<string | undefined>(undefined);
+  const [selectedIntegrationId, setSelectedIntegrationId] = useState('');
+  const [orderSide, setOrderSide] = useState<'buy' | 'sell'>('buy');
+  const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
+  const [quantity, setQuantity] = useState('');
+  const [limitPrice, setLimitPrice] = useState('');
+  const { data: metadata } = useQuickTradeMetadata(workspaceId);
   const { data: health } = useLiveExecutionHealth(workspaceId);
   const { data: orders = [], isLoading: ordersLoading } = useLiveOrders(workspaceId, symbol);
   const { data: orderDetail } = useLiveOrderDetail(selectedOrderId);
@@ -32,9 +42,43 @@ export default function LiveExecutionPage() {
   const syncWorkspace = useWorkspaceLiveSync(workspaceId);
   const reconcileOrder = useReconcileLiveOrder(workspaceId);
   const cancelOrder = useCancelOrder();
+  const placeLiveOrder = usePlaceLiveOrder();
 
   const selectedOrder = orderDetail?.order || orders.find((order) => order.id === selectedOrderId) || null;
   const topEvents = useMemo(() => events.slice(0, 8), [events]);
+  const integrations = useMemo(
+    () => (metadata?.trading_state?.active_integrations ?? []).filter((integration) => integration.provider_key === 'binance'),
+    [metadata]
+  );
+  const liveReady = Boolean(metadata?.trading_state?.live_ready);
+  const placeDisabled =
+    placeLiveOrder.isPending ||
+    !workspaceId ||
+    !selectedIntegrationId ||
+    !symbol ||
+    Number(quantity) <= 0 ||
+    (orderType === 'limit' && Number(limitPrice) <= 0);
+
+  useEffect(() => {
+    if (!selectedIntegrationId && integrations.length > 0) {
+      setSelectedIntegrationId(integrations[0].id);
+    }
+  }, [integrations, selectedIntegrationId]);
+
+  const submitLiveOrder = () => {
+    if (!workspaceId || placeDisabled) return;
+
+    placeLiveOrder.mutate({
+      workspace_id: workspaceId,
+      integration_id: selectedIntegrationId,
+      symbol,
+      side: orderSide,
+      type: orderType,
+      qty: Number(quantity),
+      price: orderType === 'limit' ? Number(limitPrice) : undefined,
+      idempotency_key: `manual-${symbol}-${orderSide}-${Date.now()}`,
+    });
+  };
 
   return (
     <AppShell>
@@ -59,6 +103,77 @@ export default function LiveExecutionPage() {
             <MetricCard title="Stale Open" value={String(health?.stale_open_orders ?? 0)} />
             <MetricCard title="REST Failures" value={String(health?.rest_health?.consecutive_rest_failures ?? 0)} />
           </div>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle>Place Live Spot Order</CardTitle>
+                <Badge variant={liveReady ? 'outline' : 'secondary'}>
+                  {liveReady ? 'Live ready' : metadata?.trading_state?.live_ready_reason || 'Live not ready'}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr_0.8fr_auto]">
+              <div className="space-y-2">
+                <Label>Binance Integration</Label>
+                <Select value={selectedIntegrationId} onValueChange={setSelectedIntegrationId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select integration" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {integrations.map((integration) => (
+                      <SelectItem key={integration.id} value={integration.id}>
+                        {integration.display_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Symbol</Label>
+                <Input value={symbol} onChange={(event) => setSymbol(event.target.value.toUpperCase())} placeholder="BTCUSDT" />
+              </div>
+              <div className="space-y-2">
+                <Label>Side</Label>
+                <Select value={orderSide} onValueChange={(value) => setOrderSide(value as 'buy' | 'sell')}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="buy">Buy</SelectItem>
+                    <SelectItem value="sell">Sell</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Type</Label>
+                <Select value={orderType} onValueChange={(value) => setOrderType(value as 'market' | 'limit')}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="market">Market</SelectItem>
+                    <SelectItem value="limit">Limit IOC</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Quantity</Label>
+                <Input value={quantity} onChange={(event) => setQuantity(event.target.value)} inputMode="decimal" placeholder="0.001" />
+              </div>
+              {orderType === 'limit' && (
+                <div className="space-y-2">
+                  <Label>Limit Price</Label>
+                  <Input value={limitPrice} onChange={(event) => setLimitPrice(event.target.value)} inputMode="decimal" placeholder="65000" />
+                </div>
+              )}
+              <div className="flex items-end gap-2">
+                <Button onClick={submitLiveOrder} disabled={placeDisabled} variant={orderSide === 'sell' ? 'destructive' : 'default'}>
+                  {placeLiveOrder.isPending ? 'Submitting...' : orderSide === 'sell' ? 'Sell' : 'Buy'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
 
           <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
             <Card>

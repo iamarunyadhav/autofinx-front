@@ -47,6 +47,8 @@ const navItems = [
   { id: "trading-desk", label: "Trading Desk", icon: BarChart3, path: "/trading/desk" },
   { id: "auto-bot", label: "Auto Bot", icon: PlayCircle, path: "/auto-bot" },
   { id: "ratio-bot", label: "Ratio Bot", icon: Zap, path: "/ratio-bot" },
+  { id: "fast2x", label: "Fast2X", icon: Zap, path: "/fast2x" },
+  { id: "future-trade", label: "Future Trade", icon: FlaskConical, path: "/future-trade" },
   { id: "scheduler", label: "Scheduler", icon: Calendar, path: "/scheduler" },
   { id: "risk", label: "Risk", icon: Shield, path: "/risk" },
   { id: "wallet", label: "Wallet", icon: Wallet, path: "/wallet" },
