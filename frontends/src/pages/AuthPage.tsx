@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { TrendingUp, Zap, Shield, Bot, Loader2 } from 'lucide-react';
+import { TrendingUp, Zap, Shield, Bot, Loader2, KeyRound } from 'lucide-react';
 
 const signInSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -32,6 +32,9 @@ type SignUpFormData = z.infer<typeof signUpSchema>;
 
 export default function AuthPage() {
   const [isLoading, setIsLoading] = useState(false);
+  const [twoFAStep, setTwoFAStep] = useState(false);
+  const [twoFACode, setTwoFACode] = useState('');
+  const [pendingCredentials, setPendingCredentials] = useState<{ email: string; password: string } | null>(null);
   const { user, signIn, signUp } = useAuth();
   const navigate = useNavigate();
 
@@ -53,9 +56,24 @@ export default function AuthPage() {
 
   const handleSignIn = async (data: SignInFormData) => {
     setIsLoading(true);
-    const { error } = await signIn(data.email, data.password);
-    if (!error) {
+    const result = await signIn(data.email, data.password);
+    if (result.twoFactorRequired) {
+      setPendingCredentials({ email: data.email, password: data.password });
+      setTwoFAStep(true);
+    } else if (!result.error) {
       navigate('/');
+    }
+    setIsLoading(false);
+  };
+
+  const handleTwoFASubmit = async () => {
+    if (!pendingCredentials || !twoFACode) return;
+    setIsLoading(true);
+    const result = await signIn(pendingCredentials.email, pendingCredentials.password, twoFACode);
+    if (!result.error && !result.twoFactorRequired) {
+      navigate('/');
+    } else {
+      setTwoFACode('');
     }
     setIsLoading(false);
   };
@@ -153,6 +171,33 @@ export default function AuthPage() {
                 </TabsList>
 
                 <TabsContent value="signin">
+                  {twoFAStep ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 border border-primary/20">
+                        <KeyRound className="w-5 h-5 text-primary shrink-0" />
+                        <p className="text-sm text-muted-foreground">
+                          Enter the 6-digit code from your authenticator app (Google Authenticator).
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Authenticator Code</label>
+                        <Input
+                          placeholder="123456"
+                          value={twoFACode}
+                          onChange={(e) => setTwoFACode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          className="bg-surface text-center text-2xl tracking-widest"
+                          autoFocus
+                          onKeyDown={(e) => e.key === 'Enter' && handleTwoFASubmit()}
+                        />
+                      </div>
+                      <Button className="w-full" onClick={handleTwoFASubmit} disabled={isLoading || twoFACode.length < 6}>
+                        {isLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Verifying...</> : 'Verify & Sign In'}
+                      </Button>
+                      <Button variant="ghost" className="w-full" onClick={() => { setTwoFAStep(false); setTwoFACode(''); setPendingCredentials(null); }}>
+                        Back
+                      </Button>
+                    </div>
+                  ) : (
                   <Form {...signInForm}>
                     <form onSubmit={signInForm.handleSubmit(handleSignIn)} className="space-y-4">
                       <FormField
@@ -162,10 +207,10 @@ export default function AuthPage() {
                           <FormItem>
                             <FormLabel>Email</FormLabel>
                             <FormControl>
-                              <Input 
-                                type="email" 
-                                placeholder="trader@example.com" 
-                                {...field} 
+                              <Input
+                                type="email"
+                                placeholder="trader@example.com"
+                                {...field}
                                 className="bg-surface"
                               />
                             </FormControl>
@@ -191,9 +236,9 @@ export default function AuthPage() {
                           </FormItem>
                         )}
                       />
-                      <Button 
-                        type="submit" 
-                        className="w-full" 
+                      <Button
+                        type="submit"
+                        className="w-full"
                         disabled={isLoading}
                       >
                         {isLoading ? (
@@ -207,6 +252,7 @@ export default function AuthPage() {
                       </Button>
                     </form>
                   </Form>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="signup">

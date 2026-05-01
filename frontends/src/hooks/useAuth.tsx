@@ -76,19 +76,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string, twoFactorCode?: string) => {
     try {
+      const body: Record<string, string> = { email, password };
+      if (twoFactorCode) body.code = twoFactorCode;
+
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(body),
       });
 
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const err = new Error(body.message || 'Sign in failed');
-        toast({ title: 'Sign in failed', description: err.message, variant: 'destructive' });
-        return { error: err };
+        const resBody = await res.json().catch(() => ({}));
+        const message: string = resBody.message || 'Sign in failed';
+        const twoFactorRequired = message.toLowerCase().includes('two-factor') || message.toLowerCase().includes('2fa');
+        if (twoFactorRequired) {
+          return { error: null, twoFactorRequired: true };
+        }
+        const err = new Error(message);
+        toast({ title: 'Sign in failed', description: message, variant: 'destructive' });
+        return { error: err, twoFactorRequired: false };
       }
 
       const data = await res.json();
@@ -96,11 +104,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(data.user);
       setSession({ token: data.token });
       toast({ title: 'Welcome back!', description: 'You have successfully signed in.' });
-      return { error: null };
+      return { error: null, twoFactorRequired: false };
     } catch (err) {
       const error = err as Error;
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
-      return { error };
+      return { error, twoFactorRequired: false };
     }
   };
 
