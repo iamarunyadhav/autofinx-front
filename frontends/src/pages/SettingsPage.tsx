@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AppShell } from '@/components/layout';
 import { useAuth } from '@/hooks/useAuth';
 import { ProfileSettings } from '@/components/settings/ProfileSettings';
@@ -9,7 +10,8 @@ import { User, Bell, Shield, Settings as SettingsIcon } from 'lucide-react';
 
 export default function SettingsPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('profile');
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'profile');
 
   return (
     <AppShell>

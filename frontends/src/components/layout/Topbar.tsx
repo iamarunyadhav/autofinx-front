@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Menu,
@@ -46,6 +47,7 @@ interface TopbarProps {
 export function Topbar({ showMenuButton = false, onMenuClick }: TopbarProps) {
   const [searchFocused, setSearchFocused] = useState(false);
   const [killSwitchDialog, setKillSwitchDialog] = useState(false);
+  const navigate = useNavigate();
   
   const { user, signOut } = useAuth();
   const { currentWorkspace } = useWorkspace();
@@ -205,15 +207,15 @@ export function Topbar({ showMenuButton = false, onMenuClick }: TopbarProps) {
                 <p className="font-medium text-sm">{user?.email?.split('@')[0] || 'User'}</p>
                 <p className="text-xs text-muted-foreground">{user?.email}</p>
               </div>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/profile')}>
                 <Settings className="w-4 h-4 mr-2" />
                 Profile Settings
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/profile?tab=security')}>
                 <Key className="w-4 h-4 mr-2" />
                 API Keys
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/connections')}>
                 <CreditCard className="w-4 h-4 mr-2" />
                 Billing
               </DropdownMenuItem>

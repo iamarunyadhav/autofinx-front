@@ -37,6 +37,7 @@ import PortfolioIntelligencePage from "./pages/PortfolioIntelligencePage";
 import RatioBotPage from "./pages/RatioBotPage";
 import Fast2XPage from "./pages/Fast2XPage";
 import FutureTradeBotPage from "./pages/FutureTradeBotPage";
+import SettingsPage from "./pages/SettingsPage";
 
 const queryClient = new QueryClient();
 
@@ -123,6 +124,11 @@ const App = () => (
             <Route path="/settings" element={
               <ProtectedRoute>
                 <SettingsCenterPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/profile" element={
+              <ProtectedRoute>
+                <SettingsPage />
               </ProtectedRoute>
             } />
             <Route path="/regime" element={
