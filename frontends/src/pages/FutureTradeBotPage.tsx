@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Bot, Brain, Power, RefreshCw, Save, ShieldAlert, Square, TrendingDown, TrendingUp } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { AlertTriangle, Bot, Brain, Power, RefreshCw, Save, ShieldAlert, Square, Wallet } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AppShell } from "@/components/layout";
 import { Badge } from "@/components/ui/badge";
@@ -115,11 +115,12 @@ export default function FutureTradeBotPage() {
           </div>
         ) : null}
 
-        <div className="grid gap-4 xl:grid-cols-4">
-          <Metric title="Equity PnL" value={`${n(status?.realizedPnl, 4)} USDT`} sub={`Unrealized ${n(status?.unrealizedPnlPercent, 4)}%`} good={(status?.unrealizedPnlPercent ?? 0) >= 0} />
+        <div className="grid gap-4 xl:grid-cols-5">
+          <Metric title="Total Profit" value={`${n(status?.totalProfit ?? status?.realizedPnl, 4)} ${status?.accountAsset || "USDT"}`} sub={`Realized ${n(status?.realizedPnl, 4)} | Unrealized ${n(status?.unrealizedPnlPercent, 4)}%`} good={(status?.totalProfit ?? status?.realizedPnl ?? 0) >= 0} />
+          <Metric title="Wallet Balance" value={`${n(status?.walletBalance, 4)} ${status?.accountAsset || "USDT"}`} sub={status?.balanceSource === "PAPER_LEDGER" ? "Paper mode wallet not linked" : `Available ${n(status?.availableBalance, 4)}`} icon={<Wallet className="h-4 w-4" />} />
           <Metric title="Current Signal" value={status?.currentSignal || "WAITING"} sub={`${status?.currentSymbol || "No symbol"} | ${n((status?.confidence ?? 0) * 100, 2)}%`} />
           <Metric title="Position" value={status?.positionSide || "FLAT"} sub={`Entry ${n(status?.entryPrice, 8)} | Qty ${n(status?.quantity, 6)}`} />
-          <Metric title="Risk" value={`${n(status?.dailyLoss, 4)} loss`} sub={`Win ${n(status?.winRate, 2)}% | Trades ${n(status?.tradeCountToday, 0)}`} good={(status?.dailyLoss ?? 0) === 0} />
+          <Metric title="Loss Summary" value={`${n(status?.botLoss ?? status?.dailyLoss, 4)} ${status?.accountAsset || "USDT"}`} sub={`Win ${n(status?.winRate, 2)}% | Trades ${n(status?.tradeCountToday, 0)}`} good={(status?.botLoss ?? status?.dailyLoss ?? 0) === 0} />
         </div>
 
         <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
@@ -179,9 +180,9 @@ function err(toast: ReturnType<typeof useToast>["toast"]) {
   return (error: unknown) => toast({ title: "Future Trade Bot failed", description: error instanceof Error ? error.message : "Request failed", variant: "destructive" });
 }
 
-function Metric({ title, value, sub, good }: { title: string; value: string; sub: string; good?: boolean }) {
+function Metric({ title, value, sub, good, icon }: { title: string; value: string; sub: string; good?: boolean; icon?: ReactNode }) {
   return (
-    <Card><CardHeader><CardTitle className="text-sm text-muted-foreground">{title}</CardTitle></CardHeader><CardContent><div className={cn("text-xl font-semibold", good === false && "text-destructive", good === true && "text-running")}>{value}</div><div className="mt-1 text-xs text-muted-foreground">{sub}</div></CardContent></Card>
+    <Card><CardHeader><CardTitle className="flex items-center gap-2 text-sm text-muted-foreground">{icon}{title}</CardTitle></CardHeader><CardContent><div className={cn("text-xl font-semibold", good === false && "text-destructive", good === true && "text-running")}>{value}</div><div className="mt-1 text-xs text-muted-foreground">{sub}</div></CardContent></Card>
   );
 }
 

@@ -53,6 +53,14 @@ export interface FutureTradeStatus {
   paperTrading: boolean;
   liveTrading: boolean;
   liveTradingEnvEnabled: boolean;
+  walletBalance?: number | null;
+  availableBalance?: number | null;
+  marginBalance?: number | null;
+  botProfit?: number | null;
+  botLoss?: number | null;
+  totalProfit?: number | null;
+  balanceSource?: string | null;
+  accountAsset?: string | null;
 }
 
 export interface FutureSignal {
