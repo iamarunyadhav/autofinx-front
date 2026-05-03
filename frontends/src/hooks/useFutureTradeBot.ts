@@ -60,6 +60,8 @@ export interface FutureTradeStatus {
   paperTrading: boolean;
   liveTrading: boolean;
   liveTradingEnvEnabled: boolean;
+  testnetTradingEnvEnabled?: boolean;
+  realTradingEnvEnabled?: boolean;
   walletBalance?: number | null;
   availableBalance?: number | null;
   marginBalance?: number | null;
@@ -114,11 +116,32 @@ export interface FutureTradeDynamicDecision {
   suggestion: string;
 }
 
+export interface FutureTradeDynamicPoint {
+  time: string;
+  symbol: string;
+  signal?: string | null;
+  price: number;
+  pnl: number;
+  confidence?: number | null;
+  algorithmMode?: string | null;
+  algorithmFlag?: "NORMAL" | "SEMI" | "AUTO" | string | null;
+  effectiveMinConfidence?: number | null;
+  activeTakeProfitPercent?: number | null;
+  activeStopLossPercent?: number | null;
+  activeTrailingTakeProfitPercent?: number | null;
+  activeCooldownSeconds?: number | null;
+  activeTradeAmountUsdt?: number | null;
+  trendStrength?: number | null;
+  directionAgreement?: number | null;
+  choppy?: boolean | null;
+  decisionStatus?: string | null;
+}
+
 export interface FutureTradeDashboard {
   status: FutureTradeStatus;
   scanner: FutureSignal[];
   bestSignal?: FutureSignal | null;
-  chart: Array<{ time: string; symbol: string; price: number; pnl: number; confidence?: number | null; effectiveMinConfidence?: number | null }>;
+  chart: FutureTradeDynamicPoint[];
   levels: Record<string, number | null>;
   orderbook: { bids: Array<{ price: number; qty: number }>; asks: Array<{ price: number; qty: number }> };
   risk: { lossPrevention: string; paperTrading: boolean; liveTradingBlocked: boolean };
@@ -132,7 +155,39 @@ export interface FutureTradeConfig {
   paper_trading: boolean;
   enable_live_trading: boolean;
   live_env_enabled: boolean;
+  testnet_env_enabled?: boolean;
+  real_env_enabled?: boolean;
   available_symbols?: string[];
+}
+
+export interface FutureTradeEnvConfig {
+  mode: "paper" | "testnet" | "live";
+  testnet_enabled: boolean;
+  live_enabled: boolean;
+  force_testnet: boolean;
+  live_api_url: string;
+  testnet_api_url: string;
+  live_api_key: string;
+  live_api_secret_masked?: string;
+  testnet_api_key: string;
+  testnet_api_secret_masked?: string;
+  live_configured: boolean;
+  testnet_configured: boolean;
+}
+
+export interface FutureTradeEnvConfigPayload {
+  mode: "paper" | "testnet" | "live";
+  testnet_enabled: boolean;
+  live_enabled: boolean;
+  force_testnet: boolean;
+  live_api_url: string;
+  testnet_api_url: string;
+  live_api_key?: string;
+  live_api_secret?: string;
+  testnet_api_key?: string;
+  testnet_api_secret?: string;
+  replace_live_secret?: boolean;
+  replace_testnet_secret?: boolean;
 }
 
 export interface FutureTradeRecord {
@@ -147,6 +202,12 @@ export interface FutureTradeRecord {
   reason?: string | null;
   mode: string;
   status: string;
+  meta?: {
+    algorithm_mode?: string;
+    dynamic?: FutureTradeDynamicDecision;
+    signal?: Partial<FutureSignal>;
+    [key: string]: unknown;
+  } | null;
   created_at: string;
 }
 
@@ -194,6 +255,12 @@ export function useFutureTradeBot(workspaceId?: string) {
     refetchInterval: 3000,
   });
 
+  const envConfig = useQuery({
+    queryKey: ["future-trade", workspaceId, "env-config"],
+    queryFn: async () => (await api.get<FutureTradeEnvConfig>(`${base}/env-config`)).data,
+    enabled,
+  });
+
   const useAction = (name: string) => useMutation({
     mutationFn: async () => (await api.post(`${base}/${name}`, {})).data,
     onSuccess: invalidate,
@@ -204,12 +271,19 @@ export function useFutureTradeBot(workspaceId?: string) {
     onSuccess: invalidate,
   });
 
+  const updateEnvConfig = useMutation({
+    mutationFn: async (payload: FutureTradeEnvConfigPayload) => (await api.put<FutureTradeEnvConfig>(`${base}/env-config`, payload)).data,
+    onSuccess: invalidate,
+  });
+
   return {
     dashboard,
     config,
     trades,
     logs,
+    envConfig,
     updateConfig,
+    updateEnvConfig,
     start: useAction("start"),
     stop: useAction("stop"),
     emergencyStop: useAction("emergency-stop"),

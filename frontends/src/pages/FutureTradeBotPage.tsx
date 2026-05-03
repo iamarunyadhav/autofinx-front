@@ -10,9 +10,10 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { useFutureTradeBot, type FutureTradeDynamicDecision, type FutureTradeSettings } from "@/hooks/useFutureTradeBot";
+import { useFutureTradeBot, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeRecord, type FutureTradeSettings } from "@/hooks/useFutureTradeBot";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { cn } from "@/lib/utils";
 
@@ -55,6 +56,21 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   emergencyStop: false,
 };
 
+const DEFAULT_ENV_CONFIG: FutureTradeEnvConfig = {
+  mode: "paper",
+  testnet_enabled: false,
+  live_enabled: false,
+  force_testnet: true,
+  live_api_url: "https://fapi.binance.com",
+  testnet_api_url: "https://testnet.binancefuture.com",
+  live_api_key: "",
+  live_api_secret_masked: "",
+  testnet_api_key: "",
+  testnet_api_secret_masked: "",
+  live_configured: false,
+  testnet_configured: false,
+};
+
 function n(value: unknown, digits = 4) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return "None";
@@ -75,6 +91,9 @@ export default function FutureTradeBotPage() {
   const { toast } = useToast();
   const [settings, setSettings] = useState<FutureTradeSettings>(DEFAULT_SETTINGS);
   const [notes, setNotes] = useState("");
+  const [envSettings, setEnvSettings] = useState<FutureTradeEnvConfig>(DEFAULT_ENV_CONFIG);
+  const [liveSecret, setLiveSecret] = useState("");
+  const [testnetSecret, setTestnetSecret] = useState("");
 
   useEffect(() => {
     if (bot.config.data?.settings) {
@@ -83,9 +102,18 @@ export default function FutureTradeBotPage() {
     }
   }, [bot.config.data]);
 
+  useEffect(() => {
+    if (bot.envConfig.data) {
+      setEnvSettings({ ...DEFAULT_ENV_CONFIG, ...bot.envConfig.data });
+      setLiveSecret("");
+      setTestnetSecret("");
+    }
+  }, [bot.envConfig.data]);
+
   const dashboard = bot.dashboard.data;
   const status = dashboard?.status;
   const busy = bot.start.isPending || bot.stop.isPending || bot.emergencyStop.isPending || bot.resetPaper.isPending || bot.updateConfig.isPending;
+  const envBusy = bot.updateEnvConfig.isPending || bot.envConfig.isFetching;
   const chart = useMemo(() => dashboard?.chart ?? [], [dashboard?.chart]);
 
   const save = () => {
@@ -96,6 +124,33 @@ export default function FutureTradeBotPage() {
         onError: (error) => toast({ title: "Save failed", description: error instanceof Error ? error.message : "Request failed", variant: "destructive" }),
       }
     );
+  };
+
+  const saveEnv = () => {
+    const payload: FutureTradeEnvConfigPayload = {
+      mode: envSettings.mode,
+      testnet_enabled: envSettings.mode === "testnet",
+      live_enabled: envSettings.mode === "live",
+      force_testnet: envSettings.mode !== "live" && envSettings.force_testnet,
+      live_api_url: envSettings.live_api_url,
+      testnet_api_url: envSettings.testnet_api_url,
+      live_api_key: envSettings.live_api_key,
+      testnet_api_key: envSettings.testnet_api_key,
+      replace_live_secret: liveSecret.length > 0,
+      replace_testnet_secret: testnetSecret.length > 0,
+      live_api_secret: liveSecret,
+      testnet_api_secret: testnetSecret,
+    };
+
+    bot.updateEnvConfig.mutate(payload, {
+      onSuccess: (saved) => {
+        setEnvSettings({ ...DEFAULT_ENV_CONFIG, ...saved });
+        setLiveSecret("");
+        setTestnetSecret("");
+        toast({ title: "Future Trade environment saved", description: saved.mode === "live" ? "Real Binance Futures config is active." : saved.mode === "testnet" ? "Testnet Binance Futures config is active." : "Paper mode is active." });
+      },
+      onError: (error) => toast({ title: "Environment save failed", description: error instanceof Error ? error.message : "Request failed", variant: "destructive" }),
+    });
   };
 
   if (loading || !currentWorkspace) {
@@ -116,7 +171,7 @@ export default function FutureTradeBotPage() {
           <div className="flex flex-wrap gap-2">
             <Badge variant={statusVariant(status?.status)}>{status?.status || "Stopped"}</Badge>
             <Badge variant={status?.liveTrading ? "destructive" : "secondary"}>{status?.mode || "Paper Futures"}</Badge>
-            <Badge variant={status?.liveTradingEnvEnabled ? "outline" : "destructive"}>{status?.liveTradingEnvEnabled ? "Live Env Enabled" : "Live Env Blocked"}</Badge>
+            <Badge variant={status?.liveTradingEnvEnabled ? "outline" : "destructive"}>{status?.liveTradingEnvEnabled ? (settings.forceTestnet ? "Testnet Env Enabled" : "Real Env Enabled") : (settings.forceTestnet ? "Testnet Env Blocked" : "Real Env Blocked")}</Badge>
           </div>
         </div>
 
@@ -124,7 +179,7 @@ export default function FutureTradeBotPage() {
           <div className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
             <AlertTriangle className="mt-0.5 h-4 w-4" />
             <div>
-              Live mode only activates when server `.env` has `FUTURE_TRADE_ENABLE_LIVE_TRADING=true` and Binance API keys are set. Keep Force testnet on until testnet orders are verified.
+              Live mode only activates when the selected environment is enabled in `.env`. Force testnet uses testnet futures keys; turning it off uses real Binance futures keys.
             </div>
           </div>
         ) : null}
@@ -166,6 +221,7 @@ export default function FutureTradeBotPage() {
               <Orderbook bids={dashboard?.orderbook.bids ?? []} asks={dashboard?.orderbook.asks ?? []} />
             </div>
 
+            <DynamicRuntimeTracker points={chart} />
             <TradeHistory trades={bot.trades.data ?? []} />
           </div>
 
@@ -182,7 +238,18 @@ export default function FutureTradeBotPage() {
 
             <RiskPanel settings={settings} dynamic={dashboard?.dynamic ?? status?.dynamic} />
             <DynamicSuggestionPanel dynamic={dashboard?.dynamic ?? status?.dynamic} />
-            <ConfigPanel settings={settings} setSettings={setSettings} notes={notes} setNotes={setNotes} availableSymbols={bot.config.data?.available_symbols ?? FUTURE_TRADE_ALL_SYMBOLS} onSave={save} busy={busy} />
+            <Tabs defaultValue="algorithm" className="space-y-3">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="algorithm">Algorithm</TabsTrigger>
+                <TabsTrigger value="my-config">My Config</TabsTrigger>
+              </TabsList>
+              <TabsContent value="algorithm">
+                <ConfigPanel settings={settings} setSettings={setSettings} notes={notes} setNotes={setNotes} availableSymbols={bot.config.data?.available_symbols ?? FUTURE_TRADE_ALL_SYMBOLS} onSave={save} busy={busy} />
+              </TabsContent>
+              <TabsContent value="my-config">
+                <MyConfigPanel envSettings={envSettings} setEnvSettings={setEnvSettings} liveSecret={liveSecret} setLiveSecret={setLiveSecret} testnetSecret={testnetSecret} setTestnetSecret={setTestnetSecret} onSave={saveEnv} busy={envBusy} />
+              </TabsContent>
+            </Tabs>
             <LogFeed logs={bot.logs.data ?? []} />
           </div>
         </div>
@@ -235,18 +302,25 @@ function Orderbook({ bids, asks }: { bids: Array<{ price: number; qty: number }>
   );
 }
 
-function RiskPanel({ settings, dynamic }: { settings: FutureTradeSettings; dynamic?: { effectiveMinConfidence: number; mode: string } }) {
+function RiskPanel({ settings, dynamic }: { settings: FutureTradeSettings; dynamic?: FutureTradeDynamicDecision }) {
+  const active = dynamic?.recommended;
   return (
     <Card>
       <CardHeader><CardTitle className="flex items-center gap-2"><ShieldAlert className="h-4 w-4" /> Loss Prevention</CardTitle></CardHeader>
       <CardContent className="grid gap-2 text-sm">
-        <Row label="Stop loss" value={`${settings.stopLossPercent}%`} />
+        <Row label="Base stop loss" value={`${settings.stopLossPercent}%`} />
+        <Row label="Active stop loss" value={`${n(active?.stopLossPercent ?? settings.stopLossPercent, 3)}%`} />
         <Row label="Rollback loss" value={`${settings.rollbackLossPercent}%`} />
-        <Row label="Trailing profit" value={`${settings.trailingTakeProfitPercent}%`} />
-        <Row label="Take profit" value={`${settings.takeProfitPercent}%`} />
+        <Row label="Base trailing" value={`${settings.trailingTakeProfitPercent}%`} />
+        <Row label="Active trailing" value={`${n(active?.trailingTakeProfitPercent ?? settings.trailingTakeProfitPercent, 3)}%`} />
+        <Row label="Base take profit" value={`${settings.takeProfitPercent}%`} />
+        <Row label="Active take profit" value={`${n(active?.takeProfitPercent ?? settings.takeProfitPercent, 3)}%`} />
         <Row label="Confidence mode" value={String(settings.confidenceMode || "fixed").replace("_", " ")} />
-        <Row label="Effective confidence" value={`${n((dynamic?.effectiveMinConfidence ?? settings.minConfidence) * 100, 2)}%`} />
+        <Row label="Base confidence" value={`${n(settings.minConfidence * 100, 2)}%`} />
+        <Row label="Active confidence" value={`${n((dynamic?.effectiveMinConfidence ?? settings.minConfidence) * 100, 2)}%`} />
         <Row label="Daily loss limit" value={`${settings.maxDailyLossPercent}%`} />
+        <Row label="Active cooldown" value={`${n(active?.cooldownSeconds ?? settings.cooldownSeconds, 0)}s`} />
+        <Row label="Active trade size" value={`${n(active?.tradeAmountUsdt ?? settings.tradeAmountUsdt, 2)} USDT`} />
         <Row label="Max leverage" value={`${settings.maxLeverage}x`} />
       </CardContent>
     </Card>
@@ -260,6 +334,17 @@ function DynamicSuggestionPanel({ dynamic }: { dynamic?: FutureTradeDynamicDecis
       <CardHeader><CardTitle className="flex items-center gap-2"><Lightbulb className="h-4 w-4" /> Dynamic Idea Box</CardTitle></CardHeader>
       <CardContent className="space-y-3 text-sm">
         <div className="rounded-md border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">{dynamic.suggestion}</div>
+        <div className="rounded-md border border-primary/30 bg-primary/10 p-3">
+          <div className="mb-2 text-xs font-medium text-primary">Active runtime values used by the bot</div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <Row label="Confidence" value={`${n(dynamic.recommended.minConfidence * 100, 2)}%`} />
+            <Row label="Take profit" value={`${n(dynamic.recommended.takeProfitPercent, 3)}%`} />
+            <Row label="Stop loss" value={`${n(dynamic.recommended.stopLossPercent, 3)}%`} />
+            <Row label="Trailing" value={`${n(dynamic.recommended.trailingTakeProfitPercent, 3)}%`} />
+            <Row label="Cooldown" value={`${n(dynamic.recommended.cooldownSeconds, 0)}s`} />
+            <Row label="Trade size" value={`${n(dynamic.recommended.tradeAmountUsdt, 2)} USDT`} />
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-2 text-xs">
           <Row label="Mode" value={dynamic.mode.replace("_", " ")} />
           <Row label="Trend" value={`${n(dynamic.analysis.trendStrength * 100, 0)}%`} />
@@ -267,12 +352,6 @@ function DynamicSuggestionPanel({ dynamic }: { dynamic?: FutureTradeDynamicDecis
           <Row label="Agreement" value={`${n(dynamic.analysis.directionAgreement * 100, 0)}%`} />
           <Row label="Move" value={`${n(dynamic.analysis.priceChangePercent, 3)}%`} />
           <Row label="Volatility" value={`${n(dynamic.analysis.volatilityPercent, 3)}%`} />
-        </div>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <Row label="Min conf" value={`${n(dynamic.recommended.minConfidence * 100, 2)}%`} />
-          <Row label="TP" value={`${n(dynamic.recommended.takeProfitPercent, 3)}%`} />
-          <Row label="SL" value={`${n(dynamic.recommended.stopLossPercent, 3)}%`} />
-          <Row label="Trailing" value={`${n(dynamic.recommended.trailingTakeProfitPercent, 3)}%`} />
         </div>
       </CardContent>
     </Card>
@@ -341,7 +420,7 @@ function ConfigPanel({ settings, setSettings, notes, setNotes, availableSymbols,
         </Field>
         <div className="grid gap-3 sm:grid-cols-2">
           {(["leverage", "tradeAmountUsdt", "minConfidence", "dynamicLookbackMinutes", "dynamicMinConfidenceFloor", "dynamicMinConfidenceCeiling", "dynamicReentryBuffer", "takeProfitPercent", "stopLossPercent", "trailingTakeProfitPercent", "rollbackLossPercent", "maxDailyLossPercent", "maxTradesPerDay", "cooldownSeconds"] as const).map((key) => (
-            <Field key={key} label={key}><Input type="number" step="0.01" value={Number(settings[key])} onChange={(e) => update(key, Number(e.target.value) as never)} /></Field>
+            <Field key={key} label={baseFieldLabel(key)}><Input type="number" step="0.01" value={Number(settings[key])} onChange={(e) => update(key, Number(e.target.value) as never)} /></Field>
           ))}
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -355,20 +434,231 @@ function ConfigPanel({ settings, setSettings, notes, setNotes, availableSymbols,
   );
 }
 
+function MyConfigPanel({
+  envSettings,
+  setEnvSettings,
+  liveSecret,
+  setLiveSecret,
+  testnetSecret,
+  setTestnetSecret,
+  onSave,
+  busy,
+}: {
+  envSettings: FutureTradeEnvConfig;
+  setEnvSettings: (settings: FutureTradeEnvConfig) => void;
+  liveSecret: string;
+  setLiveSecret: (value: string) => void;
+  testnetSecret: string;
+  setTestnetSecret: (value: string) => void;
+  onSave: () => void;
+  busy: boolean;
+}) {
+  const update = <K extends keyof FutureTradeEnvConfig>(key: K, value: FutureTradeEnvConfig[K]) => setEnvSettings({ ...envSettings, [key]: value });
+  const setMode = (mode: FutureTradeEnvConfig["mode"]) => {
+    setEnvSettings({
+      ...envSettings,
+      mode,
+      testnet_enabled: mode === "testnet" ? true : envSettings.testnet_enabled,
+      live_enabled: mode === "live" ? true : envSettings.live_enabled,
+      force_testnet: mode !== "live",
+    });
+  };
+
+  return (
+    <Card>
+      <CardHeader><CardTitle className="flex items-center gap-2"><ShieldAlert className="h-4 w-4" /> My Config</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <Field label="Execution mode">
+          <RadioGroup value={envSettings.mode} onValueChange={(value) => setMode(value as FutureTradeEnvConfig["mode"])}>
+            <div className="grid gap-2">
+              {[
+                ["paper", "Paper", "No Binance orders. Scanner and paper trades only."],
+                ["testnet", "Testnet", "Uses Binance Futures testnet URL and testnet credentials."],
+                ["live", "Live", "Uses real Binance Futures URL and live credentials."],
+              ].map(([value, title, description]) => (
+                <label key={value} className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm">
+                  <RadioGroupItem value={value} className="mt-1" />
+                  <span>
+                    <span className="block font-medium">{title}</span>
+                    <span className="block text-xs text-muted-foreground">{description}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </RadioGroup>
+        </Field>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Toggle label="Testnet gate" checked={envSettings.testnet_enabled} onChange={(value) => update("testnet_enabled", value)} />
+          <Toggle label="Live gate" checked={envSettings.live_enabled} onChange={(value) => update("live_enabled", value)} />
+          <Toggle label="Force testnet" checked={envSettings.force_testnet} onChange={(value) => update("force_testnet", value)} />
+        </div>
+
+        <div className="grid gap-3">
+          <Field label="Live futures URL"><Input value={envSettings.live_api_url} onChange={(e) => update("live_api_url", e.target.value)} /></Field>
+          <Field label="Live futures API key"><Input value={envSettings.live_api_key} onChange={(e) => update("live_api_key", e.target.value)} /></Field>
+          <Field label={`Live futures API secret${envSettings.live_api_secret_masked ? ` (${envSettings.live_api_secret_masked})` : ""}`}>
+            <Input type="password" value={liveSecret} placeholder={envSettings.live_api_secret_masked ? "Leave blank to keep current secret" : "Enter live API secret"} onChange={(e) => setLiveSecret(e.target.value)} />
+          </Field>
+        </div>
+
+        <div className="grid gap-3">
+          <Field label="Testnet futures URL"><Input value={envSettings.testnet_api_url} onChange={(e) => update("testnet_api_url", e.target.value)} /></Field>
+          <Field label="Testnet futures API key"><Input value={envSettings.testnet_api_key} onChange={(e) => update("testnet_api_key", e.target.value)} /></Field>
+          <Field label={`Testnet futures API secret${envSettings.testnet_api_secret_masked ? ` (${envSettings.testnet_api_secret_masked})` : ""}`}>
+            <Input type="password" value={testnetSecret} placeholder={envSettings.testnet_api_secret_masked ? "Leave blank to keep current secret" : "Enter testnet API secret"} onChange={(e) => setTestnetSecret(e.target.value)} />
+          </Field>
+        </div>
+
+        <div className="grid gap-2 text-xs">
+          <Row label="Live credentials" value={envSettings.live_configured ? "Configured" : "Missing"} />
+          <Row label="Testnet credentials" value={envSettings.testnet_configured ? "Configured" : "Missing"} />
+        </div>
+
+        <Button className="w-full" disabled={busy} onClick={onSave}><Save className="mr-2 h-4 w-4" />Save My Config</Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 function LogFeed({ logs }: { logs: Array<{ id: string; event: string; symbol?: string | null; signal?: string | null; reason?: string | null; occurred_at: string }> }) {
   return (
     <Card><CardHeader><CardTitle>Decision Feed</CardTitle></CardHeader><CardContent className="space-y-2">{logs.slice(0, 10).map((log) => <div key={log.id} className="rounded-md border px-3 py-2 text-sm"><Badge variant={statusVariant(log.event)}>{log.event}</Badge><span className="ml-2 text-muted-foreground">{log.symbol} {log.signal}</span><div className="mt-1 text-xs text-muted-foreground">{log.reason}</div></div>)}</CardContent></Card>
   );
 }
 
-function TradeHistory({ trades }: { trades: Array<{ id: string; symbol: string; side: string; entry_price?: string | number | null; exit_price?: string | number | null; net_pnl?: string | number | null; reason?: string | null; status: string; created_at: string }> }) {
+function DynamicRuntimeTracker({ points }: { points: FutureTradeDynamicPoint[] }) {
+  const rows = points.slice(-30).reverse();
   return (
-    <Card><CardHeader><CardTitle>Paper Futures Trades</CardTitle></CardHeader><CardContent className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Time</TableHead><TableHead>Symbol</TableHead><TableHead>Side</TableHead><TableHead>Entry</TableHead><TableHead>Exit</TableHead><TableHead>Net PnL</TableHead><TableHead>Reason</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>{trades.map((trade) => <TableRow key={trade.id}><TableCell>{new Date(trade.created_at).toLocaleTimeString()}</TableCell><TableCell>{trade.symbol}</TableCell><TableCell>{trade.side}</TableCell><TableCell>{n(trade.entry_price, 8)}</TableCell><TableCell>{n(trade.exit_price, 8)}</TableCell><TableCell>{n(trade.net_pnl, 6)}</TableCell><TableCell>{trade.reason}</TableCell><TableCell>{trade.status}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card>
+    <Card>
+      <CardHeader><CardTitle>Dynamic Runtime Tracker</CardTitle></CardHeader>
+      <CardContent className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Time</TableHead>
+              <TableHead>Flag</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Symbol</TableHead>
+              <TableHead>Signal</TableHead>
+              <TableHead>Conf</TableHead>
+              <TableHead>Active Min</TableHead>
+              <TableHead>TP</TableHead>
+              <TableHead>SL</TableHead>
+              <TableHead>Trail</TableHead>
+              <TableHead>Cooldown</TableHead>
+              <TableHead>Size</TableHead>
+              <TableHead>Trend</TableHead>
+              <TableHead>Choppy</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row, index) => (
+              <TableRow key={`${row.time}-${row.symbol}-${index}`}>
+                <TableCell>{row.time}</TableCell>
+                <TableCell><Badge variant={algorithmVariant(row.algorithmFlag)}>{row.algorithmFlag || "NORMAL"}</Badge></TableCell>
+                <TableCell>{row.decisionStatus || "TRACKING"}</TableCell>
+                <TableCell>{row.symbol}</TableCell>
+                <TableCell>{row.signal || "-"}</TableCell>
+                <TableCell>{n((row.confidence ?? 0) * 100, 2)}%</TableCell>
+                <TableCell>{n((row.effectiveMinConfidence ?? 0) * 100, 2)}%</TableCell>
+                <TableCell>{n(row.activeTakeProfitPercent, 3)}%</TableCell>
+                <TableCell>{n(row.activeStopLossPercent, 3)}%</TableCell>
+                <TableCell>{n(row.activeTrailingTakeProfitPercent, 3)}%</TableCell>
+                <TableCell>{n(row.activeCooldownSeconds, 0)}s</TableCell>
+                <TableCell>{n(row.activeTradeAmountUsdt, 2)}</TableCell>
+                <TableCell>{n((row.trendStrength ?? 0) * 100, 0)}%</TableCell>
+                <TableCell>{row.choppy ? "Yes" : "No"}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
+}
+
+function TradeHistory({ trades }: { trades: FutureTradeRecord[] }) {
+  return (
+    <Card>
+      <CardHeader><CardTitle>Paper Futures Trades</CardTitle></CardHeader>
+      <CardContent className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Time</TableHead>
+              <TableHead>Flag</TableHead>
+              <TableHead>Symbol</TableHead>
+              <TableHead>Side</TableHead>
+              <TableHead>Entry</TableHead>
+              <TableHead>Exit</TableHead>
+              <TableHead>Net PnL</TableHead>
+              <TableHead>Active Min</TableHead>
+              <TableHead>TP</TableHead>
+              <TableHead>SL</TableHead>
+              <TableHead>Reason</TableHead>
+              <TableHead>Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {trades.map((trade) => {
+              const dynamic = trade.meta?.dynamic;
+              const flag = algorithmFlag(dynamic?.mode || trade.meta?.algorithm_mode);
+              return (
+                <TableRow key={trade.id}>
+                  <TableCell>{new Date(trade.created_at).toLocaleTimeString()}</TableCell>
+                  <TableCell><Badge variant={algorithmVariant(flag)}>{flag}</Badge></TableCell>
+                  <TableCell>{trade.symbol}</TableCell>
+                  <TableCell>{trade.side}</TableCell>
+                  <TableCell>{n(trade.entry_price, 8)}</TableCell>
+                  <TableCell>{n(trade.exit_price, 8)}</TableCell>
+                  <TableCell>{n(trade.net_pnl, 6)}</TableCell>
+                  <TableCell>{dynamic ? `${n(dynamic.effectiveMinConfidence * 100, 2)}%` : "-"}</TableCell>
+                  <TableCell>{dynamic ? `${n(dynamic.recommended.takeProfitPercent, 3)}%` : "-"}</TableCell>
+                  <TableCell>{dynamic ? `${n(dynamic.recommended.stopLossPercent, 3)}%` : "-"}</TableCell>
+                  <TableCell>{trade.reason}</TableCell>
+                  <TableCell>{trade.status}</TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function algorithmFlag(mode?: string | null) {
+  if (mode === "fully_dynamic") return "AUTO";
+  if (mode === "semi_dynamic") return "SEMI";
+  return "NORMAL";
+}
+
+function algorithmVariant(flag?: string | null) {
+  if (flag === "AUTO") return "default";
+  if (flag === "SEMI") return "secondary";
+  return "outline";
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return <div className="space-y-2"><Label className="text-xs text-muted-foreground">{label}</Label>{children}</div>;
+}
+
+function baseFieldLabel(key: keyof FutureTradeSettings) {
+  const labels: Partial<Record<keyof FutureTradeSettings, string>> = {
+    tradeAmountUsdt: "Base tradeAmountUsdt",
+    minConfidence: "Base minConfidence",
+    takeProfitPercent: "Base takeProfitPercent",
+    stopLossPercent: "Base stopLossPercent",
+    trailingTakeProfitPercent: "Base trailingTakeProfitPercent",
+    cooldownSeconds: "Base cooldownSeconds",
+    dynamicLookbackMinutes: "Dynamic lookback minutes",
+    dynamicMinConfidenceFloor: "Dynamic confidence floor",
+    dynamicMinConfidenceCeiling: "Dynamic confidence ceiling",
+    dynamicReentryBuffer: "Dynamic re-entry buffer",
+  };
+
+  return labels[key] ?? key;
 }
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
