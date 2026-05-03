@@ -11,6 +11,12 @@ export interface FutureTradeSettings {
   marginMode: string;
   tradeAmountUsdt: number;
   minConfidence: number;
+  confidenceMode: "fixed" | "semi_dynamic" | "fully_dynamic" | string;
+  dynamicLookbackMinutes: number;
+  dynamicMinConfidenceFloor: number;
+  dynamicMinConfidenceCeiling: number;
+  dynamicReentryBuffer: number;
+  dynamicSuggestionEnabled: boolean;
   takeProfitPercent: number;
   stopLossPercent: number;
   trailingTakeProfitPercent: number;
@@ -50,6 +56,7 @@ export interface FutureTradeStatus {
   tradeCountToday: number;
   lastScanAt?: string | null;
   settings: FutureTradeSettings;
+  dynamic?: FutureTradeDynamicDecision;
   paperTrading: boolean;
   liveTrading: boolean;
   liveTradingEnvEnabled: boolean;
@@ -71,18 +78,51 @@ export interface FutureSignal {
   volume: number;
   rangePercent: number;
   confidence: number;
+  effectiveMinConfidence?: number;
+  dynamicMode?: string;
   timeframe: string;
   reason: string;
+}
+
+export interface FutureTradeDynamicDecision {
+  mode: string;
+  baseMinConfidence: number;
+  effectiveMinConfidence: number;
+  recommended: {
+    minConfidence: number;
+    takeProfitPercent: number;
+    stopLossPercent: number;
+    trailingTakeProfitPercent: number;
+    cooldownSeconds: number;
+    tradeAmountUsdt: number;
+  };
+  analysis: {
+    lookbackMinutes: number;
+    sampleCount: number;
+    priceChangePercent: number;
+    volatilityPercent: number;
+    direction: string;
+    directionAgreement: number;
+    confidenceGap: number;
+    trendStrength: number;
+    choppy: boolean;
+    bestConfidence: number;
+    lastTradeReason?: string | null;
+    winRate: number;
+  };
+  adjustments: string[];
+  suggestion: string;
 }
 
 export interface FutureTradeDashboard {
   status: FutureTradeStatus;
   scanner: FutureSignal[];
   bestSignal?: FutureSignal | null;
-  chart: Array<{ time: string; symbol: string; price: number; pnl: number }>;
+  chart: Array<{ time: string; symbol: string; price: number; pnl: number; confidence?: number | null; effectiveMinConfidence?: number | null }>;
   levels: Record<string, number | null>;
   orderbook: { bids: Array<{ price: number; qty: number }>; asks: Array<{ price: number; qty: number }> };
   risk: { lossPrevention: string; paperTrading: boolean; liveTradingBlocked: boolean };
+  dynamic?: FutureTradeDynamicDecision;
 }
 
 export interface FutureTradeConfig {

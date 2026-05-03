@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, Bot, Brain, Power, RefreshCw, Save, ShieldAlert, Square, Wallet } from "lucide-react";
+import { AlertTriangle, Bot, Brain, Lightbulb, Power, RefreshCw, Save, ShieldAlert, Square, Wallet } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AppShell } from "@/components/layout";
 import { Badge } from "@/components/ui/badge";
@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { useFutureTradeBot, type FutureTradeSettings } from "@/hooks/useFutureTradeBot";
+import { useFutureTradeBot, type FutureTradeDynamicDecision, type FutureTradeSettings } from "@/hooks/useFutureTradeBot";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +33,12 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   marginMode: "isolated",
   tradeAmountUsdt: 25,
   minConfidence: 0.82,
+  confidenceMode: "fixed",
+  dynamicLookbackMinutes: 10,
+  dynamicMinConfidenceFloor: 0.68,
+  dynamicMinConfidenceCeiling: 0.88,
+  dynamicReentryBuffer: 0.02,
+  dynamicSuggestionEnabled: true,
   takeProfitPercent: 1.2,
   stopLossPercent: 0.4,
   trailingTakeProfitPercent: 0.30,
@@ -173,7 +180,8 @@ export default function FutureTradeBotPage() {
               </CardContent>
             </Card>
 
-            <RiskPanel settings={settings} />
+            <RiskPanel settings={settings} dynamic={dashboard?.dynamic ?? status?.dynamic} />
+            <DynamicSuggestionPanel dynamic={dashboard?.dynamic ?? status?.dynamic} />
             <ConfigPanel settings={settings} setSettings={setSettings} notes={notes} setNotes={setNotes} availableSymbols={bot.config.data?.available_symbols ?? FUTURE_TRADE_ALL_SYMBOLS} onSave={save} busy={busy} />
             <LogFeed logs={bot.logs.data ?? []} />
           </div>
@@ -227,7 +235,7 @@ function Orderbook({ bids, asks }: { bids: Array<{ price: number; qty: number }>
   );
 }
 
-function RiskPanel({ settings }: { settings: FutureTradeSettings }) {
+function RiskPanel({ settings, dynamic }: { settings: FutureTradeSettings; dynamic?: { effectiveMinConfidence: number; mode: string } }) {
   return (
     <Card>
       <CardHeader><CardTitle className="flex items-center gap-2"><ShieldAlert className="h-4 w-4" /> Loss Prevention</CardTitle></CardHeader>
@@ -236,8 +244,36 @@ function RiskPanel({ settings }: { settings: FutureTradeSettings }) {
         <Row label="Rollback loss" value={`${settings.rollbackLossPercent}%`} />
         <Row label="Trailing profit" value={`${settings.trailingTakeProfitPercent}%`} />
         <Row label="Take profit" value={`${settings.takeProfitPercent}%`} />
+        <Row label="Confidence mode" value={String(settings.confidenceMode || "fixed").replace("_", " ")} />
+        <Row label="Effective confidence" value={`${n((dynamic?.effectiveMinConfidence ?? settings.minConfidence) * 100, 2)}%`} />
         <Row label="Daily loss limit" value={`${settings.maxDailyLossPercent}%`} />
         <Row label="Max leverage" value={`${settings.maxLeverage}x`} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function DynamicSuggestionPanel({ dynamic }: { dynamic?: FutureTradeDynamicDecision }) {
+  if (!dynamic) return null;
+  return (
+    <Card>
+      <CardHeader><CardTitle className="flex items-center gap-2"><Lightbulb className="h-4 w-4" /> Dynamic Idea Box</CardTitle></CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <div className="rounded-md border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">{dynamic.suggestion}</div>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <Row label="Mode" value={dynamic.mode.replace("_", " ")} />
+          <Row label="Trend" value={`${n(dynamic.analysis.trendStrength * 100, 0)}%`} />
+          <Row label="Direction" value={dynamic.analysis.direction} />
+          <Row label="Agreement" value={`${n(dynamic.analysis.directionAgreement * 100, 0)}%`} />
+          <Row label="Move" value={`${n(dynamic.analysis.priceChangePercent, 3)}%`} />
+          <Row label="Volatility" value={`${n(dynamic.analysis.volatilityPercent, 3)}%`} />
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <Row label="Min conf" value={`${n(dynamic.recommended.minConfidence * 100, 2)}%`} />
+          <Row label="TP" value={`${n(dynamic.recommended.takeProfitPercent, 3)}%`} />
+          <Row label="SL" value={`${n(dynamic.recommended.stopLossPercent, 3)}%`} />
+          <Row label="Trailing" value={`${n(dynamic.recommended.trailingTakeProfitPercent, 3)}%`} />
+        </div>
       </CardContent>
     </Card>
   );
@@ -284,8 +320,27 @@ function ConfigPanel({ settings, setSettings, notes, setNotes, availableSymbols,
           <Toggle label="Live trading" checked={settings.liveTrading} onChange={(value) => update("liveTrading", value)} />
           <Toggle label="Force testnet" checked={settings.forceTestnet} onChange={(value) => update("forceTestnet", value)} />
         </div>
+        <Field label="Confidence algorithm">
+          <RadioGroup value={settings.confidenceMode || "fixed"} onValueChange={(value) => update("confidenceMode", value)}>
+            <div className="grid gap-2">
+              {[
+                ["fixed", "Fixed", "Manual minConfidence only; current behavior."],
+                ["semi_dynamic", "Semi dynamic", "Small capped adjustments from trend, choppy market, and last trade."],
+                ["fully_dynamic", "Fully dynamic", "More active adjustment of confidence, target, cooldown, and size."],
+              ].map(([value, title, description]) => (
+                <label key={value} className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm">
+                  <RadioGroupItem value={value} className="mt-1" />
+                  <span>
+                    <span className="block font-medium">{title}</span>
+                    <span className="block text-xs text-muted-foreground">{description}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </RadioGroup>
+        </Field>
         <div className="grid gap-3 sm:grid-cols-2">
-          {(["leverage", "tradeAmountUsdt", "minConfidence", "takeProfitPercent", "stopLossPercent", "trailingTakeProfitPercent", "rollbackLossPercent", "maxDailyLossPercent", "maxTradesPerDay", "cooldownSeconds"] as const).map((key) => (
+          {(["leverage", "tradeAmountUsdt", "minConfidence", "dynamicLookbackMinutes", "dynamicMinConfidenceFloor", "dynamicMinConfidenceCeiling", "dynamicReentryBuffer", "takeProfitPercent", "stopLossPercent", "trailingTakeProfitPercent", "rollbackLossPercent", "maxDailyLossPercent", "maxTradesPerDay", "cooldownSeconds"] as const).map((key) => (
             <Field key={key} label={key}><Input type="number" step="0.01" value={Number(settings[key])} onChange={(e) => update(key, Number(e.target.value) as never)} /></Field>
           ))}
         </div>
