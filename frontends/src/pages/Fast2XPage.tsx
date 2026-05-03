@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,6 +17,12 @@ import { useToast } from "@/hooks/use-toast";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { cn } from "@/lib/utils";
 
+const FAST2X_DEFAULT_SYMBOLS = [
+  "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+  "ADAUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT", "MATICUSDT",
+  "DOGEUSDT", "LTCUSDT", "UNIUSDT", "ATOMUSDT", "NEARUSDT",
+];
+
 const EMPTY_SETTINGS: Fast2XSettings = {
   symbol: "BTCUSDT",
   tradeMode: "SPOT",
@@ -23,22 +30,22 @@ const EMPTY_SETTINGS: Fast2XSettings = {
   paperTrading: true,
   tradeAmountType: "PERCENTAGE",
   tradeAmountValue: 10,
-  minProfitTargetPercent: 0.2,
-  rollbackLossPercent: 0.15,
-  manualSellThresholdPercent: 0.5,
-  manualBuyThresholdPercent: 0.5,
+  minProfitTargetPercent: 0.35,
+  rollbackLossPercent: 0.22,
+  manualSellThresholdPercent: 0.45,
+  manualBuyThresholdPercent: 0.45,
   useDynamicThreshold: true,
   useIndicators: true,
   useStopLoss: true,
   useTrailingTakeProfit: true,
-  stopLossPercent: 0.4,
-  trailingTakeProfitPercent: 0.25,
+  stopLossPercent: 0.38,
+  trailingTakeProfitPercent: 0.15,
   maxAllowedSlippagePercent: 0.15,
-  minimumProfitAfterFeesPercent: 0.1,
-  cooldownSeconds: 3,
-  maxTradesPerMinute: 5,
-  maxTradesPerDay: 50,
-  maxDailyLossPercent: 3,
+  minimumProfitAfterFeesPercent: 0.28,
+  cooldownSeconds: 45,
+  maxTradesPerMinute: 3,
+  maxTradesPerDay: 20,
+  maxDailyLossPercent: 2,
   maxApiLatencyMs: 500,
   emergencyStop: false,
 };
@@ -179,6 +186,7 @@ export default function Fast2XPage() {
               setAiBrainEnabled={setAiBrainEnabled}
               algorithmMarkdown={algorithmMarkdown}
               setAlgorithmMarkdown={setAlgorithmMarkdown}
+              availableSymbols={fast2x.config.data?.available_symbols ?? FAST2X_DEFAULT_SYMBOLS}
               onSave={save}
               busy={busy}
             />
@@ -266,6 +274,7 @@ function Fast2XConfigPanel(props: {
   setAiBrainEnabled: (value: boolean) => void;
   algorithmMarkdown: string;
   setAlgorithmMarkdown: (value: string) => void;
+  availableSymbols: string[];
   onSave: () => void;
   busy: boolean;
 }) {
@@ -275,7 +284,20 @@ function Fast2XConfigPanel(props: {
     <Card>
       <CardHeader><CardTitle className="text-base">Configuration</CardTitle></CardHeader>
       <CardContent className="space-y-4">
-        <Field label="Symbol"><Input value={props.settings.symbol} onChange={(e) => update("symbol", e.target.value.toUpperCase())} /></Field>
+        <Field label="Symbol">
+          <Select value={props.settings.symbol} onValueChange={(value) => update("symbol", value)}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select coin" />
+            </SelectTrigger>
+            <SelectContent>
+              {props.availableSymbols.map((sym) => (
+                <SelectItem key={sym} value={sym}>
+                  {sym.replace("USDT", "")} <span className="text-xs text-muted-foreground">/ USDT</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
         <div className="grid gap-3 sm:grid-cols-2">
           {numericKeys.map((key) => (
             <Field key={String(key)} label={String(key)}>

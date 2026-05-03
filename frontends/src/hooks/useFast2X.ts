@@ -36,6 +36,7 @@ export interface Fast2XConfig {
   enable_live_trading: boolean;
   ai_brain_enabled: boolean;
   algorithm_markdown?: string | null;
+  available_symbols?: string[];
 }
 
 export interface Fast2XStatus {

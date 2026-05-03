@@ -92,6 +92,7 @@ export interface FutureTradeConfig {
   paper_trading: boolean;
   enable_live_trading: boolean;
   live_env_enabled: boolean;
+  available_symbols?: string[];
 }
 
 export interface FutureTradeRecord {

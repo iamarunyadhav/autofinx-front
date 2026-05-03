@@ -15,8 +15,15 @@ import { useFutureTradeBot, type FutureTradeSettings } from "@/hooks/useFutureTr
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { cn } from "@/lib/utils";
 
+const FUTURE_TRADE_ALL_SYMBOLS = [
+  "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+  "ADAUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT", "MATICUSDT",
+  "DOGEUSDT", "LTCUSDT", "UNIUSDT", "ATOMUSDT", "NEARUSDT",
+  "APTUSDT", "ARBUSDT", "OPUSDT", "SUIUSDT", "SEIUSDT",
+];
+
 const DEFAULT_SETTINGS: FutureTradeSettings = {
-  symbols: ["BTCUSDT", "ETHUSDT", "WOOUSDT", "RSRUSDT", "AERGOUSDT", "1000PEPEUSDT"],
+  symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "AVAXUSDT"],
   timeframe: "5m",
   paperTrading: true,
   liveTrading: false,
@@ -24,17 +31,17 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   leverage: 3,
   marginMode: "isolated",
   tradeAmountUsdt: 25,
-  minConfidence: 0.68,
-  takeProfitPercent: 0.45,
-  stopLossPercent: 0.25,
-  trailingTakeProfitPercent: 0.18,
-  rollbackLossPercent: 0.18,
+  minConfidence: 0.82,
+  takeProfitPercent: 1.2,
+  stopLossPercent: 0.4,
+  trailingTakeProfitPercent: 0.30,
+  rollbackLossPercent: 0.25,
   maxDailyLossPercent: 2,
   maxOpenPositions: 1,
-  maxTradesPerDay: 25,
+  maxTradesPerDay: 10,
   maxLeverage: 5,
   maxSpreadPercent: 0.12,
-  cooldownSeconds: 10,
+  cooldownSeconds: 60,
   scanIntervalSeconds: 3,
   autoExecutePaperSignals: true,
   avoidChoppyMarket: true,
@@ -167,7 +174,7 @@ export default function FutureTradeBotPage() {
             </Card>
 
             <RiskPanel settings={settings} />
-            <ConfigPanel settings={settings} setSettings={setSettings} notes={notes} setNotes={setNotes} onSave={save} busy={busy} />
+            <ConfigPanel settings={settings} setSettings={setSettings} notes={notes} setNotes={setNotes} availableSymbols={bot.config.data?.available_symbols ?? FUTURE_TRADE_ALL_SYMBOLS} onSave={save} busy={busy} />
             <LogFeed logs={bot.logs.data ?? []} />
           </div>
         </div>
@@ -236,13 +243,43 @@ function RiskPanel({ settings }: { settings: FutureTradeSettings }) {
   );
 }
 
-function ConfigPanel({ settings, setSettings, notes, setNotes, onSave, busy }: { settings: FutureTradeSettings; setSettings: (settings: FutureTradeSettings) => void; notes: string; setNotes: (value: string) => void; onSave: () => void; busy: boolean }) {
+function ConfigPanel({ settings, setSettings, notes, setNotes, availableSymbols, onSave, busy }: { settings: FutureTradeSettings; setSettings: (settings: FutureTradeSettings) => void; notes: string; setNotes: (value: string) => void; availableSymbols: string[]; onSave: () => void; busy: boolean }) {
   const update = <K extends keyof FutureTradeSettings>(key: K, value: FutureTradeSettings[K]) => setSettings({ ...settings, [key]: value });
+
+  const toggleSymbol = (sym: string) => {
+    const active = settings.symbols.includes(sym);
+    if (active && settings.symbols.length <= 1) return; // keep at least one
+    const next = active ? settings.symbols.filter((s) => s !== sym) : [...settings.symbols, sym];
+    update("symbols", next);
+  };
+
   return (
     <Card>
       <CardHeader><CardTitle className="flex items-center gap-2"><Brain className="h-4 w-4" /> Algorithm Config</CardTitle></CardHeader>
       <CardContent className="space-y-3">
-        <Field label="Symbols"><Input value={settings.symbols.join(", ")} onChange={(e) => update("symbols", e.target.value.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean))} /></Field>
+        <Field label="Symbols — click to toggle scan list">
+          <div className="flex flex-wrap gap-2 rounded-md border p-2">
+            {availableSymbols.map((sym) => {
+              const active = settings.symbols.includes(sym);
+              return (
+                <button
+                  key={sym}
+                  type="button"
+                  onClick={() => toggleSymbol(sym)}
+                  className={cn(
+                    "rounded px-2 py-1 text-xs font-medium transition-colors",
+                    active
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  )}
+                >
+                  {sym.replace("USDT", "")}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground">{settings.symbols.length} coin{settings.symbols.length !== 1 ? "s" : ""} selected: {settings.symbols.map((s) => s.replace("USDT", "")).join(", ")}</p>
+        </Field>
         <div className="grid gap-2 sm:grid-cols-2">
           <Toggle label="Live trading" checked={settings.liveTrading} onChange={(value) => update("liveTrading", value)} />
           <Toggle label="Force testnet" checked={settings.forceTestnet} onChange={(value) => update("forceTestnet", value)} />
@@ -275,7 +312,7 @@ function TradeHistory({ trades }: { trades: Array<{ id: string; symbol: string; 
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return <div className="space-y-2"><Label className="text-xs text-muted-foreground">{label}</Label>{children}</div>;
 }
 
