@@ -219,6 +219,27 @@ export interface FutureTradeLog {
   price?: string | number | null;
   confidence?: string | number | null;
   reason?: string | null;
+  context?: {
+    status?: string | null;
+    side?: string | null;
+    mode?: string | null;
+    entryPrice?: number | string | null;
+    exitPrice?: number | string | null;
+    quantity?: number | string | null;
+    netPnl?: number | string | null;
+    algorithmMode?: string | null;
+    algorithmFlag?: "NORMAL" | "SEMI" | "AUTO" | string | null;
+    effectiveMinConfidence?: number | null;
+    activeTakeProfitPercent?: number | null;
+    activeStopLossPercent?: number | null;
+    activeTrailingTakeProfitPercent?: number | null;
+    activeCooldownSeconds?: number | null;
+    activeTradeAmountUsdt?: number | null;
+    trendStrength?: number | null;
+    directionAgreement?: number | null;
+    choppy?: boolean | null;
+    [key: string]: unknown;
+  } | null;
   occurred_at: string;
 }
 

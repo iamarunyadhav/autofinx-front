@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { useFutureTradeBot, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeRecord, type FutureTradeSettings } from "@/hooks/useFutureTradeBot";
+import { useFutureTradeBot, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeLog, type FutureTradeRecord, type FutureTradeSettings } from "@/hooks/useFutureTradeBot";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { cn } from "@/lib/utils";
 
@@ -221,8 +221,8 @@ export default function FutureTradeBotPage() {
               <Orderbook bids={dashboard?.orderbook.bids ?? []} asks={dashboard?.orderbook.asks ?? []} />
             </div>
 
-            <DynamicRuntimeTracker points={chart} />
-            <TradeHistory trades={bot.trades.data ?? []} />
+            <TradeHistory trades={bot.trades.data ?? []} liveTrading={status?.liveTrading ?? false} />
+            <DynamicRuntimeTracker logs={bot.logs.data ?? []} />
           </div>
 
           <div className="space-y-6">
@@ -527,8 +527,46 @@ function LogFeed({ logs }: { logs: Array<{ id: string; event: string; symbol?: s
   );
 }
 
-function DynamicRuntimeTracker({ points }: { points: FutureTradeDynamicPoint[] }) {
-  const rows = points.slice(-30).reverse();
+const TRACKER_PAGE_SIZE = 5;
+const TRACKER_EVENTS = new Set([
+  "BUY_EXECUTED",
+  "SELL_EXECUTED",
+  "LIVE_BUY_EXECUTED",
+  "LIVE_SELL_EXECUTED",
+  "TAKE_PROFIT_HIT",
+  "STOP_LOSS_HIT",
+  "TRAILING_PROFIT_HIT",
+  "LOSS_ROLLBACK_TRIGGERED",
+  "LIVE_TAKE_PROFIT_HIT",
+  "LIVE_STOP_LOSS_HIT",
+  "LIVE_TRAILING_PROFIT_HIT",
+  "LIVE_LOSS_ROLLBACK_TRIGGERED",
+  "TRADE_BLOCKED",
+  "SIGNAL_SKIPPED",
+  "EMERGENCY_STOP",
+  "LIVE_GUARD_BLOCKED",
+]);
+
+function DynamicRuntimeTracker({ logs }: { logs: FutureTradeLog[] }) {
+  const rows = useMemo(() => logs.filter((log) => TRACKER_EVENTS.has(log.event)), [logs]);
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(rows.length / TRACKER_PAGE_SIZE));
+
+  useEffect(() => {
+    setPage(1);
+  }, [rows.length]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const paginatedRows = useMemo(() => {
+    const start = (page - 1) * TRACKER_PAGE_SIZE;
+    return rows.slice(start, start + TRACKER_PAGE_SIZE);
+  }, [page, rows]);
+
   return (
     <Card>
       <CardHeader><CardTitle>Dynamic Runtime Tracker</CardTitle></CardHeader>
@@ -553,35 +591,49 @@ function DynamicRuntimeTracker({ points }: { points: FutureTradeDynamicPoint[] }
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((row, index) => (
-              <TableRow key={`${row.time}-${row.symbol}-${index}`}>
-                <TableCell>{row.time}</TableCell>
-                <TableCell><Badge variant={algorithmVariant(row.algorithmFlag)}>{row.algorithmFlag || "NORMAL"}</Badge></TableCell>
-                <TableCell>{row.decisionStatus || "TRACKING"}</TableCell>
-                <TableCell>{row.symbol}</TableCell>
+            {paginatedRows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={14} className="text-center text-sm text-muted-foreground">No runtime status changes yet.</TableCell>
+              </TableRow>
+            ) : paginatedRows.map((row) => (
+              <TableRow key={row.id}>
+                <TableCell>{new Date(row.occurred_at).toLocaleTimeString()}</TableCell>
+                <TableCell><Badge variant={algorithmVariant(row.context?.algorithmFlag)}>{row.context?.algorithmFlag || "NORMAL"}</Badge></TableCell>
+                <TableCell>{trackerStatusLabel(row)}</TableCell>
+                <TableCell>{row.symbol || "-"}</TableCell>
                 <TableCell>{row.signal || "-"}</TableCell>
-                <TableCell>{n((row.confidence ?? 0) * 100, 2)}%</TableCell>
-                <TableCell>{n((row.effectiveMinConfidence ?? 0) * 100, 2)}%</TableCell>
-                <TableCell>{n(row.activeTakeProfitPercent, 3)}%</TableCell>
-                <TableCell>{n(row.activeStopLossPercent, 3)}%</TableCell>
-                <TableCell>{n(row.activeTrailingTakeProfitPercent, 3)}%</TableCell>
-                <TableCell>{n(row.activeCooldownSeconds, 0)}s</TableCell>
-                <TableCell>{n(row.activeTradeAmountUsdt, 2)}</TableCell>
-                <TableCell>{n((row.trendStrength ?? 0) * 100, 0)}%</TableCell>
-                <TableCell>{row.choppy ? "Yes" : "No"}</TableCell>
+                <TableCell>{n(Number(row.confidence ?? 0) * 100, 2)}%</TableCell>
+                <TableCell>{row.context?.effectiveMinConfidence != null ? `${n(row.context.effectiveMinConfidence * 100, 2)}%` : "-"}</TableCell>
+                <TableCell>{row.context?.activeTakeProfitPercent != null ? `${n(row.context.activeTakeProfitPercent, 3)}%` : "-"}</TableCell>
+                <TableCell>{row.context?.activeStopLossPercent != null ? `${n(row.context.activeStopLossPercent, 3)}%` : "-"}</TableCell>
+                <TableCell>{row.context?.activeTrailingTakeProfitPercent != null ? `${n(row.context.activeTrailingTakeProfitPercent, 3)}%` : "-"}</TableCell>
+                <TableCell>{row.context?.activeCooldownSeconds != null ? `${n(row.context.activeCooldownSeconds, 0)}s` : "-"}</TableCell>
+                <TableCell>{row.context?.activeTradeAmountUsdt != null ? n(row.context.activeTradeAmountUsdt, 2) : "-"}</TableCell>
+                <TableCell>{row.context?.trendStrength != null ? `${n(row.context.trendStrength * 100, 0)}%` : "-"}</TableCell>
+                <TableCell>{row.context?.choppy == null ? "-" : row.context.choppy ? "Yes" : "No"}</TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
+        <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+          <div className="text-muted-foreground">
+            Showing {paginatedRows.length === 0 ? 0 : (page - 1) * TRACKER_PAGE_SIZE + 1}-{(page - 1) * TRACKER_PAGE_SIZE + paginatedRows.length} of {rows.length}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1}>Prev</Button>
+            <span className="text-muted-foreground">Page {page} / {totalPages}</span>
+            <Button variant="outline" size="sm" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages}>Next</Button>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
 }
 
-function TradeHistory({ trades }: { trades: FutureTradeRecord[] }) {
+function TradeHistory({ trades, liveTrading }: { trades: FutureTradeRecord[]; liveTrading: boolean }) {
   return (
     <Card>
-      <CardHeader><CardTitle>Paper Futures Trades</CardTitle></CardHeader>
+      <CardHeader><CardTitle>{liveTrading ? "Live Futures Trades" : "Paper Futures Trades"}</CardTitle></CardHeader>
       <CardContent className="overflow-x-auto">
         <Table>
           <TableHeader>
@@ -638,6 +690,15 @@ function algorithmVariant(flag?: string | null) {
   if (flag === "AUTO") return "default";
   if (flag === "SEMI") return "secondary";
   return "outline";
+}
+
+function trackerStatusLabel(log: FutureTradeLog) {
+  const status = log.context?.status || log.event;
+  return String(status)
+    .replace(/^LIVE_/, "")
+    .replace(/_EXECUTED$/, "_OPEN")
+    .replace(/_/g, " ")
+    .trim();
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
