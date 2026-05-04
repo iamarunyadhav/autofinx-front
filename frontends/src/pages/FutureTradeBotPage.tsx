@@ -175,6 +175,12 @@ export default function FutureTradeBotPage() {
     bot.updateEnvConfig.mutate(payload, {
       onSuccess: (saved) => {
         setEnvSettings({ ...DEFAULT_ENV_CONFIG, ...saved });
+        setSettings((current) => ({
+          ...current,
+          liveTrading: saved.mode !== "paper",
+          paperTrading: saved.mode === "paper",
+          forceTestnet: saved.mode !== "live",
+        }));
         setLiveSecret("");
         setTestnetSecret("");
         toast({ title: "Future Trade environment saved", description: saved.mode === "live" ? "Real Binance Futures config is active." : saved.mode === "testnet" ? "Testnet Binance Futures config is active." : "Paper mode is active." });
@@ -207,12 +213,12 @@ export default function FutureTradeBotPage() {
 
         {settings.liveTrading ? (
           <div className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-            <AlertTriangle className="mt-0.5 h-4 w-4" />
-            <div>
-              Live mode only activates when the selected environment is enabled in `.env`. Force testnet uses testnet futures keys; turning it off uses real Binance futures keys.
+              <AlertTriangle className="mt-0.5 h-4 w-4" />
+              <div>
+	              Live mode only activates when the selected execution mode is enabled in My Config. Force testnet uses testnet futures keys; turning it off uses real Binance futures keys.
+              </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
         <div className="grid gap-4 xl:grid-cols-5">
           <Metric title="Total Profit" value={`${n(status?.totalProfit ?? status?.realizedPnl, 4)} ${status?.accountAsset || "USDT"}`} sub={`Realized ${n(status?.realizedPnl, 4)} | Unrealized ${n(status?.unrealizedPnlPercent, 4)}%`} good={(status?.totalProfit ?? status?.realizedPnl ?? 0) >= 0} />
@@ -603,6 +609,7 @@ function LogFeed({ logs }: { logs: Array<{ id: string; event: string; symbol?: s
 }
 
 const TRACKER_PAGE_SIZE = 5;
+const TRADE_HISTORY_PAGE_SIZE = 5;
 const TRACKER_EVENTS = new Set([
   "BUY_EXECUTED",
   "SELL_EXECUTED",
@@ -706,6 +713,24 @@ function DynamicRuntimeTracker({ logs }: { logs: FutureTradeLog[] }) {
 }
 
 function TradeHistory({ trades, liveTrading }: { trades: FutureTradeRecord[]; liveTrading: boolean }) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(trades.length / TRADE_HISTORY_PAGE_SIZE));
+
+  useEffect(() => {
+    setPage(1);
+  }, [trades.length, liveTrading]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const paginatedTrades = useMemo(() => {
+    const start = (page - 1) * TRADE_HISTORY_PAGE_SIZE;
+    return trades.slice(start, start + TRADE_HISTORY_PAGE_SIZE);
+  }, [page, trades]);
+
   return (
     <Card>
       <CardHeader><CardTitle>{liveTrading ? "Live Futures Trades" : "Paper Futures Trades"}</CardTitle></CardHeader>
@@ -728,7 +753,11 @@ function TradeHistory({ trades, liveTrading }: { trades: FutureTradeRecord[]; li
             </TableRow>
           </TableHeader>
           <TableBody>
-            {trades.map((trade) => {
+            {paginatedTrades.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={12} className="text-center text-sm text-muted-foreground">No trades yet.</TableCell>
+              </TableRow>
+            ) : paginatedTrades.map((trade) => {
               const dynamic = trade.meta?.dynamic;
               const flag = algorithmFlag(dynamic?.mode || trade.meta?.algorithm_mode);
               return (
@@ -750,6 +779,16 @@ function TradeHistory({ trades, liveTrading }: { trades: FutureTradeRecord[]; li
             })}
           </TableBody>
         </Table>
+        <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+          <div className="text-muted-foreground">
+            Showing {paginatedTrades.length === 0 ? 0 : (page - 1) * TRADE_HISTORY_PAGE_SIZE + 1}-{(page - 1) * TRADE_HISTORY_PAGE_SIZE + paginatedTrades.length} of {trades.length}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1}>Prev</Button>
+            <span className="text-muted-foreground">Page {page} / {totalPages}</span>
+            <Button variant="outline" size="sm" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages}>Next</Button>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
