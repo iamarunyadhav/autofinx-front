@@ -71,6 +71,36 @@ const DEFAULT_ENV_CONFIG: FutureTradeEnvConfig = {
   testnet_configured: false,
 };
 
+const LOSS_LOCK_RECOVERY_PRESET: Partial<Record<keyof FutureTradeSettings, number>> = {
+  leverage: 2,
+  tradeAmountUsdt: 15,
+  minConfidence: 0.78,
+  dynamicMinConfidenceFloor: 0.72,
+  dynamicReentryBuffer: 0.02,
+  takeProfitPercent: 0.9,
+  stopLossPercent: 0.3,
+  trailingTakeProfitPercent: 0.2,
+  rollbackLossPercent: 0.18,
+  maxDailyLossPercent: 1,
+  maxTradesPerDay: 6,
+  cooldownSeconds: 90,
+};
+
+const LOSS_LOCK_RECOVERY_KEYS = [
+  "leverage",
+  "tradeAmountUsdt",
+  "minConfidence",
+  "dynamicMinConfidenceFloor",
+  "dynamicReentryBuffer",
+  "takeProfitPercent",
+  "stopLossPercent",
+  "trailingTakeProfitPercent",
+  "rollbackLossPercent",
+  "maxDailyLossPercent",
+  "maxTradesPerDay",
+  "cooldownSeconds",
+] as const satisfies ReadonlyArray<keyof FutureTradeSettings>;
+
 function n(value: unknown, digits = 4) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return "None";
@@ -258,7 +288,7 @@ export default function FutureTradeBotPage() {
                 <TabsTrigger value="my-config">My Config</TabsTrigger>
               </TabsList>
               <TabsContent value="algorithm">
-                <ConfigPanel settings={settings} setSettings={setSettings} notes={notes} setNotes={setNotes} availableSymbols={bot.config.data?.available_symbols ?? FUTURE_TRADE_ALL_SYMBOLS} onSave={save} busy={busy} />
+                <ConfigPanel status={status} settings={settings} setSettings={setSettings} notes={notes} setNotes={setNotes} availableSymbols={bot.config.data?.available_symbols ?? FUTURE_TRADE_ALL_SYMBOLS} onSave={save} busy={busy} />
               </TabsContent>
               <TabsContent value="my-config">
                 <MyConfigPanel envSettings={envSettings} setEnvSettings={setEnvSettings} liveSecret={liveSecret} setLiveSecret={setLiveSecret} testnetSecret={testnetSecret} setTestnetSecret={setTestnetSecret} onSave={saveEnv} busy={envBusy} />
@@ -372,8 +402,10 @@ function DynamicSuggestionPanel({ dynamic }: { dynamic?: FutureTradeDynamicDecis
   );
 }
 
-function ConfigPanel({ settings, setSettings, notes, setNotes, availableSymbols, onSave, busy }: { settings: FutureTradeSettings; setSettings: (settings: FutureTradeSettings) => void; notes: string; setNotes: (value: string) => void; availableSymbols: string[]; onSave: () => void; busy: boolean }) {
+function ConfigPanel({ status, settings, setSettings, notes, setNotes, availableSymbols, onSave, busy }: { status?: { dailyLossLocked?: boolean; manualRestartAllowed?: boolean } | null; settings: FutureTradeSettings; setSettings: (settings: FutureTradeSettings) => void; notes: string; setNotes: (value: string) => void; availableSymbols: string[]; onSave: () => void; busy: boolean }) {
   const update = <K extends keyof FutureTradeSettings>(key: K, value: FutureTradeSettings[K]) => setSettings({ ...settings, [key]: value });
+  const recoveryMode = Boolean(status?.dailyLossLocked);
+  const applyRecoveryPreset = () => setSettings({ ...settings, ...LOSS_LOCK_RECOVERY_PRESET });
 
   const toggleSymbol = (sym: string) => {
     const active = settings.symbols.includes(sym);
@@ -386,6 +418,23 @@ function ConfigPanel({ settings, setSettings, notes, setNotes, availableSymbols,
     <Card>
       <CardHeader><CardTitle className="flex items-center gap-2"><Brain className="h-4 w-4" /> Algorithm Config</CardTitle></CardHeader>
       <CardContent className="space-y-3">
+        {recoveryMode ? (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="font-medium text-amber-700">Loss-lock recovery mode</div>
+                <p className="text-xs leading-relaxed text-amber-800/90">
+                  `DAILY_LOSS_LIMIT_HIT` locked this bot for the current trading day. Press `On` only after saving safer settings for a supervised retry.
+                </p>
+              </div>
+              {status?.manualRestartAllowed ? (
+                <Button type="button" variant="outline" size="sm" onClick={applyRecoveryPreset}>
+                  Apply Safer Preset
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         <Field label="Symbols — click to toggle scan list">
           <div className="flex flex-wrap gap-2 rounded-md border p-2">
             {availableSymbols.map((sym) => {
@@ -433,9 +482,21 @@ function ConfigPanel({ settings, setSettings, notes, setNotes, availableSymbols,
           </RadioGroup>
         </Field>
         <div className="grid gap-3 sm:grid-cols-2">
-          {(["leverage", "tradeAmountUsdt", "minConfidence", "dynamicLookbackMinutes", "dynamicMinConfidenceFloor", "dynamicMinConfidenceCeiling", "dynamicReentryBuffer", "takeProfitPercent", "stopLossPercent", "trailingTakeProfitPercent", "rollbackLossPercent", "maxDailyLossPercent", "maxTradesPerDay", "cooldownSeconds"] as const).map((key) => (
-            <Field key={key} label={baseFieldLabel(key)}><Input type="number" step="0.01" value={Number(settings[key])} onChange={(e) => update(key, Number(e.target.value) as never)} /></Field>
-          ))}
+          {(["leverage", "tradeAmountUsdt", "minConfidence", "dynamicLookbackMinutes", "dynamicMinConfidenceFloor", "dynamicMinConfidenceCeiling", "dynamicReentryBuffer", "takeProfitPercent", "stopLossPercent", "trailingTakeProfitPercent", "rollbackLossPercent", "maxDailyLossPercent", "maxTradesPerDay", "cooldownSeconds"] as const).map((key) => {
+            const highlighted = recoveryMode && LOSS_LOCK_RECOVERY_KEYS.includes(key);
+            const suggestedValue = LOSS_LOCK_RECOVERY_PRESET[key];
+
+            return (
+              <Field
+                key={key}
+                label={baseFieldLabel(key)}
+                className={highlighted ? "rounded-md border border-amber-500/50 bg-amber-500/10 p-3" : undefined}
+                note={highlighted && typeof suggestedValue === "number" ? `Safer value: ${suggestedValue}` : undefined}
+              >
+                <Input type="number" step="0.01" value={Number(settings[key])} onChange={(e) => update(key, Number(e.target.value) as never)} />
+              </Field>
+            );
+          })}
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
           <Toggle label="Auto paper execute" checked={settings.autoExecutePaperSignals} onChange={(value) => update("autoExecutePaperSignals", value)} />
@@ -715,8 +776,8 @@ function trackerStatusLabel(log: FutureTradeLog) {
     .trim();
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <div className="space-y-2"><Label className="text-xs text-muted-foreground">{label}</Label>{children}</div>;
+function Field({ label, children, className, note }: { label: string; children: ReactNode; className?: string; note?: string }) {
+  return <div className={cn("space-y-2", className)}><Label className="text-xs text-muted-foreground">{label}</Label>{children}{note ? <div className="text-[11px] text-amber-700">{note}</div> : null}</div>;
 }
 
 function baseFieldLabel(key: keyof FutureTradeSettings) {

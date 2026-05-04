@@ -62,6 +62,8 @@ export interface FutureTradeStatus {
   dynamic?: FutureTradeDynamicDecision;
   paperTrading: boolean;
   liveTrading: boolean;
+  dailyLossLocked?: boolean;
+  manualRestartAllowed?: boolean;
   liveTradingEnvEnabled: boolean;
   testnetTradingEnvEnabled?: boolean;
   realTradingEnvEnabled?: boolean;
