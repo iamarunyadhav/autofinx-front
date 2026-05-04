@@ -75,6 +75,7 @@ export interface FutureTradeStatus {
   totalProfit?: number | null;
   balanceSource?: string | null;
   accountAsset?: string | null;
+  balanceError?: string | null;
 }
 
 export interface FutureSignal {

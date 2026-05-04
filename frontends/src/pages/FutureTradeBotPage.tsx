@@ -107,6 +107,13 @@ function n(value: unknown, digits = 4) {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: digits }).format(parsed);
 }
 
+function balanceValue(value: unknown, digits = 4) {
+  if (value == null || value === "") return "Unavailable";
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return "Unavailable";
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: digits }).format(parsed);
+}
+
 function statusVariant(value?: string) {
   const normalized = (value || "").toLowerCase();
   if (["running", "connected", "buy", "sell", "long", "short", "in_position", "buy_executed", "sell_executed"].includes(normalized)) return "default";
@@ -222,7 +229,7 @@ export default function FutureTradeBotPage() {
 
         <div className="grid gap-4 xl:grid-cols-5">
           <Metric title="Total Profit" value={`${n(status?.totalProfit ?? status?.realizedPnl, 4)} ${status?.accountAsset || "USDT"}`} sub={`Realized ${n(status?.realizedPnl, 4)} | Unrealized ${n(status?.unrealizedPnlPercent, 4)}%`} good={(status?.totalProfit ?? status?.realizedPnl ?? 0) >= 0} />
-          <Metric title="Wallet Balance" value={`${n(status?.walletBalance, 4)} ${status?.accountAsset || "USDT"}`} sub={status?.balanceSource === "PAPER_LEDGER" ? "Paper mode wallet not linked" : `Available ${n(status?.availableBalance, 4)}`} icon={<Wallet className="h-4 w-4" />} />
+          <Metric title="Wallet Balance" value={`${balanceValue(status?.walletBalance, 4)} ${status?.accountAsset || "USDT"}`} sub={status?.balanceSource === "PAPER_LEDGER" ? "Paper mode wallet not linked" : status?.balanceSource === "BINANCE_UNAVAILABLE" ? (status?.balanceError || "Binance futures balance unavailable") : `Available ${balanceValue(status?.availableBalance, 4)}`} icon={<Wallet className="h-4 w-4" />} good={status?.balanceSource === "BINANCE_UNAVAILABLE" ? false : undefined} />
           <Metric title="Current Signal" value={status?.currentSignal || "WAITING"} sub={`${status?.currentSymbol || "No symbol"} | ${n((status?.confidence ?? 0) * 100, 2)}% vs ${n((status?.activeMinConfidence ?? settings.minConfidence) * 100, 2)}% min`} />
           <Metric title="Position" value={status?.positionSide || "FLAT"} sub={`Entry ${n(status?.entryPrice, 8)} | Qty ${n(status?.quantity, 6)}`} />
           <Metric title="Loss Summary" value={`${n(status?.botLoss ?? status?.dailyLoss, 4)} ${status?.accountAsset || "USDT"}`} sub={`Win ${n(status?.winRate, 2)}% | Trades ${n(status?.tradeCountToday, 0)}`} good={(status?.botLoss ?? status?.dailyLoss ?? 0) === 0} />
