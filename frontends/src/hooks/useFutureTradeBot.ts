@@ -42,8 +42,11 @@ export interface FutureTradeStatus {
   connectionStatus: string;
   currentSymbol?: string | null;
   currentSignal: string;
+  entryReason?: string | null;
   currentPrice: number;
   confidence: number;
+  activeMinConfidence?: number | null;
+  signalConfidenceGap?: number | null;
   positionSide?: string | null;
   entryPrice: number;
   quantity: number;

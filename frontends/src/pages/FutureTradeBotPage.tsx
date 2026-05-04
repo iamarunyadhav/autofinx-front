@@ -33,12 +33,12 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   leverage: 3,
   marginMode: "isolated",
   tradeAmountUsdt: 25,
-  minConfidence: 0.82,
-  confidenceMode: "fixed",
+  minConfidence: 0.74,
+  confidenceMode: "semi_dynamic",
   dynamicLookbackMinutes: 10,
-  dynamicMinConfidenceFloor: 0.68,
+  dynamicMinConfidenceFloor: 0.64,
   dynamicMinConfidenceCeiling: 0.88,
-  dynamicReentryBuffer: 0.02,
+  dynamicReentryBuffer: 0.015,
   dynamicSuggestionEnabled: true,
   takeProfitPercent: 1.2,
   stopLossPercent: 0.4,
@@ -49,7 +49,7 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   maxTradesPerDay: 10,
   maxLeverage: 5,
   maxSpreadPercent: 0.12,
-  cooldownSeconds: 60,
+  cooldownSeconds: 45,
   scanIntervalSeconds: 3,
   autoExecutePaperSignals: true,
   avoidChoppyMarket: true,
@@ -187,10 +187,24 @@ export default function FutureTradeBotPage() {
         <div className="grid gap-4 xl:grid-cols-5">
           <Metric title="Total Profit" value={`${n(status?.totalProfit ?? status?.realizedPnl, 4)} ${status?.accountAsset || "USDT"}`} sub={`Realized ${n(status?.realizedPnl, 4)} | Unrealized ${n(status?.unrealizedPnlPercent, 4)}%`} good={(status?.totalProfit ?? status?.realizedPnl ?? 0) >= 0} />
           <Metric title="Wallet Balance" value={`${n(status?.walletBalance, 4)} ${status?.accountAsset || "USDT"}`} sub={status?.balanceSource === "PAPER_LEDGER" ? "Paper mode wallet not linked" : `Available ${n(status?.availableBalance, 4)}`} icon={<Wallet className="h-4 w-4" />} />
-          <Metric title="Current Signal" value={status?.currentSignal || "WAITING"} sub={`${status?.currentSymbol || "No symbol"} | ${n((status?.confidence ?? 0) * 100, 2)}%`} />
+          <Metric title="Current Signal" value={status?.currentSignal || "WAITING"} sub={`${status?.currentSymbol || "No symbol"} | ${n((status?.confidence ?? 0) * 100, 2)}% vs ${n((status?.activeMinConfidence ?? settings.minConfidence) * 100, 2)}% min`} />
           <Metric title="Position" value={status?.positionSide || "FLAT"} sub={`Entry ${n(status?.entryPrice, 8)} | Qty ${n(status?.quantity, 6)}`} />
           <Metric title="Loss Summary" value={`${n(status?.botLoss ?? status?.dailyLoss, 4)} ${status?.accountAsset || "USDT"}`} sub={`Win ${n(status?.winRate, 2)}% | Trades ${n(status?.tradeCountToday, 0)}`} good={(status?.botLoss ?? status?.dailyLoss ?? 0) === 0} />
         </div>
+
+        {status?.entryReason ? (
+          <Card>
+            <CardHeader><CardTitle>Entry Watch</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div className="rounded-md border bg-muted/30 p-3 text-muted-foreground">{status.entryReason}</div>
+              <div className="grid gap-2 text-xs sm:grid-cols-3">
+                <Row label="Signal confidence" value={`${n((status?.confidence ?? 0) * 100, 2)}%`} />
+                <Row label="Active minimum" value={`${n((status?.activeMinConfidence ?? settings.minConfidence) * 100, 2)}%`} />
+                <Row label="Confidence gap" value={`${n((status?.signalConfidenceGap ?? 0) * 100, 2)}%`} />
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
 
         <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
           <div className="space-y-6">
@@ -403,8 +417,8 @@ function ConfigPanel({ settings, setSettings, notes, setNotes, availableSymbols,
           <RadioGroup value={settings.confidenceMode || "fixed"} onValueChange={(value) => update("confidenceMode", value)}>
             <div className="grid gap-2">
               {[
-                ["fixed", "Fixed", "Manual minConfidence only; current behavior."],
-                ["semi_dynamic", "Semi dynamic", "Small capped adjustments from trend, choppy market, and last trade."],
+                ["fixed", "Fixed", "Manual minConfidence only; strictest manual behavior."],
+                ["semi_dynamic", "Semi dynamic", "Safe default. Small capped adjustments for quicker but still guarded entries."],
                 ["fully_dynamic", "Fully dynamic", "More active adjustment of confidence, target, cooldown, and size."],
               ].map(([value, title, description]) => (
                 <label key={value} className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm">
