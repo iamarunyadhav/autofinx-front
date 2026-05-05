@@ -101,6 +101,32 @@ const LOSS_LOCK_RECOVERY_KEYS = [
   "cooldownSeconds",
 ] as const satisfies ReadonlyArray<keyof FutureTradeSettings>;
 
+const STRICT_BTC_ETH_FULLY_DYNAMIC_PRESET: Partial<FutureTradeSettings> = {
+  symbols: ["BTCUSDT", "ETHUSDT"],
+  confidenceMode: "fully_dynamic",
+  leverage: 2,
+  tradeAmountUsdt: 12,
+  minConfidence: 0.8,
+  dynamicLookbackMinutes: 10,
+  dynamicMinConfidenceFloor: 0.75,
+  dynamicMinConfidenceCeiling: 0.88,
+  dynamicReentryBuffer: 0.025,
+  takeProfitPercent: 0.8,
+  stopLossPercent: 0.28,
+  trailingTakeProfitPercent: 0.18,
+  rollbackLossPercent: 0.16,
+  maxDailyLossPercent: 0.8,
+  maxOpenPositions: 1,
+  maxTradesPerDay: 4,
+  maxLeverage: 3,
+  maxSpreadPercent: 0.08,
+  cooldownSeconds: 120,
+  scanIntervalSeconds: 3,
+  autoExecutePaperSignals: true,
+  avoidChoppyMarket: true,
+  emergencyStop: false,
+};
+
 function n(value: unknown, digits = 4) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return "None";
@@ -149,9 +175,11 @@ export default function FutureTradeBotPage() {
 
   const dashboard = bot.dashboard.data;
   const status = dashboard?.status;
-  const busy = bot.start.isPending || bot.stop.isPending || bot.emergencyStop.isPending || bot.resetPaper.isPending || bot.updateConfig.isPending;
+  const savedSettings = useMemo(() => ({ ...DEFAULT_SETTINGS, ...(bot.config.data?.settings ?? {}) }), [bot.config.data?.settings]);
+  const busy = bot.start.isPending || bot.stop.isPending || bot.emergencyStop.isPending || bot.resetPaper.isPending || bot.resetDailyLoss.isPending || bot.updateConfig.isPending;
   const envBusy = bot.updateEnvConfig.isPending || bot.envConfig.isFetching;
   const chart = useMemo(() => dashboard?.chart ?? [], [dashboard?.chart]);
+  const liveModeBlocked = Boolean(settings.liveTrading && !status?.liveTradingEnvEnabled);
 
   const save = () => {
     bot.updateConfig.mutate(
@@ -196,6 +224,21 @@ export default function FutureTradeBotPage() {
     });
   };
 
+  const testEnvConnection = () => {
+    bot.testConnection.mutate(undefined, {
+      onSuccess: (result) => {
+        toast({
+          title: result.connected ? "Connection successful" : "Connection not ready",
+          description: result.connected
+            ? `${result.message} Wallet ${balanceValue(result.walletBalance, 4)} ${result.accountAsset || "USDT"} | Available ${balanceValue(result.availableBalance, 4)}`
+            : result.message,
+          variant: result.connected ? "default" : "destructive",
+        });
+      },
+      onError: (error) => toast({ title: "Connection test failed", description: error instanceof Error ? error.message : "Request failed", variant: "destructive" }),
+    });
+  };
+
   if (loading || !currentWorkspace) {
     return <AppShell><div className="p-6 text-sm text-muted-foreground">Loading workspace...</div></AppShell>;
   }
@@ -213,16 +256,16 @@ export default function FutureTradeBotPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge variant={statusVariant(status?.status)}>{status?.status || "Stopped"}</Badge>
-            <Badge variant={status?.liveTrading ? "destructive" : "secondary"}>{status?.mode || "Paper Futures"}</Badge>
+            <Badge variant={status?.liveTrading ? (status?.liveTradingEnvEnabled ? "outline" : "destructive") : "secondary"}>{status?.mode || "Paper Futures"}</Badge>
             <Badge variant={status?.liveTradingEnvEnabled ? "outline" : "destructive"}>{status?.liveTradingEnvEnabled ? (settings.forceTestnet ? "Testnet Env Enabled" : "Real Env Enabled") : (settings.forceTestnet ? "Testnet Env Blocked" : "Real Env Blocked")}</Badge>
           </div>
         </div>
 
-        {settings.liveTrading ? (
+        {liveModeBlocked ? (
           <div className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
               <AlertTriangle className="mt-0.5 h-4 w-4" />
               <div>
-	              Live mode only activates when the selected execution mode is enabled in My Config. Force testnet uses testnet futures keys; turning it off uses real Binance futures keys.
+		              Live mode only activates when the selected execution mode is enabled in My Config. Force testnet uses testnet futures keys; turning it off uses real Binance futures keys.
               </div>
             </div>
           ) : null}
@@ -290,21 +333,26 @@ export default function FutureTradeBotPage() {
                 <Button disabled={busy} variant="outline" onClick={() => bot.stop.mutate(undefined, { onError: err(toast) })}><Square className="mr-2 h-4 w-4" />Off</Button>
                 <Button disabled={busy} variant="destructive" onClick={() => bot.emergencyStop.mutate(undefined, { onError: err(toast) })}><ShieldAlert className="mr-2 h-4 w-4" />Emergency</Button>
                 <Button disabled={busy} variant="secondary" onClick={() => bot.resetPaper.mutate(undefined, { onError: err(toast) })}><RefreshCw className="mr-2 h-4 w-4" />Reset</Button>
+                <Button disabled={busy} variant="outline" className="col-span-2" onClick={() => bot.resetDailyLoss.mutate(undefined, { onError: err(toast) })}>Reset Day Loss</Button>
               </CardContent>
             </Card>
 
             <RiskPanel settings={settings} dynamic={dashboard?.dynamic ?? status?.dynamic} />
-            <DynamicSuggestionPanel dynamic={dashboard?.dynamic ?? status?.dynamic} />
+            <DynamicSuggestionPanel
+              dynamic={dashboard?.dynamic ?? status?.dynamic}
+              onApplyRecommendation={(next) => setSettings({ ...settings, ...next })}
+              onRestoreManual={() => setSettings(savedSettings)}
+            />
             <Tabs defaultValue="algorithm" className="space-y-3">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="algorithm">Algorithm</TabsTrigger>
                 <TabsTrigger value="my-config">My Config</TabsTrigger>
               </TabsList>
               <TabsContent value="algorithm">
-                <ConfigPanel status={status} settings={settings} setSettings={setSettings} notes={notes} setNotes={setNotes} availableSymbols={bot.config.data?.available_symbols ?? FUTURE_TRADE_ALL_SYMBOLS} onSave={save} busy={busy} />
+                <ConfigPanel envMode={envSettings.mode} status={status} settings={settings} setSettings={setSettings} notes={notes} setNotes={setNotes} availableSymbols={bot.config.data?.available_symbols ?? FUTURE_TRADE_ALL_SYMBOLS} onSave={save} busy={busy} />
               </TabsContent>
               <TabsContent value="my-config">
-                <MyConfigPanel envSettings={envSettings} setEnvSettings={setEnvSettings} liveSecret={liveSecret} setLiveSecret={setLiveSecret} testnetSecret={testnetSecret} setTestnetSecret={setTestnetSecret} onSave={saveEnv} busy={envBusy} />
+                <MyConfigPanel envSettings={envSettings} setEnvSettings={setEnvSettings} liveSecret={liveSecret} setLiveSecret={setLiveSecret} testnetSecret={testnetSecret} setTestnetSecret={setTestnetSecret} onSave={saveEnv} onTestConnection={testEnvConnection} busy={envBusy || bot.testConnection.isPending} />
               </TabsContent>
             </Tabs>
             <LogFeed logs={bot.logs.data ?? []} />
@@ -384,7 +432,7 @@ function RiskPanel({ settings, dynamic }: { settings: FutureTradeSettings; dynam
   );
 }
 
-function DynamicSuggestionPanel({ dynamic }: { dynamic?: FutureTradeDynamicDecision }) {
+function DynamicSuggestionPanel({ dynamic, onApplyRecommendation, onRestoreManual }: { dynamic?: FutureTradeDynamicDecision; onApplyRecommendation: (next: Partial<FutureTradeSettings>) => void; onRestoreManual: () => void }) {
   if (!dynamic) return null;
   return (
     <Card>
@@ -410,15 +458,34 @@ function DynamicSuggestionPanel({ dynamic }: { dynamic?: FutureTradeDynamicDecis
           <Row label="Move" value={`${n(dynamic.analysis.priceChangePercent, 3)}%`} />
           <Row label="Volatility" value={`${n(dynamic.analysis.volatilityPercent, 3)}%`} />
         </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button
+            type="button"
+            onClick={() => onApplyRecommendation({
+              minConfidence: dynamic.recommended.minConfidence,
+              takeProfitPercent: dynamic.recommended.takeProfitPercent,
+              stopLossPercent: dynamic.recommended.stopLossPercent,
+              trailingTakeProfitPercent: dynamic.recommended.trailingTakeProfitPercent,
+              cooldownSeconds: dynamic.recommended.cooldownSeconds,
+              tradeAmountUsdt: dynamic.recommended.tradeAmountUsdt,
+            })}
+          >
+            Apply Runtime Recommendation
+          </Button>
+          <Button type="button" variant="outline" onClick={onRestoreManual}>
+            Use My Values
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
 }
 
-function ConfigPanel({ status, settings, setSettings, notes, setNotes, availableSymbols, onSave, busy }: { status?: { dailyLossLocked?: boolean; manualRestartAllowed?: boolean } | null; settings: FutureTradeSettings; setSettings: (settings: FutureTradeSettings) => void; notes: string; setNotes: (value: string) => void; availableSymbols: string[]; onSave: () => void; busy: boolean }) {
+function ConfigPanel({ envMode, status, settings, setSettings, notes, setNotes, availableSymbols, onSave, busy }: { envMode: FutureTradeEnvConfig["mode"]; status?: { dailyLossLocked?: boolean; manualRestartAllowed?: boolean } | null; settings: FutureTradeSettings; setSettings: (settings: FutureTradeSettings) => void; notes: string; setNotes: (value: string) => void; availableSymbols: string[]; onSave: () => void; busy: boolean }) {
   const update = <K extends keyof FutureTradeSettings>(key: K, value: FutureTradeSettings[K]) => setSettings({ ...settings, [key]: value });
   const recoveryMode = Boolean(status?.dailyLossLocked);
   const applyRecoveryPreset = () => setSettings({ ...settings, ...LOSS_LOCK_RECOVERY_PRESET });
+  const applyStrictPreset = () => setSettings({ ...settings, ...STRICT_BTC_ETH_FULLY_DYNAMIC_PRESET });
 
   const toggleSymbol = (sym: string) => {
     const active = settings.symbols.includes(sym);
@@ -471,9 +538,17 @@ function ConfigPanel({ status, settings, setSettings, notes, setNotes, available
           </div>
           <p className="text-xs text-muted-foreground">{settings.symbols.length} coin{settings.symbols.length !== 1 ? "s" : ""} selected: {settings.symbols.map((s) => s.replace("USDT", "")).join(", ")}</p>
         </Field>
+        <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+          Execution mode is controlled from `My Config`.
+          Current mode: <span className="font-medium text-foreground">{envMode === "live" ? "Live" : envMode === "testnet" ? "Testnet" : "Paper"}</span>.
+        </div>
         <div className="grid gap-2 sm:grid-cols-2">
-          <Toggle label="Live trading" checked={settings.liveTrading} onChange={(value) => update("liveTrading", value)} />
-          <Toggle label="Force testnet" checked={settings.forceTestnet} onChange={(value) => update("forceTestnet", value)} />
+          <Button type="button" variant="outline" onClick={applyStrictPreset}>
+            Apply BTC+ETH Safe Preset
+          </Button>
+          <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            Stricter fully dynamic starter for BTC and ETH only.
+          </div>
         </div>
         <Field label="Confidence algorithm">
           <RadioGroup value={settings.confidenceMode || "fixed"} onValueChange={(value) => update("confidenceMode", value)}>
@@ -530,6 +605,7 @@ function MyConfigPanel({
   testnetSecret,
   setTestnetSecret,
   onSave,
+  onTestConnection,
   busy,
 }: {
   envSettings: FutureTradeEnvConfig;
@@ -539,6 +615,7 @@ function MyConfigPanel({
   testnetSecret: string;
   setTestnetSecret: (value: string) => void;
   onSave: () => void;
+  onTestConnection: () => void;
   busy: boolean;
 }) {
   const update = <K extends keyof FutureTradeEnvConfig>(key: K, value: FutureTradeEnvConfig[K]) => setEnvSettings({ ...envSettings, [key]: value });
@@ -603,7 +680,10 @@ function MyConfigPanel({
           <Row label="Testnet credentials" value={envSettings.testnet_configured ? "Configured" : "Missing"} />
         </div>
 
-        <Button className="w-full" disabled={busy} onClick={onSave}><Save className="mr-2 h-4 w-4" />Save My Config</Button>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button variant="outline" disabled={busy} onClick={onTestConnection}>Test Connection</Button>
+          <Button className="w-full" disabled={busy} onClick={onSave}><Save className="mr-2 h-4 w-4" />Save My Config</Button>
+        </div>
       </CardContent>
     </Card>
   );

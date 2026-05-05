@@ -196,6 +196,16 @@ export interface FutureTradeEnvConfigPayload {
   replace_testnet_secret?: boolean;
 }
 
+export interface FutureTradeConnectionTest {
+  connected: boolean;
+  mode?: string;
+  message: string;
+  walletBalance?: number;
+  availableBalance?: number;
+  marginBalance?: number;
+  accountAsset?: string;
+}
+
 export interface FutureTradeRecord {
   id: string;
   symbol: string;
@@ -303,6 +313,10 @@ export function useFutureTradeBot(workspaceId?: string) {
     onSuccess: invalidate,
   });
 
+  const testConnection = useMutation({
+    mutationFn: async () => (await api.post<FutureTradeConnectionTest>(`${base}/test-connection`, {})).data,
+  });
+
   return {
     dashboard,
     config,
@@ -311,9 +325,11 @@ export function useFutureTradeBot(workspaceId?: string) {
     envConfig,
     updateConfig,
     updateEnvConfig,
+    testConnection,
     start: useAction("start"),
     stop: useAction("stop"),
     emergencyStop: useAction("emergency-stop"),
     resetPaper: useAction("reset-paper"),
+    resetDailyLoss: useAction("reset-daily-loss"),
   };
 }

@@ -39,6 +39,45 @@ export interface Fast2XConfig {
   available_symbols?: string[];
 }
 
+export interface Fast2XEnvConfig {
+  mode: "paper" | "testnet" | "live";
+  testnet_enabled: boolean;
+  live_enabled: boolean;
+  force_testnet: boolean;
+  live_api_url: string;
+  testnet_api_url: string;
+  live_api_key: string;
+  live_api_secret_masked?: string;
+  testnet_api_key: string;
+  testnet_api_secret_masked?: string;
+  live_configured: boolean;
+  testnet_configured: boolean;
+}
+
+export interface Fast2XEnvConfigPayload {
+  mode: "paper" | "testnet" | "live";
+  testnet_enabled: boolean;
+  live_enabled: boolean;
+  force_testnet: boolean;
+  live_api_url: string;
+  testnet_api_url: string;
+  live_api_key?: string;
+  live_api_secret?: string;
+  testnet_api_key?: string;
+  testnet_api_secret?: string;
+  replace_live_secret?: boolean;
+  replace_testnet_secret?: boolean;
+}
+
+export interface Fast2XConnectionTest {
+  connected: boolean;
+  mode?: string;
+  message: string;
+  accountAsset?: string;
+  free?: number;
+  locked?: number;
+}
+
 export interface Fast2XStatus {
   botName: string;
   state: string;
@@ -192,6 +231,12 @@ export function useFast2X(workspaceId?: string) {
     refetchInterval: 1500,
   });
 
+  const envConfig = useQuery({
+    queryKey: ["fast2x", workspaceId, "env-config"],
+    queryFn: async () => (await api.get<Fast2XEnvConfig>(`${base}/env-config`)).data,
+    enabled,
+  });
+
   const useAction = (name: string) => useMutation({
     mutationFn: async () => (await api.post(`${base}/${name}`, {})).data,
     onSuccess: invalidate,
@@ -202,6 +247,15 @@ export function useFast2X(workspaceId?: string) {
     onSuccess: invalidate,
   });
 
+  const updateEnvConfig = useMutation({
+    mutationFn: async (payload: Fast2XEnvConfigPayload) => (await api.put<Fast2XEnvConfig>(`${base}/env-config`, payload)).data,
+    onSuccess: invalidate,
+  });
+
+  const testConnection = useMutation({
+    mutationFn: async () => (await api.post<Fast2XConnectionTest>(`${base}/test-connection`, {})).data,
+  });
+
   return {
     status,
     config,
@@ -210,7 +264,10 @@ export function useFast2X(workspaceId?: string) {
     trades,
     logs,
     chart,
+    envConfig,
     updateConfig,
+    updateEnvConfig,
+    testConnection,
     start: useAction("start"),
     pause: useAction("pause"),
     stop: useAction("stop"),

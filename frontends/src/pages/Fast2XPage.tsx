@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { useFast2X, type Fast2XChartPayload, type Fast2XSettings } from "@/hooks/useFast2X";
+import { useFast2X, type Fast2XChartPayload, type Fast2XEnvConfig, type Fast2XEnvConfigPayload, type Fast2XSettings } from "@/hooks/useFast2X";
 import { useToast } from "@/hooks/use-toast";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { cn } from "@/lib/utils";
@@ -48,6 +48,21 @@ const EMPTY_SETTINGS: Fast2XSettings = {
   maxDailyLossPercent: 2,
   maxApiLatencyMs: 500,
   emergencyStop: false,
+};
+
+const FAST2X_DEFAULT_ENV_CONFIG: Fast2XEnvConfig = {
+  mode: "paper",
+  testnet_enabled: false,
+  live_enabled: false,
+  force_testnet: true,
+  live_api_url: "https://api.binance.com",
+  testnet_api_url: "https://testnet.binance.vision",
+  live_api_key: "",
+  live_api_secret_masked: "",
+  testnet_api_key: "",
+  testnet_api_secret_masked: "",
+  live_configured: false,
+  testnet_configured: false,
 };
 
 function n(value: unknown, digits = 4) {
@@ -86,6 +101,9 @@ export default function Fast2XPage() {
   const [settings, setSettings] = useState<Fast2XSettings>(EMPTY_SETTINGS);
   const [aiBrainEnabled, setAiBrainEnabled] = useState(false);
   const [algorithmMarkdown, setAlgorithmMarkdown] = useState("");
+  const [envSettings, setEnvSettings] = useState<Fast2XEnvConfig>(FAST2X_DEFAULT_ENV_CONFIG);
+  const [liveSecret, setLiveSecret] = useState("");
+  const [testnetSecret, setTestnetSecret] = useState("");
 
   useEffect(() => {
     if (fast2x.config.data?.settings) {
@@ -95,6 +113,14 @@ export default function Fast2XPage() {
     }
   }, [fast2x.config.data]);
 
+  useEffect(() => {
+    if (fast2x.envConfig.data) {
+      setEnvSettings({ ...FAST2X_DEFAULT_ENV_CONFIG, ...fast2x.envConfig.data });
+      setLiveSecret("");
+      setTestnetSecret("");
+    }
+  }, [fast2x.envConfig.data]);
+
   const chartData = useMemo(() => {
     const livePoints = fast2x.chart.data?.points ?? [];
     if (livePoints.length > 0) return livePoints;
@@ -103,6 +129,7 @@ export default function Fast2XPage() {
   }, [fast2x.chart.data, fast2x.price.data, fast2x.pnl.data]);
 
   const busy = fast2x.start.isPending || fast2x.pause.isPending || fast2x.stop.isPending || fast2x.emergencyStop.isPending || fast2x.resetPaper.isPending || fast2x.updateConfig.isPending;
+  const envBusy = fast2x.updateEnvConfig.isPending || fast2x.envConfig.isFetching || fast2x.testConnection.isPending;
 
   const save = () => {
     fast2x.updateConfig.mutate(
@@ -117,6 +144,44 @@ export default function Fast2XPage() {
         onError: (error) => toast({ title: "Save failed", description: error instanceof Error ? error.message : "Could not save config", variant: "destructive" }),
       }
     );
+  };
+
+  const saveEnv = () => {
+    const payload: Fast2XEnvConfigPayload = {
+      mode: envSettings.mode,
+      testnet_enabled: envSettings.mode === "testnet",
+      live_enabled: envSettings.mode === "live",
+      force_testnet: envSettings.mode !== "live" && envSettings.force_testnet,
+      live_api_url: envSettings.live_api_url,
+      testnet_api_url: envSettings.testnet_api_url,
+      live_api_key: envSettings.live_api_key,
+      testnet_api_key: envSettings.testnet_api_key,
+      replace_live_secret: liveSecret.length > 0,
+      replace_testnet_secret: testnetSecret.length > 0,
+      live_api_secret: liveSecret,
+      testnet_api_secret: testnetSecret,
+    };
+
+    fast2x.updateEnvConfig.mutate(payload, {
+      onSuccess: (saved) => {
+        setEnvSettings({ ...FAST2X_DEFAULT_ENV_CONFIG, ...saved });
+        setLiveSecret("");
+        setTestnetSecret("");
+        toast({ title: "Fast2X connection config saved", description: saved.mode === "live" ? "Live spot connection profile saved." : saved.mode === "testnet" ? "Testnet spot connection profile saved." : "Paper connection profile active." });
+      },
+      onError: (error) => toast({ title: "Save failed", description: error instanceof Error ? error.message : "Could not save config", variant: "destructive" }),
+    });
+  };
+
+  const testConnection = () => {
+    fast2x.testConnection.mutate(undefined, {
+      onSuccess: (result) => toast({
+        title: result.connected ? "Connection successful" : "Connection not ready",
+        description: result.connected ? `${result.message} Free ${n(result.free, 4)} ${result.accountAsset || "USDT"} | Locked ${n(result.locked, 4)}` : result.message,
+        variant: result.connected ? "default" : "destructive",
+      }),
+      onError: (error) => toast({ title: "Connection test failed", description: error instanceof Error ? error.message : "Request failed", variant: "destructive" }),
+    });
   };
 
   if (loading || !currentWorkspace) {
@@ -138,7 +203,7 @@ export default function Fast2XPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight">Fast2X</h1>
-                <p className="text-sm text-muted-foreground">Real-time micro scalping engine for Binance Spot. Paper trading is locked on by default.</p>
+                <p className="text-sm text-muted-foreground">Real-time micro scalping engine for Binance Spot. Connection setup is configurable here; execution remains conservatively guarded.</p>
               </div>
             </div>
           </div>
@@ -149,12 +214,10 @@ export default function Fast2XPage() {
           </div>
         </div>
 
-        {!settings.paperTrading ? (
-          <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-            <AlertTriangle className="h-4 w-4" />
-            Live trading is blocked in this screen unless backend environment flags explicitly allow it.
-          </div>
-        ) : null}
+        <div className="flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700">
+          <AlertTriangle className="h-4 w-4" />
+          Fast2X My Config can store and test Live/Testnet spot credentials, but this build still executes Fast2X trades through the paper-simulated order path.
+        </div>
 
         <div className="grid gap-4 xl:grid-cols-3">
           <Fast2XStatusCard status={fast2x.status.data} />
@@ -178,6 +241,17 @@ export default function Fast2XPage() {
               onStop={() => fast2x.stop.mutate(undefined, { onError: showError(toast) })}
               onEmergency={() => fast2x.emergencyStop.mutate(undefined, { onError: showError(toast) })}
               onReset={() => fast2x.resetPaper.mutate(undefined, { onError: showError(toast) })}
+            />
+            <Fast2XMyConfigPanel
+              envSettings={envSettings}
+              setEnvSettings={setEnvSettings}
+              liveSecret={liveSecret}
+              setLiveSecret={setLiveSecret}
+              testnetSecret={testnetSecret}
+              setTestnetSecret={setTestnetSecret}
+              onSave={saveEnv}
+              onTestConnection={testConnection}
+              busy={envBusy}
             />
             <Fast2XConfigPanel
               settings={settings}
@@ -262,6 +336,78 @@ function Fast2XControlPanel({ busy, onStart, onPause, onStop, onEmergency, onRes
         <Button disabled={busy} variant="outline" onClick={onStop}><Square className="mr-2 h-4 w-4" />Stop Bot</Button>
         <Button disabled={busy} variant="destructive" onClick={onEmergency}><ShieldAlert className="mr-2 h-4 w-4" />Emergency</Button>
         <Button disabled={busy} variant="outline" className="col-span-2" onClick={onReset}><RotateCcw className="mr-2 h-4 w-4" />Reset Paper Trading</Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Fast2XMyConfigPanel({
+  envSettings,
+  setEnvSettings,
+  liveSecret,
+  setLiveSecret,
+  testnetSecret,
+  setTestnetSecret,
+  onSave,
+  onTestConnection,
+  busy,
+}: {
+  envSettings: Fast2XEnvConfig;
+  setEnvSettings: Dispatch<SetStateAction<Fast2XEnvConfig>>;
+  liveSecret: string;
+  setLiveSecret: (value: string) => void;
+  testnetSecret: string;
+  setTestnetSecret: (value: string) => void;
+  onSave: () => void;
+  onTestConnection: () => void;
+  busy: boolean;
+}) {
+  const update = <K extends keyof Fast2XEnvConfig>(key: K, value: Fast2XEnvConfig[K]) => setEnvSettings((current) => ({ ...current, [key]: value }));
+
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-base">My Config</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <Field label="Execution mode">
+          <div className="grid gap-2">
+            {[
+              ["paper", "Paper", "No Binance spot account check required."],
+              ["testnet", "Testnet", "Uses Binance spot testnet URL and testnet credentials for connection testing."],
+              ["live", "Live", "Uses real Binance spot URL and live credentials for connection testing."],
+            ].map(([value, title, description]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setEnvSettings((current) => ({ ...current, mode: value as Fast2XEnvConfig["mode"], force_testnet: value !== "live" }))}
+                className={cn("rounded-md border px-3 py-3 text-left text-sm", envSettings.mode === value && "border-primary bg-primary/10")}
+              >
+                <div className="font-medium">{title}</div>
+                <div className="text-xs text-muted-foreground">{description}</div>
+              </button>
+            ))}
+          </div>
+        </Field>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="flex items-center justify-between rounded-md border px-3 py-2"><span className="text-sm">Testnet gate</span><Switch checked={envSettings.testnet_enabled} onCheckedChange={(value) => update("testnet_enabled", value)} /></div>
+          <div className="flex items-center justify-between rounded-md border px-3 py-2"><span className="text-sm">Live gate</span><Switch checked={envSettings.live_enabled} onCheckedChange={(value) => update("live_enabled", value)} /></div>
+        </div>
+        <Field label="Live spot URL"><Input value={envSettings.live_api_url} onChange={(e) => update("live_api_url", e.target.value)} /></Field>
+        <Field label="Live spot API key"><Input value={envSettings.live_api_key} onChange={(e) => update("live_api_key", e.target.value)} /></Field>
+        <Field label={`Live spot API secret${envSettings.live_api_secret_masked ? ` (${envSettings.live_api_secret_masked})` : ""}`}>
+          <Input type="password" value={liveSecret} placeholder={envSettings.live_api_secret_masked ? "Leave blank to keep current secret" : "Enter live API secret"} onChange={(e) => setLiveSecret(e.target.value)} />
+        </Field>
+        <Field label="Testnet spot URL"><Input value={envSettings.testnet_api_url} onChange={(e) => update("testnet_api_url", e.target.value)} /></Field>
+        <Field label="Testnet spot API key"><Input value={envSettings.testnet_api_key} onChange={(e) => update("testnet_api_key", e.target.value)} /></Field>
+        <Field label={`Testnet spot API secret${envSettings.testnet_api_secret_masked ? ` (${envSettings.testnet_api_secret_masked})` : ""}`}>
+          <Input type="password" value={testnetSecret} placeholder={envSettings.testnet_api_secret_masked ? "Leave blank to keep current secret" : "Enter testnet API secret"} onChange={(e) => setTestnetSecret(e.target.value)} />
+        </Field>
+        <div className="text-xs text-muted-foreground">
+          Live configured: <span className="font-medium">{envSettings.live_configured ? "Configured" : "Missing"}</span> | Testnet configured: <span className="font-medium">{envSettings.testnet_configured ? "Configured" : "Missing"}</span>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button variant="outline" disabled={busy} onClick={onTestConnection}>Test Connection</Button>
+          <Button disabled={busy} onClick={onSave}><Save className="mr-2 h-4 w-4" />Save My Config</Button>
+        </div>
       </CardContent>
     </Card>
   );
