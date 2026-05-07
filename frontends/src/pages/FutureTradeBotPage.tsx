@@ -71,9 +71,9 @@ const DEFAULT_ENV_CONFIG: FutureTradeEnvConfig = {
   testnet_configured: false,
 };
 
-const LOSS_LOCK_RECOVERY_PRESET: Partial<Record<keyof FutureTradeSettings, number>> = {
+const LOSS_LOCK_RECOVERY_PRESET = {
   leverage: 2,
-  tradeAmountUsdt: 15,
+  tradeAmountUsdt: 25,
   minConfidence: 0.78,
   dynamicMinConfidenceFloor: 0.72,
   dynamicReentryBuffer: 0.02,
@@ -84,7 +84,7 @@ const LOSS_LOCK_RECOVERY_PRESET: Partial<Record<keyof FutureTradeSettings, numbe
   maxDailyLossPercent: 1,
   maxTradesPerDay: 6,
   cooldownSeconds: 90,
-};
+} satisfies Partial<FutureTradeSettings>;
 
 const LOSS_LOCK_RECOVERY_KEYS = [
   "leverage",
@@ -105,7 +105,7 @@ const STRICT_BTC_ETH_FULLY_DYNAMIC_PRESET: Partial<FutureTradeSettings> = {
   symbols: ["BTCUSDT", "ETHUSDT"],
   confidenceMode: "fully_dynamic",
   leverage: 2,
-  tradeAmountUsdt: 12,
+  tradeAmountUsdt: 25,
   minConfidence: 0.8,
   dynamicLookbackMinutes: 10,
   dynamicMinConfidenceFloor: 0.75,
@@ -704,7 +704,7 @@ function ConfigPanel({ envMode, status, settings, setSettings, notes, setNotes, 
         </Field>
         <div className="grid gap-3 sm:grid-cols-2">
           {(["leverage", "tradeAmountUsdt", "minConfidence", "dynamicLookbackMinutes", "dynamicMinConfidenceFloor", "dynamicMinConfidenceCeiling", "dynamicReentryBuffer", "takeProfitPercent", "stopLossPercent", "trailingTakeProfitPercent", "rollbackLossPercent", "maxDailyLossPercent", "maxTradesPerDay", "cooldownSeconds"] as const).map((key) => {
-            const highlighted = recoveryMode && LOSS_LOCK_RECOVERY_KEYS.includes(key);
+            const highlighted = recoveryMode && (LOSS_LOCK_RECOVERY_KEYS as readonly string[]).includes(key);
             const suggestedValue = LOSS_LOCK_RECOVERY_PRESET[key];
 
             return (
