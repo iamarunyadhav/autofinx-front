@@ -333,7 +333,7 @@ export function useFutureTradeBot(workspaceId?: string) {
     queryKey: ["future-trade", workspaceId, "dashboard"],
     queryFn: async () => (await api.get<FutureTradeDashboard>(`${base}/dashboard`)).data,
     enabled,
-    refetchInterval: 5000,
+    refetchInterval: 1000,
   });
 
   const config = useQuery({
@@ -346,14 +346,14 @@ export function useFutureTradeBot(workspaceId?: string) {
     queryKey: ["future-trade", workspaceId, "trades"],
     queryFn: async () => (await api.get<FutureTradeRecord[]>(`${base}/trades`)).data,
     enabled,
-    refetchInterval: 10000,
+    refetchInterval: 1000,
   });
 
   const logs = useQuery({
     queryKey: ["future-trade", workspaceId, "logs"],
     queryFn: async () => (await api.get<FutureTradeLog[]>(`${base}/logs`)).data,
     enabled,
-    refetchInterval: 5000,
+    refetchInterval: 1000,
   });
 
   const envConfig = useQuery({
