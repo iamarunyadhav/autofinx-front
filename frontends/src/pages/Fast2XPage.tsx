@@ -107,7 +107,7 @@ export default function Fast2XPage() {
 
   useEffect(() => {
     if (fast2x.config.data?.settings) {
-      setSettings({ ...EMPTY_SETTINGS, ...fast2x.config.data.settings, paperTrading: true });
+      setSettings({ ...EMPTY_SETTINGS, ...fast2x.config.data.settings });
       setAiBrainEnabled(!!fast2x.config.data.ai_brain_enabled);
       setAlgorithmMarkdown(fast2x.config.data.algorithm_markdown || "");
     }
@@ -132,15 +132,16 @@ export default function Fast2XPage() {
   const envBusy = fast2x.updateEnvConfig.isPending || fast2x.envConfig.isFetching || fast2x.testConnection.isPending;
 
   const save = () => {
+    const wantsVenueExecution = envSettings.mode !== "paper";
     fast2x.updateConfig.mutate(
       {
-        settings: { ...settings, paperTrading: true },
+        settings: { ...settings, paperTrading: !wantsVenueExecution, envMode: envSettings.mode },
         ai_brain_enabled: aiBrainEnabled,
         algorithm_markdown: algorithmMarkdown,
-        enable_live_trading: false,
+        enable_live_trading: wantsVenueExecution,
       },
       {
-        onSuccess: () => toast({ title: "Fast2X config saved", description: "Paper trading remains enabled by default." }),
+        onSuccess: () => toast({ title: "Fast2X config saved", description: wantsVenueExecution ? `Fast2X will use ${envSettings.mode === "live" ? "the live spot venue" : "the Binance spot testnet venue"} when all gates and credentials are valid.` : "Paper execution remains active." }),
         onError: (error) => toast({ title: "Save failed", description: error instanceof Error ? error.message : "Could not save config", variant: "destructive" }),
       }
     );
@@ -203,7 +204,7 @@ export default function Fast2XPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight">Fast2X</h1>
-                <p className="text-sm text-muted-foreground">Real-time micro scalping engine for Binance Spot. Connection setup is configurable here; execution remains conservatively guarded.</p>
+                <p className="text-sm text-muted-foreground">Real-time micro scalping engine for Binance Spot with guarded paper, testnet, and live execution modes.</p>
               </div>
             </div>
           </div>
@@ -216,7 +217,7 @@ export default function Fast2XPage() {
 
         <div className="flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700">
           <AlertTriangle className="h-4 w-4" />
-          Fast2X My Config can store and test Live/Testnet spot credentials, but this build still executes Fast2X trades through the paper-simulated order path.
+          Execution mode follows My Config. `paper` stays simulated, `testnet` uses Binance Spot Testnet, and `live` uses real Binance Spot with the configured risk guards.
         </div>
 
         <div className="grid gap-4 xl:grid-cols-3">

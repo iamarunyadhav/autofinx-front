@@ -107,9 +107,13 @@ export interface FutureTradeDynamicDecision {
   analysis: {
     lookbackMinutes: number;
     sampleCount: number;
+    usableSignalCount?: number;
     priceChangePercent: number;
     volatilityPercent: number;
     direction: string;
+    priceDirection?: string;
+    signalDirection?: string;
+    directionSource?: string;
     directionAgreement: number;
     confidenceGap: number;
     trendStrength: number;
@@ -143,6 +147,56 @@ export interface FutureTradeDynamicPoint {
   decisionStatus?: string | null;
 }
 
+export interface FutureTradeDiagnosticsCheck {
+  label: string;
+  state: string;
+  message: string;
+}
+
+export interface FutureTradeDiagnosticsAlert {
+  event: string;
+  reason?: string | null;
+  occurredAt?: string | null;
+}
+
+export interface FutureTradeDiagnosticsRun {
+  id: string;
+  command: string;
+  status: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_ms?: number | null;
+}
+
+export interface FutureTradeDiagnostics {
+  state: string;
+  summary: string;
+  generatedAt?: string | null;
+  botBlockers: string[];
+  botWarnings: string[];
+  botChecks: FutureTradeDiagnosticsCheck[];
+  wallet: {
+    state: string;
+    message: string;
+    walletBalance?: number | null;
+    availableBalance?: number | null;
+    marginBalance?: number | null;
+    accountAsset?: string | null;
+    requiredTradeAmountUsdt?: number | null;
+  };
+  server: {
+    state: string;
+    blockers: string[];
+    warnings: string[];
+    scheduler?: Record<string, unknown> | null;
+    queue?: Record<string, unknown> | null;
+    rest?: Record<string, unknown> | null;
+    streams?: Record<string, unknown> | null;
+  };
+  latestAlert?: FutureTradeDiagnosticsAlert | null;
+  recentSchedulerRuns?: FutureTradeDiagnosticsRun[];
+}
+
 export interface FutureTradeDashboard {
   status: FutureTradeStatus;
   scanner: FutureSignal[];
@@ -152,6 +206,7 @@ export interface FutureTradeDashboard {
   orderbook: { bids: Array<{ price: number; qty: number }>; asks: Array<{ price: number; qty: number }> };
   risk: { lossPrevention: string; paperTrading: boolean; liveTradingBlocked: boolean };
   dynamic?: FutureTradeDynamicDecision;
+  diagnostics?: FutureTradeDiagnostics;
 }
 
 export interface FutureTradeConfig {

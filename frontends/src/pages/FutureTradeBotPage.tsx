@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { useFutureTradeBot, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeLog, type FutureTradeRecord, type FutureTradeSettings } from "@/hooks/useFutureTradeBot";
+import { useFutureTradeBot, type FutureTradeDiagnostics, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeLog, type FutureTradeRecord, type FutureTradeSettings } from "@/hooks/useFutureTradeBot";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { cn } from "@/lib/utils";
 
@@ -175,11 +175,13 @@ export default function FutureTradeBotPage() {
 
   const dashboard = bot.dashboard.data;
   const status = dashboard?.status;
+  const diagnostics = dashboard?.diagnostics;
   const savedSettings = useMemo(() => ({ ...DEFAULT_SETTINGS, ...(bot.config.data?.settings ?? {}) }), [bot.config.data?.settings]);
   const busy = bot.start.isPending || bot.stop.isPending || bot.emergencyStop.isPending || bot.resetPaper.isPending || bot.resetDailyLoss.isPending || bot.updateConfig.isPending;
   const envBusy = bot.updateEnvConfig.isPending || bot.envConfig.isFetching;
   const chart = useMemo(() => dashboard?.chart ?? [], [dashboard?.chart]);
   const liveModeBlocked = Boolean(settings.liveTrading && !status?.liveTradingEnvEnabled);
+  const latestRuntimeAlert = diagnostics?.latestAlert;
 
   const save = () => {
     bot.updateConfig.mutate(
@@ -278,6 +280,8 @@ export default function FutureTradeBotPage() {
           <Metric title="Loss Summary" value={`${n(status?.botLoss ?? status?.dailyLoss, 4)} ${status?.accountAsset || "USDT"}`} sub={`Win ${n(status?.winRate, 2)}% | Trades ${n(status?.tradeCountToday, 0)}`} good={(status?.botLoss ?? status?.dailyLoss ?? 0) === 0} />
         </div>
 
+        {latestRuntimeAlert ? <LatestRuntimeAlert alert={latestRuntimeAlert} /> : null}
+
         {status?.entryReason ? (
           <Card>
             <CardHeader><CardTitle>Entry Watch</CardTitle></CardHeader>
@@ -323,6 +327,7 @@ export default function FutureTradeBotPage() {
 
             <TradeHistory trades={bot.trades.data ?? []} liveTrading={status?.liveTrading ?? false} />
             <DynamicRuntimeTracker logs={bot.logs.data ?? []} />
+            <RuntimeDiagnosticsPanel diagnostics={diagnostics} />
           </div>
 
           <div className="space-y-6">
@@ -370,6 +375,119 @@ function err(toast: ReturnType<typeof useToast>["toast"]) {
 function Metric({ title, value, sub, good, icon }: { title: string; value: string; sub: string; good?: boolean; icon?: ReactNode }) {
   return (
     <Card><CardHeader><CardTitle className="flex items-center gap-2 text-sm text-muted-foreground">{icon}{title}</CardTitle></CardHeader><CardContent><div className={cn("text-xl font-semibold", good === false && "text-destructive", good === true && "text-running")}>{value}</div><div className="mt-1 text-xs text-muted-foreground">{sub}</div></CardContent></Card>
+  );
+}
+
+function LatestRuntimeAlert({ alert }: { alert: { event: string; reason?: string | null; occurredAt?: string | null } }) {
+  return (
+    <Card className="border-destructive/30 bg-destructive/5">
+      <CardHeader><CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="h-4 w-4 text-destructive" /> Latest Runtime Alert</CardTitle></CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="destructive">{alert.event}</Badge>
+          <span className="text-xs text-muted-foreground">{alert.occurredAt ? new Date(alert.occurredAt).toLocaleString() : "Unknown time"}</span>
+        </div>
+        <div className="rounded-md border bg-background/60 p-3 text-muted-foreground">{alert.reason || "No error reason provided."}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RuntimeDiagnosticsPanel({ diagnostics }: { diagnostics?: FutureTradeDiagnostics }) {
+  if (!diagnostics) return null;
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Runtime Diagnostics</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">{diagnostics.summary}</div>
+
+        <div className="grid gap-3 lg:grid-cols-3">
+          <DiagnosticBox
+            title="Bot blockers"
+            tone={diagnostics.botBlockers.length > 0 ? "danger" : diagnostics.botWarnings.length > 0 ? "warning" : "ok"}
+            lines={(diagnostics.botBlockers.length > 0 ? diagnostics.botBlockers : diagnostics.botWarnings.length > 0 ? diagnostics.botWarnings : ["none"]).map(humanizeCode)}
+          />
+          <DiagnosticBox
+            title="Wallet"
+            tone={diagnostics.wallet.state === "blocked" ? "danger" : diagnostics.wallet.state === "warning" ? "warning" : "ok"}
+            lines={[
+              diagnostics.wallet.message,
+              `Wallet ${balanceValue(diagnostics.wallet.walletBalance, 4)} ${diagnostics.wallet.accountAsset || "USDT"}`,
+              `Available ${balanceValue(diagnostics.wallet.availableBalance, 4)}`,
+            ]}
+          />
+          <DiagnosticBox
+            title="Server health"
+            tone={diagnostics.server.state === "blocked" ? "danger" : diagnostics.server.state === "degraded" || diagnostics.server.state === "caution" ? "warning" : "ok"}
+            lines={[
+              `State ${humanizeCode(diagnostics.server.state)}`,
+              `Scheduler ${humanizeCode(String(diagnostics.server.scheduler?.state ?? "unknown"))}`,
+              `Queue ${humanizeCode(String(diagnostics.server.queue?.state ?? "unknown"))}`,
+            ]}
+          />
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Active checks</div>
+            <div className="space-y-2">
+              {diagnostics.botChecks.length === 0 ? (
+                <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">No diagnostics checks yet.</div>
+              ) : diagnostics.botChecks.map((check, index) => (
+                <div key={`${check.label}-${index}`} className="rounded-md border px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-medium">{check.label}</span>
+                    <Badge variant={check.state === "blocked" ? "destructive" : check.state === "warning" ? "secondary" : "outline"}>{humanizeCode(check.state)}</Badge>
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">{check.message}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Scheduler history</div>
+            <div className="space-y-2">
+              {(diagnostics.recentSchedulerRuns ?? []).length === 0 ? (
+                <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">No scheduler history yet.</div>
+              ) : diagnostics.recentSchedulerRuns?.map((run) => (
+                <div key={run.id} className="rounded-md border px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-medium">{run.command}</span>
+                    <Badge variant={run.status === "completed" ? "outline" : run.status === "running" ? "secondary" : "destructive"}>{run.status}</Badge>
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {run.started_at ? new Date(run.started_at).toLocaleString() : "Unknown start"} {run.duration_ms != null ? `| ${n(run.duration_ms, 0)} ms` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {(diagnostics.server.blockers.length > 0 || diagnostics.server.warnings.length > 0) ? (
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Server blockers and warnings</div>
+            <div className="flex flex-wrap gap-2">
+              {diagnostics.server.blockers.map((item) => <Badge key={`b-${item}`} variant="destructive">{humanizeCode(item)}</Badge>)}
+              {diagnostics.server.warnings.map((item) => <Badge key={`w-${item}`} variant="secondary">{humanizeCode(item)}</Badge>)}
+            </div>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DiagnosticBox({ title, tone, lines }: { title: string; tone: "ok" | "warning" | "danger"; lines: string[] }) {
+  return (
+    <div className={cn("rounded-md border p-3 text-sm", tone === "danger" && "border-destructive/30 bg-destructive/5", tone === "warning" && "border-amber-500/30 bg-amber-500/5")}>
+      <div className="mb-2 font-medium">{title}</div>
+      <div className="space-y-1 text-xs text-muted-foreground">
+        {lines.map((line, index) => <div key={`${title}-${index}`}>{line}</div>)}
+      </div>
+    </div>
   );
 }
 
@@ -457,6 +575,15 @@ function DynamicSuggestionPanel({ dynamic, onApplyRecommendation, onRestoreManua
           <Row label="Agreement" value={`${n(dynamic.analysis.directionAgreement * 100, 0)}%`} />
           <Row label="Move" value={`${n(dynamic.analysis.priceChangePercent, 3)}%`} />
           <Row label="Volatility" value={`${n(dynamic.analysis.volatilityPercent, 3)}%`} />
+        </div>
+        <div className="rounded-md border bg-muted/20 p-3">
+          <div className="mb-2 text-xs font-medium">Direction breakdown</div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <Row label="Price bias" value={dynamic.analysis.priceDirection || "-"} />
+            <Row label="Signal bias" value={dynamic.analysis.signalDirection || "-"} />
+            <Row label="Direction source" value={humanizeCode(dynamic.analysis.directionSource || "-")} />
+            <Row label="Usable scans" value={n(dynamic.analysis.usableSignalCount ?? 0, 0)} />
+          </div>
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
           <Button
@@ -691,7 +818,7 @@ function MyConfigPanel({
 
 function LogFeed({ logs }: { logs: Array<{ id: string; event: string; symbol?: string | null; signal?: string | null; reason?: string | null; occurred_at: string }> }) {
   return (
-    <Card><CardHeader><CardTitle>Decision Feed</CardTitle></CardHeader><CardContent className="space-y-2">{logs.slice(0, 10).map((log) => <div key={log.id} className="rounded-md border px-3 py-2 text-sm"><Badge variant={statusVariant(log.event)}>{log.event}</Badge><span className="ml-2 text-muted-foreground">{log.symbol} {log.signal}</span><div className="mt-1 text-xs text-muted-foreground">{log.reason}</div></div>)}</CardContent></Card>
+    <Card><CardHeader><CardTitle>Decision Feed</CardTitle></CardHeader><CardContent className="space-y-2">{logs.slice(0, 10).map((log) => <div key={log.id} className="rounded-md border px-3 py-2 text-sm"><div className="flex items-center justify-between gap-3"><div><Badge variant={statusVariant(log.event)}>{log.event}</Badge><span className="ml-2 text-muted-foreground">{log.symbol} {log.signal}</span></div><span className="text-[11px] text-muted-foreground">{new Date(log.occurred_at).toLocaleTimeString()}</span></div><div className="mt-1 text-xs text-muted-foreground">{log.reason}</div></div>)}</CardContent></Card>
   );
 }
 
@@ -900,6 +1027,10 @@ function trackerStatusLabel(log: FutureTradeLog) {
     .replace(/_EXECUTED$/, "_OPEN")
     .replace(/_/g, " ")
     .trim();
+}
+
+function humanizeCode(value: string) {
+  return value.replace(/_/g, " ").trim();
 }
 
 function Field({ label, children, className, note }: { label: string; children: ReactNode; className?: string; note?: string }) {
