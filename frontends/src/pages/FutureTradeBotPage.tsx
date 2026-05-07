@@ -396,6 +396,11 @@ function LatestRuntimeAlert({ alert }: { alert: { event: string; reason?: string
 function RuntimeDiagnosticsPanel({ diagnostics }: { diagnostics?: FutureTradeDiagnostics }) {
   if (!diagnostics) return null;
 
+  const queueBacklog = Number(diagnostics.server.queue?.queue_backlog ?? 0);
+  const queueFailed = Number(diagnostics.server.queue?.failed_jobs ?? 0);
+  const queueWarn = Number(diagnostics.server.queue?.warning_threshold ?? 0);
+  const queueBlock = Number(diagnostics.server.queue?.block_threshold ?? 0);
+
   return (
     <Card>
       <CardHeader><CardTitle>Runtime Diagnostics</CardTitle></CardHeader>
@@ -424,6 +429,7 @@ function RuntimeDiagnosticsPanel({ diagnostics }: { diagnostics?: FutureTradeDia
               `State ${humanizeCode(diagnostics.server.state)}`,
               `Scheduler ${humanizeCode(String(diagnostics.server.scheduler?.state ?? "unknown"))}`,
               `Queue ${humanizeCode(String(diagnostics.server.queue?.state ?? "unknown"))}`,
+              `Backlog ${n(queueBacklog, 0)} | warn ${n(queueWarn, 0)} | block ${n(queueBlock, 0)} | failed ${n(queueFailed, 0)}`,
             ]}
           />
         </div>

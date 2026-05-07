@@ -189,7 +189,16 @@ export interface FutureTradeDiagnostics {
     blockers: string[];
     warnings: string[];
     scheduler?: Record<string, unknown> | null;
-    queue?: Record<string, unknown> | null;
+    queue?: {
+      state?: string;
+      blockers?: string[];
+      warnings?: string[];
+      queue_backlog?: number;
+      failed_jobs?: number;
+      warning_threshold?: number;
+      block_threshold?: number;
+      [key: string]: unknown;
+    } | null;
     rest?: Record<string, unknown> | null;
     streams?: Record<string, unknown> | null;
   };
