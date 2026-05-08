@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { useFutureTradeBot, type FutureTradeDiagnostics, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeLog, type FutureTradeRecord, type FutureTradeSettings } from "@/hooks/useFutureTradeBot";
+import { useFutureTradeBot, type FutureTradeDiagnostics, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeLog, type FutureTradeRecord, type FutureTradeRecoveryResult, type FutureTradeSettings } from "@/hooks/useFutureTradeBot";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { cn } from "@/lib/utils";
 
@@ -177,11 +177,24 @@ export default function FutureTradeBotPage() {
   const status = dashboard?.status;
   const diagnostics = dashboard?.diagnostics;
   const savedSettings = useMemo(() => ({ ...DEFAULT_SETTINGS, ...(bot.config.data?.settings ?? {}) }), [bot.config.data?.settings]);
-  const busy = bot.start.isPending || bot.stop.isPending || bot.emergencyStop.isPending || bot.resetPaper.isPending || bot.resetDailyLoss.isPending || bot.updateConfig.isPending;
+  const busy = bot.start.isPending || bot.stop.isPending || bot.emergencyStop.isPending || bot.resetPaper.isPending || bot.resetDailyLoss.isPending || bot.updateConfig.isPending || bot.recover.isPending;
   const envBusy = bot.updateEnvConfig.isPending || bot.envConfig.isFetching;
   const chart = useMemo(() => dashboard?.chart ?? [], [dashboard?.chart]);
   const liveModeBlocked = Boolean(settings.liveTrading && !status?.liveTradingEnvEnabled);
   const latestRuntimeAlert = diagnostics?.latestAlert;
+
+  const runRecovery = (action: "auto" | "sync_state" | "cancel_reduce_only") => {
+    bot.recover.mutate(action, {
+      onSuccess: (result: FutureTradeRecoveryResult) => {
+        toast({
+          title: result.resolved ? "Future Trade recovery finished" : "Future Trade recovery needs attention",
+          description: result.message,
+          variant: result.resolved ? "default" : "destructive",
+        });
+      },
+      onError: err(toast),
+    });
+  };
 
   const save = () => {
     bot.updateConfig.mutate(
@@ -280,7 +293,7 @@ export default function FutureTradeBotPage() {
           <Metric title="Loss Summary" value={`${n(status?.botLoss ?? status?.dailyLoss, 4)} ${status?.accountAsset || "USDT"}`} sub={`Win ${n(status?.winRate, 2)}% | Trades ${n(status?.tradeCountToday, 0)}`} good={(status?.botLoss ?? status?.dailyLoss ?? 0) === 0} />
         </div>
 
-        {latestRuntimeAlert ? <LatestRuntimeAlert alert={latestRuntimeAlert} /> : null}
+        {latestRuntimeAlert ? <LatestRuntimeAlert alert={latestRuntimeAlert} busy={bot.recover.isPending} onRecover={runRecovery} /> : null}
 
         {status?.entryReason ? (
           <Card>
@@ -378,16 +391,44 @@ function Metric({ title, value, sub, good, icon }: { title: string; value: strin
   );
 }
 
-function LatestRuntimeAlert({ alert }: { alert: { event: string; reason?: string | null; occurredAt?: string | null } }) {
+function LatestRuntimeAlert({
+  alert,
+  busy,
+  onRecover,
+}: {
+  alert: { event: string; reason?: string | null; occurredAt?: string | null };
+  busy: boolean;
+  onRecover: (action: "auto" | "sync_state" | "cancel_reduce_only") => void;
+}) {
+  const message = alert.reason || "No error reason provided.";
+  const blocksNewEntries = /reduceonly order is rejected|margin is insufficient|insufficient/i.test(message);
+
   return (
     <Card className="border-destructive/30 bg-destructive/5">
       <CardHeader><CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="h-4 w-4 text-destructive" /> Latest Runtime Alert</CardTitle></CardHeader>
-      <CardContent className="space-y-2 text-sm">
+      <CardContent className="space-y-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="destructive">{alert.event}</Badge>
           <span className="text-xs text-muted-foreground">{alert.occurredAt ? new Date(alert.occurredAt).toLocaleString() : "Unknown time"}</span>
         </div>
-        <div className="rounded-md border bg-background/60 p-3 text-muted-foreground">{alert.reason || "No error reason provided."}</div>
+        <div className="rounded-md border bg-background/60 p-3 text-muted-foreground">{message}</div>
+        <div className="rounded-md border bg-background/60 p-3 text-xs text-muted-foreground">
+          {blocksNewEntries
+            ? "This error can block fresh entries until Binance position state and bot state are back in sync. Use Auto Resolve first."
+            : "This alert does not always stop scanning, but it should be reviewed before trusting the next trade."}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" disabled={busy} onClick={() => onRecover("auto")}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Auto Resolve
+          </Button>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => onRecover("sync_state")}>
+            Sync Binance State
+          </Button>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => onRecover("cancel_reduce_only")}>
+            Cancel Close Orders
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

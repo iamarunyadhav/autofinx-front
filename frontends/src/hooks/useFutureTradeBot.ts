@@ -270,6 +270,17 @@ export interface FutureTradeConnectionTest {
   accountAsset?: string;
 }
 
+export interface FutureTradeRecoveryResult {
+  action: "auto" | "sync_state" | "cancel_reduce_only" | string;
+  resolved: boolean;
+  message: string;
+  exchange_quantity?: number;
+  exchange_side?: string | null;
+  cancelled_reduce_only_orders?: number;
+  local_state_cleared?: boolean;
+  position_still_open?: boolean;
+}
+
 export interface FutureTradeRecord {
   id: string;
   symbol: string;
@@ -381,6 +392,11 @@ export function useFutureTradeBot(workspaceId?: string) {
     mutationFn: async () => (await api.post<FutureTradeConnectionTest>(`${base}/test-connection`, {})).data,
   });
 
+  const recover = useMutation({
+    mutationFn: async (action: "auto" | "sync_state" | "cancel_reduce_only") => (await api.post<FutureTradeRecoveryResult>(`${base}/recover`, { action })).data,
+    onSuccess: invalidate,
+  });
+
   return {
     dashboard,
     config,
@@ -390,6 +406,7 @@ export function useFutureTradeBot(workspaceId?: string) {
     updateConfig,
     updateEnvConfig,
     testConnection,
+    recover,
     start: useAction("start"),
     stop: useAction("stop"),
     emergencyStop: useAction("emergency-stop"),
