@@ -13,6 +13,7 @@ import {
   CreditCard,
   FlaskConical,
   LayoutDashboard,
+  ListChecks,
   Link,
   MessageSquare,
   PlayCircle,
@@ -64,6 +65,7 @@ const navItems = [
   { id: "connections", label: "Connections", icon: Link, path: "/connections" },
   { id: "analytics", label: "Analytics", icon: Waves, path: "/analytics" },
   { id: "ops", label: "Ops", icon: ServerCog, path: "/ops" },
+  { id: "jobs", label: "Jobs", icon: ListChecks, path: "/jobs" },
   { id: "billing", label: "Billing", icon: CreditCard, path: "/billing" },
   { id: "assistant", label: "AI Assistant", icon: MessageSquare, path: "/assistant" },
 ];

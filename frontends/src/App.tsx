@@ -37,6 +37,7 @@ import PortfolioIntelligencePage from "./pages/PortfolioIntelligencePage";
 import RatioBotPage from "./pages/RatioBotPage";
 import Fast2XPage from "./pages/Fast2XPage";
 import FutureTradeBotPage from "./pages/FutureTradeBotPage";
+import JobsPage from "./pages/JobsPage";
 import SettingsPage from "./pages/SettingsPage";
 
 const queryClient = new QueryClient();
@@ -174,6 +175,11 @@ const App = () => (
             <Route path="/ops" element={
               <ProtectedRoute>
                 <OpsPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/jobs" element={
+              <ProtectedRoute>
+                <JobsPage />
               </ProtectedRoute>
             } />
             <Route path="/ai-trading" element={
