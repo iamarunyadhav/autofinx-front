@@ -94,6 +94,7 @@ export interface Fast2XStatus {
   decision: string;
   dynamicThresholds?: Record<string, unknown> | null;
   indicatorConfirmation?: Record<string, unknown> | null;
+  externalSignalGate?: Record<string, unknown> | null;
   settings: Fast2XSettings;
 }
 
@@ -171,6 +172,7 @@ export interface Fast2XChartPayload {
     aiBrainEnabled: boolean;
     dynamicThresholds?: Record<string, unknown> | null;
     indicatorConfirmation?: Record<string, unknown> | null;
+    externalSignalGate?: Record<string, unknown> | null;
     riskControls: Record<string, number>;
   };
 }

@@ -19,6 +19,17 @@ interface SignalRow {
   regime?: string;
   strategy_name?: string;
   created_at?: string;
+  meta?: {
+    source?: string;
+    score?: number;
+    rr?: number;
+    risk_reward?: number;
+    news_risk?: string;
+    newsRisk?: string;
+    htf_aligned?: boolean;
+    htfAligned?: boolean;
+    timeframe?: string;
+  };
 }
 
 interface WebhookRow {
@@ -125,14 +136,14 @@ const SignalsPage = () => {
 
   return (
     <AppShell>
-      <div className="p-4 md:p-6 space-y-4">
+      <div className="space-y-4 p-4 md:p-6">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs uppercase text-muted-foreground">Signals</p>
             <h1 className="text-2xl font-semibold">Signal Marketplace</h1>
           </div>
           <Button variant="outline" onClick={load}>
-            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+            <RefreshCw className="mr-2 h-4 w-4" /> Refresh
           </Button>
         </div>
 
@@ -140,23 +151,91 @@ const SignalsPage = () => {
           <CardHeader>
             <CardTitle>Latest Signals</CardTitle>
           </CardHeader>
-          <CardContent className="grid md:grid-cols-2 gap-3">
-            {signals.slice(0, 6).map((s) => (
-              <div key={s.id} className="border rounded-lg p-3 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold">{s.symbol}</span>
-                  <Badge variant="outline">{s.action}</Badge>
+          <CardContent className="space-y-3">
+            {signals.slice(0, 6).map((signal) => {
+              const source = signal.meta?.source || "external";
+              const rr = signal.meta?.rr ?? signal.meta?.risk_reward;
+              const score = signal.meta?.score;
+              const news = signal.meta?.news_risk ?? signal.meta?.newsRisk ?? "LOW";
+              const htf = signal.meta?.htf_aligned ?? signal.meta?.htfAligned;
+
+              return (
+                <div key={signal.id} className="space-y-2 rounded-lg border p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="font-semibold">{signal.symbol}</div>
+                      <div className="text-xs text-muted-foreground">{signal.strategy_name || "strategy"} • {source}</div>
+                    </div>
+                    <Badge variant={signal.action === "BUY" ? "default" : signal.action === "SELL" ? "destructive" : "outline"}>
+                      {signal.action}
+                    </Badge>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <Badge variant="outline">conf {signal.confidence}</Badge>
+                    <Badge variant="outline">score {score ?? "?"}/10</Badge>
+                    <Badge variant="outline">RR {rr ?? "?"}</Badge>
+                    <Badge variant="outline">news {news}</Badge>
+                    <Badge variant="outline">HTF {htf ? "yes" : "no"}</Badge>
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  conf {s.confidence} • regime {s.regime || "?"} • {s.strategy_name || "strategy"}
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {signals.length === 0 && <p className="text-sm text-muted-foreground">No signals yet.</p>}
           </CardContent>
         </Card>
 
-        <div className="grid md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Signal History</CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs text-muted-foreground">
+                  <th className="py-2 pr-3">Time</th>
+                  <th className="py-2 pr-3">Symbol</th>
+                  <th className="py-2 pr-3">Action</th>
+                  <th className="py-2 pr-3">Source</th>
+                  <th className="py-2 pr-3">Conf</th>
+                  <th className="py-2 pr-3">Score</th>
+                  <th className="py-2 pr-3">RR</th>
+                  <th className="py-2 pr-3">News</th>
+                  <th className="py-2 pr-3">HTF</th>
+                  <th className="py-2 pr-3">Strategy</th>
+                </tr>
+              </thead>
+              <tbody>
+                {signals.map((signal) => (
+                  <tr key={signal.id} className="border-b border-border/60">
+                    <td className="py-2 pr-3 text-xs text-muted-foreground">
+                      {signal.created_at ? new Date(signal.created_at).toLocaleString() : "-"}
+                    </td>
+                    <td className="py-2 pr-3 font-medium">{signal.symbol}</td>
+                    <td className="py-2 pr-3">
+                      <Badge variant={signal.action === "BUY" ? "default" : signal.action === "SELL" ? "destructive" : "outline"}>
+                        {signal.action}
+                      </Badge>
+                    </td>
+                    <td className="py-2 pr-3">{signal.meta?.source || "-"}</td>
+                    <td className="py-2 pr-3">{signal.confidence}</td>
+                    <td className="py-2 pr-3">{signal.meta?.score ?? "-"}</td>
+                    <td className="py-2 pr-3">{signal.meta?.rr ?? signal.meta?.risk_reward ?? "-"}</td>
+                    <td className="py-2 pr-3">{signal.meta?.news_risk ?? signal.meta?.newsRisk ?? "-"}</td>
+                    <td className="py-2 pr-3">{(signal.meta?.htf_aligned ?? signal.meta?.htfAligned) ? "Yes" : "No"}</td>
+                    <td className="py-2 pr-3">{signal.strategy_name || "-"}</td>
+                  </tr>
+                ))}
+                {signals.length === 0 && (
+                  <tr>
+                    <td colSpan={10} className="py-6 text-center text-sm text-muted-foreground">No signal history yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+
+        <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader>
               <CardTitle>Webhooks</CardTitle>
@@ -171,14 +250,14 @@ const SignalsPage = () => {
                 <Button onClick={createWebhook}>Add</Button>
               </div>
               <div className="space-y-2">
-                {webhooks.map((w) => (
-                  <div key={w.id} className="border rounded-lg p-3 flex items-center justify-between">
+                {webhooks.map((webhook) => (
+                  <div key={webhook.id} className="flex items-center justify-between rounded-lg border p-3">
                     <div>
-                      <div className="font-medium text-sm">{w.target_url}</div>
-                      <div className="text-xs text-muted-foreground">{w.enabled ? "Enabled" : "Disabled"}</div>
+                      <div className="text-sm font-medium">{webhook.target_url}</div>
+                      <div className="text-xs text-muted-foreground">{webhook.enabled ? "Enabled" : "Disabled"}</div>
                     </div>
-                    <Button size="sm" variant="ghost" onClick={() => testWebhook(w.id)}>
-                      <Send className="w-4 h-4 mr-1" /> Test
+                    <Button size="sm" variant="ghost" onClick={() => testWebhook(webhook.id)}>
+                      <Send className="mr-1 h-4 w-4" /> Test
                     </Button>
                   </div>
                 ))}
@@ -201,8 +280,8 @@ const SignalsPage = () => {
                 <Button onClick={createToken}>Create</Button>
               </div>
               {plainToken && (
-                <div className="flex items-center justify-between bg-muted/40 p-2 rounded">
-                  <span className="text-xs font-mono break-all">{plainToken}</span>
+                <div className="flex items-center justify-between rounded bg-muted/40 p-2">
+                  <span className="break-all font-mono text-xs">{plainToken}</span>
                   <Button
                     size="icon"
                     variant="ghost"
@@ -211,16 +290,16 @@ const SignalsPage = () => {
                       toast.success("Copied");
                     }}
                   >
-                    <Copy className="w-4 h-4" />
+                    <Copy className="h-4 w-4" />
                   </Button>
                 </div>
               )}
               <div className="space-y-2">
-                {tokens.map((t) => (
-                  <div key={t.id} className="border rounded-lg p-3">
-                    <div className="font-medium text-sm">{t.name}</div>
-                    <div className="text-xs text-muted-foreground">Scopes: {t.scopes?.join(", ")}</div>
-                    <div className="text-[10px] text-muted-foreground mt-1">hash: {t.token_hash}</div>
+                {tokens.map((token) => (
+                  <div key={token.id} className="rounded-lg border p-3">
+                    <div className="text-sm font-medium">{token.name}</div>
+                    <div className="text-xs text-muted-foreground">Scopes: {token.scopes?.join(", ")}</div>
+                    <div className="mt-1 text-[10px] text-muted-foreground">hash: {token.token_hash}</div>
                   </div>
                 ))}
                 {tokens.length === 0 && <p className="text-sm text-muted-foreground">No tokens yet.</p>}

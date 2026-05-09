@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { ModuleRoute } from "@/components/auth/ModuleRoute";
 import Index from "./pages/Index";
 import AuthPage from "./pages/AuthPage";
 import StrategiesPage from "./pages/StrategiesPage";
@@ -39,6 +40,7 @@ import Fast2XPage from "./pages/Fast2XPage";
 import FutureTradeBotPage from "./pages/FutureTradeBotPage";
 import JobsPage from "./pages/JobsPage";
 import SettingsPage from "./pages/SettingsPage";
+import AccessPage from "./pages/AccessPage";
 
 const queryClient = new QueryClient();
 
@@ -57,39 +59,39 @@ const App = () => (
               </ProtectedRoute>
             } />
             <Route path="/strategies" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="strategies">
                 <StrategiesPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/assistant" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="assistant">
                 <AssistantPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/trading" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="quick-trade">
                 <QuickTradePage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/trading/desk" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="trading-desk">
                 <TradingPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/deals" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="deals">
                 <DealsPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/robot-trading" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="robot-trading">
                 <RobotTradingPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/auto-bot" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="auto-bot">
                 <LiveBotsPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/live-bots" element={
               <ProtectedRoute>
@@ -97,29 +99,34 @@ const App = () => (
               </ProtectedRoute>
             } />
             <Route path="/scheduler" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="scheduler">
                 <SchedulerPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/risk" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="risk">
                 <RiskPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/wallet" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="wallet">
                 <WalletPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/account" element={<Navigate to="/wallet" replace />} />
             <Route path="/portfolio" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="portfolio-intelligence">
                 <PortfolioIntelligencePage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/portfolio-intelligence" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="portfolio-intelligence">
                 <PortfolioIntelligencePage />
+              </ModuleRoute>
+            } />
+            <Route path="/access" element={
+              <ProtectedRoute>
+                <AccessPage />
               </ProtectedRoute>
             } />
             <Route path="/settings" element={
@@ -133,84 +140,84 @@ const App = () => (
               </ProtectedRoute>
             } />
             <Route path="/regime" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="regime">
                 <RegimePage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/copy-trading" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="copy-trading">
                 <CopyTradingPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/signals" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="signals">
                 <SignalsPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/connections" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="connections">
                 <ConnectionsPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/integrations" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="integrations">
                 <IntegrationsPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/profit" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="profit">
                 <ProfitCenterPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/analytics" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="analytics">
                 <AnalyticsPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/billing" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="billing">
                 <BillingPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/ops" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="ops">
                 <OpsPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/jobs" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="jobs">
                 <JobsPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/ai-trading" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="ai-trading">
                 <AiTradingPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/live-execution" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="live-execution">
                 <LiveExecutionPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/futures" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="futures">
                 <FuturesGroundworkPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/ratio-bot" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="ratio-bot">
                 <RatioBotPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/fast2x" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="fast2x">
                 <Fast2XPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/future-trade" element={
-              <ProtectedRoute>
+              <ModuleRoute moduleKey="future-trade">
                 <FutureTradeBotPage />
-              </ProtectedRoute>
+              </ModuleRoute>
             } />
             <Route path="/payouts/:id" element={
               <ProtectedRoute>

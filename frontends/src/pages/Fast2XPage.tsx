@@ -277,6 +277,8 @@ function showError(toast: ReturnType<typeof useToast>["toast"]) {
 }
 
 function Fast2XStatusCard({ status }: { status?: ReturnType<typeof useFast2X>["status"]["data"] }) {
+  const external = (status?.externalSignalGate ?? {}) as Record<string, unknown>;
+  const latest = (external.latestSignal ?? {}) as Record<string, unknown>;
   return (
     <Card>
       <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Bot className="h-4 w-4" /> Bot Status</CardTitle></CardHeader>
@@ -288,6 +290,8 @@ function Fast2XStatusCard({ status }: { status?: ReturnType<typeof useFast2X>["s
         <Row label="WebSocket" value={status?.webSocketStatus || "Disconnected"} badge />
         <Row label="Latency" value={`${status?.latencyMs ?? 0} ms`} />
         <Row label="Last Update" value={dt(status?.lastPriceUpdateTime)} />
+        <Row label="Signal Gate" value={external.enabled ? ((external.allowed as boolean) ? "Approved" : "Blocked") : "Disabled"} badge />
+        <Row label="Signal Source" value={String(latest.source || status?.settings?.externalSignalSource || "None")} />
       </CardContent>
     </Card>
   );
@@ -427,6 +431,7 @@ function Fast2XConfigPanel(props: {
 }) {
   const update = (key: keyof Fast2XSettings, value: string | number | boolean) => props.setSettings((current) => ({ ...current, [key]: value }));
   const numericKeys: (keyof Fast2XSettings)[] = ["tradeAmountValue", "minProfitTargetPercent", "rollbackLossPercent", "manualSellThresholdPercent", "manualBuyThresholdPercent", "stopLossPercent", "trailingTakeProfitPercent", "maxAllowedSlippagePercent", "minimumProfitAfterFeesPercent", "cooldownSeconds", "maxTradesPerMinute", "maxTradesPerDay", "maxDailyLossPercent", "maxApiLatencyMs"];
+  const signalNumericKeys: (keyof Fast2XSettings)[] = ["externalSignalTtlSeconds", "externalSignalMinConfidence", "externalSignalMinScore", "externalSignalMinRR", "fusedEntryMinConfidence"];
   return (
     <Card>
       <CardHeader><CardTitle className="text-base">Configuration</CardTitle></CardHeader>
@@ -459,6 +464,27 @@ function Fast2XConfigPanel(props: {
               <Switch checked={Boolean(props.settings[key])} onCheckedChange={(value) => update(key, value)} />
             </div>
           ))}
+        </div>
+        <div className="space-y-3 rounded-lg border p-3">
+          <div className="text-sm font-medium">External Signal Fusion</div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(["useExternalSignals", "requireExternalSignalAgreement", "externalSignalRequireHtf", "externalSignalBlockHighNews"] as (keyof Fast2XSettings)[]).map((key) => (
+              <div key={String(key)} className="flex items-center justify-between rounded-md border px-3 py-2">
+                <span className="text-sm">{String(key)}</span>
+                <Switch checked={Boolean(props.settings[key])} onCheckedChange={(value) => update(key, value)} />
+              </div>
+            ))}
+          </div>
+          <Field label="externalSignalSource">
+            <Input value={String(props.settings.externalSignalSource ?? "mt5-mtf-pro")} onChange={(e) => update("externalSignalSource", e.target.value)} />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {signalNumericKeys.map((key) => (
+              <Field key={String(key)} label={String(key)}>
+                <Input type="number" step="0.01" value={Number(props.settings[key] ?? 0)} onChange={(e) => update(key, Number(e.target.value))} />
+              </Field>
+            ))}
+          </div>
         </div>
         <div className="flex items-center justify-between rounded-md border px-3 py-2">
           <span className="flex items-center gap-2 text-sm"><Brain className="h-4 w-4" />AI thinking brain</span>
@@ -553,6 +579,9 @@ function Fast2XLiveChart({ data, pnl, settings, levels }: { data: Array<Record<s
 function Fast2XAutoManagementPanel({ auto, pnl, price }: { auto?: Fast2XChartPayload["autoManagement"]; pnl?: ReturnType<typeof useFast2X>["pnl"]["data"]; price?: ReturnType<typeof useFast2X>["price"]["data"] }) {
   const thresholds = auto?.dynamicThresholds ?? {};
   const indicators = auto?.indicatorConfirmation ?? {};
+  const external = (auto?.externalSignalGate ?? {}) as Record<string, unknown>;
+  const latest = (external.latestSignal ?? {}) as Record<string, unknown>;
+  const forecast = (external.forecast ?? {}) as Record<string, unknown>;
   const risk = auto?.riskControls ?? {};
   const net = Number(pnl?.netPnLPercent ?? 0);
   return (
@@ -580,6 +609,21 @@ function Fast2XAutoManagementPanel({ auto, pnl, price }: { auto?: Fast2XChartPay
             <Badge variant={(indicators.allowTrade ?? true) ? "default" : "destructive"}>{(indicators.allowTrade ?? true) ? "Trade Allowed" : "Trade Blocked"}</Badge>
           </div>
           <div className="text-xs text-muted-foreground">Confidence {n(indicators.confidence, 2)} | RSI {n(indicators.rsi, 2)}</div>
+        </div>
+        <div className="space-y-2 rounded-md border p-3 md:col-span-3">
+          <div className="text-xs text-muted-foreground">External Signal Gate</div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant={(external.allowed as boolean) ? "default" : "destructive"}>{(external.allowed as boolean) ? "Signal Approved" : "Signal Blocked"}</Badge>
+            <Badge variant="outline">{String(latest.source || "no-source")}</Badge>
+            <Badge variant="outline">{String(latest.action || "WAIT")}</Badge>
+            <Badge variant="outline">score {n(latest.score, 0)}/10</Badge>
+            <Badge variant="outline">RR {n(latest.rr, 2)}</Badge>
+            <Badge variant="outline">news {String(latest.newsRisk || "-")}</Badge>
+            <Badge variant="outline">HTF {(latest.htfAligned as boolean) ? "yes" : "no"}</Badge>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Fused confidence {n(external.confidence, 2)} | Forecast {String(forecast.bias || "UNKNOWN")} @ {n(forecast.price, 8)}
+          </div>
         </div>
         <div className="grid gap-2 md:col-span-3 sm:grid-cols-3">
           <MiniMetric label="Rollback Loss" value={`${n(risk.rollbackLossPercent, 4)}%`} />

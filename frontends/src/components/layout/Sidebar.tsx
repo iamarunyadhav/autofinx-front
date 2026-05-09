@@ -28,6 +28,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { useModuleAccess } from "@/hooks/useModuleAccess";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import { MODULE_DEFINITIONS } from "@/lib/module-access";
 
 interface SidebarProps {
   activePath: string;
@@ -39,40 +42,38 @@ interface SidebarProps {
   onMobileOpenChange?: (open: boolean) => void;
 }
 
-const navItems = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/" },
-  { id: "strategies", label: "Strategies", icon: Bot, path: "/strategies" },
-  { id: "trading", label: "Quick Trade", icon: CandlestickChart, path: "/trading" },
-  { id: "deals", label: "Deals", icon: BriefcaseBusiness, path: "/deals" },
-  { id: "robot-trading", label: "Robot Trade", icon: Bot, path: "/robot-trading" },
-  { id: "trading-desk", label: "Trading Desk", icon: BarChart3, path: "/trading/desk" },
-  { id: "auto-bot", label: "Auto Bot", icon: PlayCircle, path: "/auto-bot" },
-  { id: "ratio-bot", label: "Ratio Bot", icon: Zap, path: "/ratio-bot" },
-  { id: "fast2x", label: "Fast2X", icon: Zap, path: "/fast2x" },
-  { id: "future-trade", label: "Future Trade", icon: FlaskConical, path: "/future-trade" },
-  { id: "scheduler", label: "Scheduler", icon: Calendar, path: "/scheduler" },
-  { id: "risk", label: "Risk", icon: Shield, path: "/risk" },
-  { id: "wallet", label: "Wallet", icon: Wallet, path: "/wallet" },
-  { id: "portfolio-intelligence", label: "Portfolio IQ", icon: BarChart3, path: "/portfolio" },
-  { id: "regime", label: "AI Regime", icon: Activity, path: "/regime" },
-  { id: "ai-trading", label: "AI Trading", icon: Brain, path: "/ai-trading" },
-  { id: "live-execution", label: "Execution", icon: Activity, path: "/live-execution" },
-  { id: "futures", label: "Futures", icon: FlaskConical, path: "/futures" },
-  { id: "integrations", label: "Integrations", icon: Link, path: "/integrations" },
-  { id: "profit", label: "Profit Center", icon: Zap, path: "/profit" },
-  { id: "copy-trading", label: "Copy Trading", icon: Share2, path: "/copy-trading" },
-  { id: "signals", label: "Signals", icon: Radio, path: "/signals" },
-  { id: "connections", label: "Connections", icon: Link, path: "/connections" },
-  { id: "analytics", label: "Analytics", icon: Waves, path: "/analytics" },
-  { id: "ops", label: "Ops", icon: ServerCog, path: "/ops" },
-  { id: "jobs", label: "Jobs", icon: ListChecks, path: "/jobs" },
-  { id: "billing", label: "Billing", icon: CreditCard, path: "/billing" },
-  { id: "assistant", label: "AI Assistant", icon: MessageSquare, path: "/assistant" },
-];
-
-const bottomItems = [
-  { id: "settings", label: "Settings", icon: Settings, path: "/settings" },
-];
+const iconMap = {
+  dashboard: LayoutDashboard,
+  strategies: Bot,
+  "quick-trade": CandlestickChart,
+  deals: BriefcaseBusiness,
+  "robot-trading": Bot,
+  "trading-desk": BarChart3,
+  "auto-bot": PlayCircle,
+  "ratio-bot": Zap,
+  fast2x: Zap,
+  "future-trade": FlaskConical,
+  scheduler: Calendar,
+  risk: Shield,
+  wallet: Wallet,
+  "portfolio-intelligence": BarChart3,
+  regime: Activity,
+  "ai-trading": Brain,
+  "live-execution": Activity,
+  futures: FlaskConical,
+  integrations: Link,
+  profit: Zap,
+  "copy-trading": Share2,
+  signals: Radio,
+  connections: Link,
+  analytics: Waves,
+  ops: ServerCog,
+  jobs: ListChecks,
+  billing: CreditCard,
+  assistant: MessageSquare,
+  access: Settings,
+  settings: Settings,
+} as const;
 
 interface SidebarContentProps {
   activePath: string;
@@ -89,6 +90,14 @@ function SidebarContent({
   onNavigate,
   onCollapseChange,
 }: SidebarContentProps) {
+  const { currentWorkspace } = useWorkspace();
+  const { definitions } = useModuleAccess(currentWorkspace?.id);
+  const visibleModules = definitions.length > 0
+    ? definitions.filter((definition) => definition.enabled)
+    : MODULE_DEFINITIONS.filter((definition) => definition.defaultMode === "active");
+  const navItems = visibleModules.filter((definition) => !["settings"].includes(definition.key));
+  const bottomItems = visibleModules.filter((definition) => ["settings"].includes(definition.key));
+
   return (
     <div className="h-full bg-sidebar border-r border-sidebar-border flex flex-col">
       <div className="h-16 flex items-center px-4 border-b border-sidebar-border shrink-0">
@@ -116,14 +125,14 @@ function SidebarContent({
 
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
-          const Icon = item.icon;
+          const Icon = iconMap[item.key as keyof typeof iconMap] ?? Settings;
           const isActive =
             activePath === item.path ||
             (item.path !== "/" && activePath.startsWith(`${item.path}/`));
 
           return (
             <button
-              key={item.id}
+              key={item.key}
               type="button"
               onClick={() => onNavigate(item.path)}
               className={cn(
@@ -194,14 +203,14 @@ function SidebarContent({
         </div>
 
         {bottomItems.map((item) => {
-          const Icon = item.icon;
+          const Icon = iconMap[item.key as keyof typeof iconMap] ?? Settings;
           const isActive =
             activePath === item.path ||
             (item.path !== "/" && activePath.startsWith(`${item.path}/`));
 
           return (
             <button
-              key={item.id}
+              key={item.key}
               type="button"
               onClick={() => onNavigate(item.path)}
               className={cn(
