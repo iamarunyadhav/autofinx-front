@@ -21,6 +21,9 @@ export interface PendingJob {
   reserved: boolean;
   available_at?: string | null;
   created_at?: string | null;
+  age_seconds?: number | null;
+  prunable?: boolean;
+  prune_reason?: string | null;
   uuid?: string | null;
   job: string;
   display_name: string;
@@ -56,6 +59,7 @@ export interface JobsDashboard {
   failed: number;
   warning_threshold: number;
   block_threshold: number;
+  protected_queues: string[];
   horizon: {
     installed: boolean;
     enabled: boolean;
@@ -69,12 +73,39 @@ export interface JobsDashboard {
   worker: {
     restart_signal_available: boolean;
     recommended_command: string;
+    topology: string;
     supervisor_command: string;
     horizon_command: string;
+    profiles: Array<{
+      key: string;
+      label: string;
+      purpose: string;
+      queues: string[];
+      command: string;
+    }>;
   };
   queues: JobQueueRow[];
   pending_jobs: PendingJob[];
   failed_jobs: FailedJob[];
+  stale_prune: {
+    enabled: boolean;
+    older_than_minutes: number;
+    max_delete: number;
+    safe_queues: string[];
+    safe_job_classes: string[];
+    candidates: {
+      older_than_minutes: number;
+      prunable_total: number;
+      sample: Array<{
+        id: string;
+        queue: string;
+        display_name: string;
+        age_seconds: number;
+        prunable: boolean;
+        prune_reason: string;
+      }>;
+    };
+  };
   scheduler_runs: SchedulerRun[];
   recommendations: string[];
   generated_at: string;
@@ -122,4 +153,8 @@ export function useForgetFailedJob() {
 
 export function useClearPendingQueue() {
   return useJobAction("/jobs/pending/clear", "Pending queue cleared");
+}
+
+export function usePruneStalePendingJobs() {
+  return useJobAction("/jobs/pending/prune-stale", "Stale safe jobs pruned");
 }

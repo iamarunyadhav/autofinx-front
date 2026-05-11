@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useClearPendingQueue, useForgetFailedJob, useJobsDashboard, useRestartWorkers, useRetryFailedJob } from "@/hooks/useJobs";
+import { useClearPendingQueue, useForgetFailedJob, useJobsDashboard, usePruneStalePendingJobs, useRestartWorkers, useRetryFailedJob } from "@/hooks/useJobs";
 import { AlertTriangle, CheckCircle2, Gauge, ListRestart, PlayCircle, RefreshCcw, ServerCog, ShieldAlert, Trash2, Workflow, XCircle } from "lucide-react";
 
 const n = (value?: number | null) => Number(value ?? 0).toLocaleString();
@@ -22,14 +22,23 @@ function stateVariant(state?: string): "default" | "secondary" | "destructive" |
   return "outline";
 }
 
+function duration(value?: number | null) {
+  const total = Number(value ?? 0);
+  if (!Number.isFinite(total) || total <= 0) return "0s";
+  if (total >= 3600) return `${Math.floor(total / 3600)}h`;
+  if (total >= 60) return `${Math.floor(total / 60)}m`;
+  return `${Math.floor(total)}s`;
+}
+
 export default function JobsPage() {
   const dashboard = useJobsDashboard();
   const restartWorkers = useRestartWorkers();
   const retryFailed = useRetryFailedJob();
   const forgetFailed = useForgetFailedJob();
   const clearPending = useClearPendingQueue();
+  const pruneStale = usePruneStalePendingJobs();
   const data = dashboard.data;
-  const busy = restartWorkers.isPending || retryFailed.isPending || forgetFailed.isPending || clearPending.isPending;
+  const busy = restartWorkers.isPending || retryFailed.isPending || forgetFailed.isPending || clearPending.isPending || pruneStale.isPending;
 
   const confirmAction = (message: string, fn: () => void) => {
     if (window.confirm(message)) fn();
@@ -52,6 +61,16 @@ export default function JobsPage() {
             <Button variant="outline" onClick={() => dashboard.refetch()} disabled={dashboard.isFetching}>
               <RefreshCcw className="mr-2 h-4 w-4" /> Refresh
             </Button>
+            <Button
+              variant="secondary"
+              onClick={() => confirmAction(
+                `Prune stale safe jobs older than ${data?.stale_prune?.older_than_minutes ?? 30} minutes? Protected queues and exit-monitor jobs stay untouched.`,
+                () => pruneStale.mutate({ older_than_minutes: data?.stale_prune?.older_than_minutes, confirm: true })
+              )}
+              disabled={busy || !data?.stale_prune?.enabled || (data?.stale_prune?.candidates?.prunable_total ?? 0) <= 0}
+            >
+              <Trash2 className="mr-2 h-4 w-4" /> Prune Safe Stale Jobs
+            </Button>
             <Button onClick={() => restartWorkers.mutate({})} disabled={busy}>
               <ListRestart className="mr-2 h-4 w-4" /> Restart Workers
             </Button>
@@ -72,6 +91,7 @@ export default function JobsPage() {
           <MetricCard title="Queue state" value={human(data?.state)} detail={`${data?.connection || "unknown"} connection`} icon={<Gauge className="h-4 w-4" />} />
           <MetricCard title="Backlog" value={n(data?.backlog)} detail={`warn ${n(data?.warning_threshold)} / block ${n(data?.block_threshold)}`} icon={<AlertTriangle className="h-4 w-4" />} />
           <MetricCard title="Failed jobs" value={n(data?.failed)} detail="retry or forget after review" icon={<XCircle className="h-4 w-4" />} />
+          <MetricCard title="Safe stale jobs" value={n(data?.stale_prune?.candidates?.prunable_total)} detail={`older than ${n(data?.stale_prune?.older_than_minutes)} min`} icon={<Trash2 className="h-4 w-4" />} />
           <MetricCard title="Redis/Horizon" value={data?.redis_ready?.configured ? "Redis" : "Not Redis"} detail={data?.horizon?.installed ? "Horizon installed" : "Horizon missing"} icon={<ServerCog className="h-4 w-4" />} />
         </div>
 
@@ -109,10 +129,10 @@ export default function JobsPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={busy || queue.pending <= 0}
+                          disabled={busy || queue.pending <= 0 || (data?.protected_queues ?? []).includes(queue.name)}
                           onClick={() => confirmAction(`Clear pending jobs in ${queue.name}? Use only for stale/non-critical backlog.`, () => clearPending.mutate({ queue: queue.name, connection: data?.connection, confirm: true }))}
                         >
-                          Clear
+                          {(data?.protected_queues ?? []).includes(queue.name) ? "Protected" : "Clear"}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -125,14 +145,25 @@ export default function JobsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Worker Setup</CardTitle>
-              <CardDescription>Commands for server-side Redis/Horizon queue handling.</CardDescription>
+              <CardDescription>Recommended 3-worker split so live queues stay faster under backlog.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <StatusLine label="Redis queue" ok={Boolean(data?.redis_ready?.configured)} detail={`QUEUE_CONNECTION=${data?.redis_ready?.queue_connection || "unknown"}`} />
               <StatusLine label="Horizon package" ok={Boolean(data?.horizon?.installed)} detail={data?.horizon?.installed ? data?.horizon?.dashboard_url : "composer require laravel/horizon"} />
-              <CommandBlock title="Worker command" value={data?.worker?.recommended_command} />
+              <CommandBlock title="Single worker fallback" value={data?.worker?.recommended_command} />
               <CommandBlock title="Supervisor restart" value={data?.worker?.supervisor_command} />
               <CommandBlock title="Horizon command" value={data?.worker?.horizon_command} />
+              <CommandBlock title="Protected queues" value={(data?.protected_queues ?? []).join(", ")} />
+              {(data?.worker?.profiles ?? []).map((profile) => (
+                <div key={profile.key} className="rounded-lg border border-border p-3">
+                  <div className="mb-1 flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium">{profile.label}</div>
+                    <Badge variant="outline">{profile.queues.join(", ")}</Badge>
+                  </div>
+                  <div className="mb-2 text-xs text-muted-foreground">{profile.purpose}</div>
+                  <code className="block rounded-lg border border-border bg-background/70 p-3 text-xs text-cyan-100">{profile.command}</code>
+                </div>
+              ))}
               {(data?.recommendations ?? []).map((item) => (
                 <Alert key={item}>
                   <AlertTriangle className="h-4 w-4" />
@@ -206,22 +237,24 @@ export default function JobsPage() {
                   <TableRow>
                     <TableHead>Job</TableHead>
                     <TableHead>Queue</TableHead>
+                    <TableHead>Age</TableHead>
                     <TableHead>Attempts</TableHead>
                     <TableHead>State</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {(data?.pending_jobs ?? []).length === 0 ? (
-                    <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">No pending jobs.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">No pending jobs.</TableCell></TableRow>
                   ) : data?.pending_jobs.map((job) => (
                     <TableRow key={job.id}>
                       <TableCell>
                         <div className="font-medium">{short(job.display_name, 52)}</div>
-                        <div className="text-xs text-muted-foreground">available {job.available_at}</div>
+                        <div className="text-xs text-muted-foreground">{job.prunable ? `safe prune: ${human(job.prune_reason)}` : `reason: ${human(job.prune_reason)}`}</div>
                       </TableCell>
                       <TableCell>{job.queue}</TableCell>
+                      <TableCell>{duration(job.age_seconds)}</TableCell>
                       <TableCell>{job.attempts}</TableCell>
-                      <TableCell><Badge variant={job.reserved ? "secondary" : "outline"}>{job.reserved ? "reserved" : "waiting"}</Badge></TableCell>
+                      <TableCell><Badge variant={job.prunable ? "default" : (job.reserved ? "secondary" : "outline")}>{job.prunable ? "prunable" : (job.reserved ? "reserved" : "waiting")}</Badge></TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
