@@ -147,6 +147,58 @@ export interface FutureTradeDynamicPoint {
   decisionStatus?: string | null;
 }
 
+export interface FutureTradeCandle {
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface FutureTradeMarketChart {
+  symbol?: string | null;
+  timeframe: string;
+  candles: FutureTradeCandle[];
+}
+
+export interface FutureTradeIndicatorValidation {
+  key: string;
+  label: string;
+  passed: boolean;
+}
+
+export interface FutureTradeIndicatorSuite {
+  preset?: string;
+  state: string;
+  summary: string;
+  signal?: string;
+  score?: number;
+  executionReady?: boolean;
+  trend?: {
+    direction: string;
+    adx: number;
+    vwap: number;
+    openingRangeHigh?: number | null;
+    openingRangeLow?: number | null;
+    bubbleCount?: number;
+    zones?: {
+      supply?: number | null;
+      demand?: number | null;
+    };
+  };
+  validations: FutureTradeIndicatorValidation[];
+  backtest: {
+    trades: number;
+    wins: number;
+    losses: number;
+    winRate: number;
+    netPercent: number;
+    bestTrade: number;
+    worstTrade: number;
+  };
+}
+
 export interface FutureTradeDiagnosticsCheck {
   label: string;
   state: string;
@@ -211,6 +263,8 @@ export interface FutureTradeDashboard {
   scanner: FutureSignal[];
   bestSignal?: FutureSignal | null;
   chart: FutureTradeDynamicPoint[];
+  marketChart?: FutureTradeMarketChart;
+  indicatorSuite?: FutureTradeIndicatorSuite;
   levels: Record<string, number | null>;
   orderbook: { bids: Array<{ price: number; qty: number }>; asks: Array<{ price: number; qty: number }> };
   risk: { lossPrevention: string; paperTrading: boolean; liveTradingBlocked: boolean };

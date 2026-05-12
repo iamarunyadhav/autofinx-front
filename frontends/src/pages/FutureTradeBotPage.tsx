@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, Bot, Brain, Lightbulb, Power, RefreshCw, Save, ShieldAlert, Square, Wallet } from "lucide-react";
-import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AppShell } from "@/components/layout";
+import { FutureTradeProChart } from "@/components/future-trade/FutureTradeProChart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +13,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { useFutureTradeBot, type FutureTradeDiagnostics, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeLog, type FutureTradeRecord, type FutureTradeRecoveryResult, type FutureTradeSettings } from "@/hooks/useFutureTradeBot";
+import { usePruneStalePendingJobs, useRestartWorkers } from "@/hooks/useJobs";
+import { useFutureTradeBot, type FutureTradeDiagnostics, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeIndicatorSuite, type FutureTradeLog, type FutureTradeRecord, type FutureTradeRecoveryResult, type FutureTradeSettings } from "@/hooks/useFutureTradeBot";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { cn } from "@/lib/utils";
 
@@ -179,7 +180,7 @@ export default function FutureTradeBotPage() {
   const savedSettings = useMemo(() => ({ ...DEFAULT_SETTINGS, ...(bot.config.data?.settings ?? {}) }), [bot.config.data?.settings]);
   const busy = bot.start.isPending || bot.stop.isPending || bot.emergencyStop.isPending || bot.resetPaper.isPending || bot.resetDailyLoss.isPending || bot.updateConfig.isPending || bot.recover.isPending;
   const envBusy = bot.updateEnvConfig.isPending || bot.envConfig.isFetching;
-  const chart = useMemo(() => dashboard?.chart ?? [], [dashboard?.chart]);
+  const runtimeChart = useMemo(() => dashboard?.chart ?? [], [dashboard?.chart]);
   const liveModeBlocked = Boolean(settings.liveTrading && !status?.liveTradingEnvEnabled);
   const latestRuntimeAlert = diagnostics?.latestAlert;
 
@@ -317,21 +318,19 @@ export default function FutureTradeBotPage() {
                 <Badge variant={statusVariant(dashboard?.bestSignal?.signal)}>{dashboard?.bestSignal?.signal || "WAIT"}</Badge>
               </CardHeader>
               <CardContent className="h-[420px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chart}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="time" tick={{ fontSize: 11 }} />
-                    <YAxis domain={["auto", "auto"]} tick={{ fontSize: 11 }} />
-                    <Tooltip />
-                    <Area dataKey="price" type="monotone" stroke="hsl(var(--primary))" fill="hsl(var(--primary) / 0.16)" strokeWidth={2} />
-                    {dashboard?.levels.entry ? <ReferenceLine y={dashboard.levels.entry} label="Entry" stroke="hsl(var(--chart-2))" /> : null}
-                    {dashboard?.levels.stopLoss ? <ReferenceLine y={dashboard.levels.stopLoss} label="Stop" stroke="hsl(var(--destructive))" /> : null}
-                    {dashboard?.levels.takeProfit ? <ReferenceLine y={dashboard.levels.takeProfit} label="Target" stroke="hsl(var(--chart-1))" /> : null}
-                    {dashboard?.levels.trailing ? <ReferenceLine y={dashboard.levels.trailing} label="Trail" stroke="hsl(var(--chart-4))" /> : null}
-                  </AreaChart>
-                </ResponsiveContainer>
+                <FutureTradeProChart
+                  candles={dashboard?.marketChart?.candles ?? []}
+                  runtimePoints={runtimeChart}
+                  settings={settings}
+                  symbol={dashboard?.marketChart?.symbol ?? status?.currentSymbol}
+                  timeframe={dashboard?.marketChart?.timeframe ?? settings.timeframe}
+                  bestSignal={dashboard?.bestSignal}
+                  levels={dashboard?.levels}
+                />
               </CardContent>
             </Card>
+
+            <IndicatorExecutionPanel indicatorSuite={dashboard?.indicatorSuite} />
 
             <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
               <SignalBoard signals={dashboard?.scanner ?? []} />
@@ -391,6 +390,65 @@ function Metric({ title, value, sub, good, icon }: { title: string; value: strin
   );
 }
 
+function IndicatorExecutionPanel({ indicatorSuite }: { indicatorSuite?: FutureTradeIndicatorSuite }) {
+  if (!indicatorSuite) return null;
+
+  const backtest = indicatorSuite.backtest;
+  const trend = indicatorSuite.trend;
+  const score = indicatorSuite.score != null ? `${n(indicatorSuite.score * 100, 0)}%` : "-";
+
+  return (
+      <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>{indicatorSuite.preset || "Indicator"} Confirmation Engine</CardTitle>
+        <Badge variant={indicatorSuite.executionReady ? "default" : indicatorSuite.state === "warming_up" ? "secondary" : "outline"}>
+          {indicatorSuite.executionReady ? "Execution Ready" : humanizeCode(indicatorSuite.state)}
+        </Badge>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">{indicatorSuite.summary}</div>
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="space-y-3 rounded-md border p-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Signal</span>
+              <Badge variant={statusVariant(indicatorSuite.signal)}>{indicatorSuite.signal || "WAIT"}</Badge>
+            </div>
+            <Row label="Confirmation score" value={score} />
+            <Row label="Trend direction" value={trend?.direction || "-"} />
+            <Row label="ADX" value={trend?.adx != null ? n(trend.adx, 2) : "-"} />
+            <Row label="VWAP" value={trend?.vwap != null ? n(trend.vwap, 4) : "-"} />
+            <Row label="OR High / Low" value={`${trend?.openingRangeHigh != null ? n(trend.openingRangeHigh, 4) : "-"} / ${trend?.openingRangeLow != null ? n(trend.openingRangeLow, 4) : "-"}`} />
+            <Row label="Bubble count" value={trend?.bubbleCount != null ? n(trend.bubbleCount, 0) : "-"} />
+            <Row label="Supply / Demand" value={`${trend?.zones?.supply != null ? n(trend.zones.supply, 4) : "-"} / ${trend?.zones?.demand != null ? n(trend.zones.demand, 4) : "-"}`} />
+          </div>
+
+          <div className="space-y-3 rounded-md border p-3">
+            <div className="text-sm font-medium">Validation checklist</div>
+            <div className="space-y-2">
+              {indicatorSuite.validations.length === 0 ? (
+                <div className="text-sm text-muted-foreground">Indicator checks are still warming up.</div>
+              ) : indicatorSuite.validations.map((item) => (
+                <div key={item.key} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                  <span>{item.label}</span>
+                  <Badge variant={item.passed ? "default" : "secondary"}>{item.passed ? "Pass" : "Fail"}</Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-4">
+          <Metric title="Backtest Trades" value={n(backtest.trades, 0)} sub={`${n(backtest.wins, 0)} wins | ${n(backtest.losses, 0)} losses`} />
+          <Metric title="Win Rate" value={`${n(backtest.winRate, 2)}%`} sub="Indicator-only sample backtest" good={backtest.winRate >= 50} />
+          <Metric title="Net %" value={`${n(backtest.netPercent, 2)}%`} sub={`Best ${n(backtest.bestTrade, 2)}% | Worst ${n(backtest.worstTrade, 2)}%`} good={backtest.netPercent >= 0} />
+          <Metric title="Use Case" value={indicatorSuite.executionReady ? "Confirmed" : "Filtered"} sub="Visual support + guard + backtest layer" good={indicatorSuite.executionReady} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function LatestRuntimeAlert({
   alert,
   busy,
@@ -437,10 +495,15 @@ function LatestRuntimeAlert({
 function RuntimeDiagnosticsPanel({ diagnostics }: { diagnostics?: FutureTradeDiagnostics }) {
   if (!diagnostics) return null;
 
+  const pruneStale = usePruneStalePendingJobs();
+  const restartWorkers = useRestartWorkers();
   const queueBacklog = Number(diagnostics.server.queue?.queue_backlog ?? 0);
   const queueFailed = Number(diagnostics.server.queue?.failed_jobs ?? 0);
   const queueWarn = Number(diagnostics.server.queue?.warning_threshold ?? 0);
   const queueBlock = Number(diagnostics.server.queue?.block_threshold ?? 0);
+  const queueState = String(diagnostics.server.queue?.state ?? "unknown");
+  const actionBusy = pruneStale.isPending || restartWorkers.isPending;
+  const autoPruneThreshold = 300;
 
   return (
     <Card>
@@ -469,11 +532,50 @@ function RuntimeDiagnosticsPanel({ diagnostics }: { diagnostics?: FutureTradeDia
             lines={[
               `State ${humanizeCode(diagnostics.server.state)}`,
               `Scheduler ${humanizeCode(String(diagnostics.server.scheduler?.state ?? "unknown"))}`,
-              `Queue ${humanizeCode(String(diagnostics.server.queue?.state ?? "unknown"))}`,
+              `Queue ${humanizeCode(queueState)}`,
               `Backlog ${n(queueBacklog, 0)} | warn ${n(queueWarn, 0)} | block ${n(queueBlock, 0)} | failed ${n(queueFailed, 0)}`,
             ]}
           />
         </div>
+
+        {queueBacklog >= queueBlock || queueState === "blocked" ? (
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-destructive">Queue recovery actions</div>
+                <div className="text-xs text-muted-foreground">
+                  Safe stale jobs older than 30 minutes can be pruned automatically after backlog {autoPruneThreshold}. Protected live queues stay untouched.
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={actionBusy}
+                  onClick={() => {
+                    if (window.confirm("Prune stale safe jobs now? Live execution, reconcile, and exit-monitor queues stay protected.")) {
+                      pruneStale.mutate({ confirm: true });
+                    }
+                  }}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" /> Prune Safe Stale Jobs
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={actionBusy}
+                  onClick={() => {
+                    if (window.confirm("Send queue restart signal now? Workers will restart after the current job.")) {
+                      restartWorkers.mutate({});
+                    }
+                  }}
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" /> Restart Workers
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
           <div className="space-y-2">
