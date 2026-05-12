@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, Bot, Brain, Lightbulb, Power, RefreshCw, Save, ShieldAlert, Square, Wallet } from "lucide-react";
+import { AlertTriangle, Bot, Brain, Lightbulb, Power, RefreshCw, Save, ShieldAlert, Square, Trash2, Wallet } from "lucide-react";
 import { AppShell } from "@/components/layout";
 import { FutureTradeProChart } from "@/components/future-trade/FutureTradeProChart";
 import { Badge } from "@/components/ui/badge";
