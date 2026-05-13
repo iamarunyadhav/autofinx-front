@@ -180,6 +180,26 @@ export default function LiveBotsPage() {
     return 'bg-slate-500/10 text-slate-600 border-slate-500/30';
   };
   const startDisabled = !autoTradingEnabled;
+  const moduleTitle = assetClass === 'METALS' ? 'Metal Bot Control' : 'Auto Bot Control';
+  const moduleSubtitle =
+    assetClass === 'METALS'
+      ? 'Gold and silver bot workflow with scheduler-driven signals, risk gates, slippage checks, and provider-based execution.'
+      : 'Scheduler-driven buy/sell automation with signal filters, AI support, slippage guard, loss stops, and one master ON/OFF switch.';
+  const howItWorks = assetClass === 'METALS'
+    ? [
+        'Connect a metals provider or bridge before enabling live execution.',
+        'Create a Gold or Silver bot first in paper mode and verify signal quality.',
+        'Use slower cycles and strict risk because metals spreads and sessions matter more than crypto.',
+        'Start the bot only after stop rules, max slippage, and allocation are confirmed.',
+        'Monitor orders, fills, and logs from this page instead of using Future Trade.',
+      ]
+    : [
+        'Connect Binance and keep the workspace in the correct mode.',
+        'Create a bot with an hourly cycle if you want slow, conservative analysis.',
+        'Turn Auto Trading ON only after risk limits and stop rules are set.',
+        'Start the bot. Scheduler runs in the background and only trades when rules pass.',
+        'Monitor logs and use Pause/Stop/Emergency Stop whenever needed.',
+      ];
 
   return (
     <AppShell>
@@ -188,10 +208,8 @@ export default function LiveBotsPage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Auto trade bot</div>
-              <h1 className="text-3xl font-bold tracking-tight">Auto Bot Control</h1>
-              <p className="mt-1 max-w-3xl text-muted-foreground">
-                Scheduler-driven buy/sell automation with signal filters, AI support, slippage guard, loss stops, and one master ON/OFF switch.
-              </p>
+              <h1 className="text-3xl font-bold tracking-tight">{moduleTitle}</h1>
+              <p className="mt-1 max-w-3xl text-muted-foreground">{moduleSubtitle}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className={autoTradingEnabled ? 'border-emerald-500/40 text-emerald-600' : 'border-amber-500/40 text-amber-600'}>
@@ -240,11 +258,9 @@ export default function LiveBotsPage() {
               </CardHeader>
               <CardContent className="space-y-2 text-sm text-slate-300">
                 <ol className="space-y-2 pl-4 list-decimal">
-                  <li>Connect Binance and keep the workspace in the correct mode.</li>
-                  <li>Create a bot with an hourly cycle if you want slow, conservative analysis.</li>
-                  <li>Turn Auto Trading ON only after risk limits and stop rules are set.</li>
-                  <li>Start the bot. Scheduler runs in the background and only trades when rules pass.</li>
-                  <li>Monitor logs and use Pause/Stop/Emergency Stop whenever needed.</li>
+                  {howItWorks.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
                 </ol>
               </CardContent>
             </Card>
@@ -261,13 +277,18 @@ export default function LiveBotsPage() {
             </Tabs>
 
             {assetClass === 'METALS' && (
-              <Tabs value={metalType} onValueChange={(v) => setMetalType(v as MetalType)}>
-                <TabsList>
-                  <TabsTrigger value="GOLD">Gold</TabsTrigger>
-                  <TabsTrigger value="SILVER">Silver</TabsTrigger>
-                  <TabsTrigger value="BRONZE">Bronze</TabsTrigger>
-                </TabsList>
-              </Tabs>
+              <div className="space-y-3">
+                <Tabs value={metalType} onValueChange={(v) => setMetalType(v as MetalType)}>
+                  <TabsList>
+                    <TabsTrigger value="GOLD">Gold</TabsTrigger>
+                    <TabsTrigger value="SILVER">Silver</TabsTrigger>
+                    <TabsTrigger value="BRONZE">Bronze</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+                <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-100">
+                  Use this module for metals implementation. Future Trade remains crypto futures only. MT5 EA files like MTF Pro Signals can feed this flow only after a bridge/webhook/provider integration is added.
+                </div>
+              </div>
             )}
 
             <div className="flex flex-wrap items-center gap-2">

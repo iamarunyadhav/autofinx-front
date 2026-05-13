@@ -29,7 +29,7 @@ export const MODULE_DEFINITIONS: ModuleDefinition[] = [
   { key: "settings", label: "Settings", path: "/settings", description: "Workspace settings and provider credentials.", defaultMode: "active", manageable: false },
 
   { key: "strategies", label: "Strategies", path: "/strategies", description: "Legacy strategy builder and instances.", defaultMode: "deactive" },
-  { key: "auto-bot", label: "Auto Bot", path: "/auto-bot", description: "Legacy live bots workflow.", defaultMode: "deactive" },
+  { key: "auto-bot", label: "Metal Bot", path: "/auto-bot", description: "Metals-focused live bot workflow for gold and silver automation.", defaultMode: "active" },
   { key: "portfolio-intelligence", label: "Portfolio IQ", path: "/portfolio", description: "Portfolio intelligence and allocation tooling.", defaultMode: "deactive" },
   { key: "regime", label: "AI Regime", path: "/regime", description: "AI regime classification tools.", defaultMode: "deactive" },
   { key: "ai-trading", label: "AI Trading", path: "/ai-trading", description: "AI decisioning and approval flows.", defaultMode: "deactive" },

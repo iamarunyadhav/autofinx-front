@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, Bot, Brain, Lightbulb, Power, RefreshCw, Save, ShieldAlert, Square, Trash2, Wallet } from "lucide-react";
+import { AlertTriangle, Bot, Brain, Download, FileSpreadsheet, Lightbulb, Power, RefreshCw, Save, ShieldAlert, Square, Trash2, Wallet } from "lucide-react";
 import { AppShell } from "@/components/layout";
 import { FutureTradeProChart } from "@/components/future-trade/FutureTradeProChart";
 import { Badge } from "@/components/ui/badge";
@@ -185,6 +185,7 @@ export default function FutureTradeBotPage() {
   const busy = bot.start.isPending || bot.stop.isPending || bot.emergencyStop.isPending || bot.resetPaper.isPending || bot.resetDailyLoss.isPending || bot.updateConfig.isPending || bot.recover.isPending || bot.clearHistory.isPending;
   const envBusy = bot.updateEnvConfig.isPending || bot.envConfig.isFetching;
   const runtimeChart = useMemo(() => dashboard?.chart ?? [], [dashboard?.chart]);
+  const trackerRows = useMemo(() => (bot.logs.data ?? []).filter((log) => TRACKER_EVENTS.has(log.event)), [bot.logs.data]);
   const liveModeBlocked = Boolean(settings.liveTrading && !status?.liveTradingEnvEnabled);
   const latestRuntimeAlert = diagnostics?.latestAlert;
 
@@ -257,6 +258,47 @@ export default function FutureTradeBotPage() {
       },
       onError: (error) => toast({ title: "Connection test failed", description: error instanceof Error ? error.message : "Request failed", variant: "destructive" }),
     });
+  };
+
+  const exportTradeHistory = () => {
+    const rows = (bot.trades.data ?? []).map(flattenTradeForExport);
+    if (rows.length === 0) {
+      toast({ title: "No trades to export", description: "Live Futures Trades is empty.", variant: "destructive" });
+      return;
+    }
+
+    downloadExcelWorkbook(`future-trade-trades-${currentWorkspace?.id || "workspace"}.xls`, [
+      { name: "Live Futures Trades", rows },
+    ]);
+    toast({ title: "Trade export ready", description: `${rows.length} trade rows exported.` });
+  };
+
+  const exportRuntimeTracker = () => {
+    const rows = trackerRows.map(flattenTrackerRowForExport);
+    if (rows.length === 0) {
+      toast({ title: "No runtime rows to export", description: "Dynamic Runtime Tracker is empty.", variant: "destructive" });
+      return;
+    }
+
+    downloadExcelWorkbook(`future-trade-runtime-${currentWorkspace?.id || "workspace"}.xls`, [
+      { name: "Dynamic Runtime Tracker", rows },
+    ]);
+    toast({ title: "Runtime export ready", description: `${rows.length} runtime rows exported.` });
+  };
+
+  const exportAllFutureTradeData = () => {
+    const tradeRows = (bot.trades.data ?? []).map(flattenTradeForExport);
+    const runtimeRows = trackerRows.map(flattenTrackerRowForExport);
+    if (tradeRows.length === 0 && runtimeRows.length === 0) {
+      toast({ title: "No export data", description: "Trades and runtime tracker are both empty.", variant: "destructive" });
+      return;
+    }
+
+    downloadExcelWorkbook(`future-trade-export-${currentWorkspace?.id || "workspace"}.xls`, [
+      { name: "Live Futures Trades", rows: tradeRows },
+      { name: "Dynamic Runtime Tracker", rows: runtimeRows },
+    ]);
+    toast({ title: "Future Trade export ready", description: `${tradeRows.length} trades and ${runtimeRows.length} runtime rows exported.` });
   };
 
   if (loading || !currentWorkspace) {
@@ -342,6 +384,21 @@ export default function FutureTradeBotPage() {
             <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
               <SignalBoard signals={dashboard?.scanner ?? []} />
               <Orderbook bids={dashboard?.orderbook.bids ?? []} asks={dashboard?.orderbook.asks ?? []} />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={exportTradeHistory}>
+                <Download className="mr-2 h-4 w-4" />
+                Export Trades
+              </Button>
+              <Button variant="outline" size="sm" onClick={exportRuntimeTracker}>
+                <Download className="mr-2 h-4 w-4" />
+                Export Runtime
+              </Button>
+              <Button size="sm" onClick={exportAllFutureTradeData}>
+                <FileSpreadsheet className="mr-2 h-4 w-4" />
+                Export All Excel
+              </Button>
             </div>
 
             <TradeHistory trades={bot.trades.data ?? []} liveTrading={status?.liveTrading ?? false} />
@@ -664,7 +721,12 @@ function DiagnosticBox({ title, tone, lines }: { title: string; tone: "ok" | "wa
 function SignalBoard({ signals }: { signals: Array<{ symbol: string; signal: string; price: number; changePercent: number; confidence: number; timeframe: string; reason: string; rsi14?: number | null; emaBullish?: boolean | null; macdBullish?: boolean | null; macdHistGrowing?: boolean | null; htfBullish?: boolean | null; htf4hBullish?: boolean | null; symbolPerfAdj?: number | null }> }) {
   return (
     <Card>
-      <CardHeader><CardTitle>Signal Scanner</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle>Signal Scanner</CardTitle>
+        <div className="text-xs text-muted-foreground">
+          `BUY/SELL` means scanner direction. Red/green percent is recent price move, not confidence. The last percent is signal confidence, and a trade only qualifies when confidence is above the active minimum threshold.
+        </div>
+      </CardHeader>
       <CardContent className="space-y-2">
         {signals.slice(0, 10).map((signal) => (
           <div key={signal.symbol} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
@@ -1095,6 +1157,144 @@ const TRACKER_EVENTS = new Set([
   "EMERGENCY_STOP",
   "LIVE_GUARD_BLOCKED",
 ]);
+
+function toNumber(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function flattenTradeForExport(trade: FutureTradeRecord) {
+  const dynamic = trade.meta?.dynamic;
+  const signal = trade.meta?.signal;
+
+  return {
+    id: trade.id,
+    created_at: trade.created_at,
+    symbol: trade.symbol,
+    side: trade.side,
+    entry_price: trade.entry_price ?? "",
+    exit_price: trade.exit_price ?? "",
+    quantity: trade.quantity ?? "",
+    leverage: trade.leverage ?? "",
+    net_pnl: trade.net_pnl ?? "",
+    reason: trade.reason ?? "",
+    mode: trade.mode,
+    status: trade.status,
+    algorithm_flag: algorithmFlag(dynamic?.mode || trade.meta?.algorithm_mode),
+    algorithm_mode: trade.meta?.algorithm_mode ?? "",
+    dynamic_mode: dynamic?.mode ?? "",
+    dynamic_base_min_confidence: dynamic?.baseMinConfidence ?? "",
+    dynamic_effective_min_confidence: dynamic?.effectiveMinConfidence ?? "",
+    dynamic_recommended_min_confidence: dynamic?.recommended?.minConfidence ?? "",
+    dynamic_take_profit_percent: dynamic?.recommended?.takeProfitPercent ?? "",
+    dynamic_stop_loss_percent: dynamic?.recommended?.stopLossPercent ?? "",
+    dynamic_trailing_take_profit_percent: dynamic?.recommended?.trailingTakeProfitPercent ?? "",
+    dynamic_cooldown_seconds: dynamic?.recommended?.cooldownSeconds ?? "",
+    dynamic_trade_amount_usdt: dynamic?.recommended?.tradeAmountUsdt ?? "",
+    signal_symbol: signal?.symbol ?? "",
+    signal_signal: signal?.signal ?? "",
+    signal_price: signal?.price ?? "",
+    signal_change_percent: signal?.changePercent ?? "",
+    signal_volume: signal?.volume ?? "",
+    signal_range_percent: signal?.rangePercent ?? "",
+    signal_confidence: signal?.confidence ?? "",
+    signal_effective_min_confidence: signal?.effectiveMinConfidence ?? "",
+    signal_dynamic_mode: signal?.dynamicMode ?? "",
+    signal_timeframe: signal?.timeframe ?? "",
+    signal_reason: signal?.reason ?? "",
+    meta_json: trade.meta ? JSON.stringify(trade.meta) : "",
+  };
+}
+
+function flattenTrackerRowForExport(log: FutureTradeLog) {
+  return {
+    id: log.id,
+    occurred_at: log.occurred_at,
+    event: log.event,
+    status: trackerStatusLabel(log),
+    symbol: log.symbol ?? "",
+    signal: log.signal ?? "",
+    price: log.price ?? "",
+    confidence: log.confidence ?? "",
+    reason: log.reason ?? "",
+    side: log.context?.side ?? "",
+    mode: log.context?.mode ?? "",
+    entry_price: log.context?.entryPrice ?? "",
+    exit_price: log.context?.exitPrice ?? "",
+    quantity: log.context?.quantity ?? "",
+    net_pnl: log.context?.netPnl ?? "",
+    algorithm_mode: log.context?.algorithmMode ?? "",
+    algorithm_flag: log.context?.algorithmFlag ?? "NORMAL",
+    effective_min_confidence: log.context?.effectiveMinConfidence ?? "",
+    active_take_profit_percent: log.context?.activeTakeProfitPercent ?? "",
+    active_stop_loss_percent: log.context?.activeStopLossPercent ?? "",
+    active_trailing_take_profit_percent: log.context?.activeTrailingTakeProfitPercent ?? "",
+    active_cooldown_seconds: log.context?.activeCooldownSeconds ?? "",
+    active_trade_amount_usdt: log.context?.activeTradeAmountUsdt ?? "",
+    trend_strength: log.context?.trendStrength ?? "",
+    direction_agreement: log.context?.directionAgreement ?? "",
+    choppy: log.context?.choppy == null ? "" : log.context.choppy ? "true" : "false",
+    context_json: log.context ? JSON.stringify(log.context) : "",
+  };
+}
+
+function xmlEscape(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function buildExcelWorkbookXml(sheets: Array<{ name: string; rows: Array<Record<string, unknown>> }>) {
+  const worksheetXml = sheets.map(({ name, rows }) => {
+    const columns = Array.from(rows.reduce((set, row) => {
+      Object.keys(row).forEach((key) => set.add(key));
+      return set;
+    }, new Set<string>()));
+    const headerRow = `<Row>${columns.map((column) => `<Cell><Data ss:Type="String">${xmlEscape(column)}</Data></Cell>`).join("")}</Row>`;
+    const dataRows = rows.map((row) => {
+      const cells = columns.map((column) => {
+        const value = row[column];
+        const numeric = toNumber(value);
+        if (typeof value === "boolean") {
+          return `<Cell><Data ss:Type="String">${value ? "true" : "false"}</Data></Cell>`;
+        }
+        if (numeric !== null && String(value ?? "").trim() !== "") {
+          return `<Cell><Data ss:Type="Number">${numeric}</Data></Cell>`;
+        }
+        return `<Cell><Data ss:Type="String">${xmlEscape(value)}</Data></Cell>`;
+      }).join("");
+      return `<Row>${cells}</Row>`;
+    }).join("");
+
+    return `<Worksheet ss:Name="${xmlEscape(name)}"><Table>${headerRow}${dataRows}</Table></Worksheet>`;
+  }).join("");
+
+  return `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+  ${worksheetXml}
+</Workbook>`;
+}
+
+function downloadExcelWorkbook(filename: string, sheets: Array<{ name: string; rows: Array<Record<string, unknown>> }>) {
+  const xml = buildExcelWorkbookXml(sheets);
+  const blob = new Blob([xml], { type: "application/vnd.ms-excel;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
 
 function DynamicRuntimeTracker({ logs }: { logs: FutureTradeLog[] }) {
   const rows = useMemo(() => logs.filter((log) => TRACKER_EVENTS.has(log.event)), [logs]);
