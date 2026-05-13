@@ -34,27 +34,31 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   leverage: 3,
   marginMode: "isolated",
   tradeAmountUsdt: 25,
-  minConfidence: 0.74,
-  confidenceMode: "semi_dynamic",
+  minConfidence: 0.76,
+  confidenceMode: "fully_dynamic",
   dynamicLookbackMinutes: 10,
-  dynamicMinConfidenceFloor: 0.64,
+  dynamicMinConfidenceFloor: 0.68,
   dynamicMinConfidenceCeiling: 0.88,
-  dynamicReentryBuffer: 0.015,
+  dynamicReentryBuffer: 0.02,
   dynamicSuggestionEnabled: true,
   takeProfitPercent: 1.2,
   stopLossPercent: 0.4,
-  trailingTakeProfitPercent: 0.30,
-  rollbackLossPercent: 0.25,
+  trailingTakeProfitPercent: 0.28,
+  rollbackLossPercent: 0.35,
   maxDailyLossPercent: 2,
   maxOpenPositions: 1,
-  maxTradesPerDay: 10,
+  maxTradesPerDay: 8,
   maxLeverage: 5,
   maxSpreadPercent: 0.12,
-  cooldownSeconds: 45,
+  cooldownSeconds: 90,
   scanIntervalSeconds: 3,
   autoExecutePaperSignals: true,
   avoidChoppyMarket: true,
   emergencyStop: false,
+  tradingHoursEnabled: false,
+  tradingHoursStartUtc: "00:00",
+  tradingHoursEndUtc: "23:59",
+  useLiveDataFeed: true,
 };
 
 const DEFAULT_ENV_CONFIG: FutureTradeEnvConfig = {
@@ -178,7 +182,7 @@ export default function FutureTradeBotPage() {
   const status = dashboard?.status;
   const diagnostics = dashboard?.diagnostics;
   const savedSettings = useMemo(() => ({ ...DEFAULT_SETTINGS, ...(bot.config.data?.settings ?? {}) }), [bot.config.data?.settings]);
-  const busy = bot.start.isPending || bot.stop.isPending || bot.emergencyStop.isPending || bot.resetPaper.isPending || bot.resetDailyLoss.isPending || bot.updateConfig.isPending || bot.recover.isPending;
+  const busy = bot.start.isPending || bot.stop.isPending || bot.emergencyStop.isPending || bot.resetPaper.isPending || bot.resetDailyLoss.isPending || bot.updateConfig.isPending || bot.recover.isPending || bot.clearHistory.isPending;
   const envBusy = bot.updateEnvConfig.isPending || bot.envConfig.isFetching;
   const runtimeChart = useMemo(() => dashboard?.chart ?? [], [dashboard?.chart]);
   const liveModeBlocked = Boolean(settings.liveTrading && !status?.liveTradingEnvEnabled);
@@ -274,6 +278,9 @@ export default function FutureTradeBotPage() {
             <Badge variant={statusVariant(status?.status)}>{status?.status || "Stopped"}</Badge>
             <Badge variant={status?.liveTrading ? (status?.liveTradingEnvEnabled ? "outline" : "destructive") : "secondary"}>{status?.mode || "Paper Futures"}</Badge>
             <Badge variant={status?.liveTradingEnvEnabled ? "outline" : "destructive"}>{status?.liveTradingEnvEnabled ? (settings.forceTestnet ? "Testnet Env Enabled" : "Real Env Enabled") : (settings.forceTestnet ? "Testnet Env Blocked" : "Real Env Blocked")}</Badge>
+            <Badge variant={settings.useLiveDataFeed ? "default" : "secondary"}>
+              {settings.useLiveDataFeed ? "🟢 Live Data" : "🔴 Testnet Data"}
+            </Badge>
           </div>
         </div>
 
@@ -351,6 +358,20 @@ export default function FutureTradeBotPage() {
                 <Button disabled={busy} variant="destructive" onClick={() => bot.emergencyStop.mutate(undefined, { onError: err(toast) })}><ShieldAlert className="mr-2 h-4 w-4" />Emergency</Button>
                 <Button disabled={busy} variant="secondary" onClick={() => bot.resetPaper.mutate(undefined, { onError: err(toast) })}><RefreshCw className="mr-2 h-4 w-4" />Reset</Button>
                 <Button disabled={busy} variant="outline" className="col-span-2" onClick={() => bot.resetDailyLoss.mutate(undefined, { onError: err(toast) })}>Reset Day Loss</Button>
+                <Button
+                  disabled={busy}
+                  variant="outline"
+                  className="col-span-2 border-orange-500 text-orange-600 hover:bg-orange-50"
+                  onClick={() => {
+                    if (!confirm("Palaya trades + logs ellam delete aagum. Bot running ga irukkum. Continue?")) return;
+                    bot.clearHistory.mutate(undefined, {
+                      onSuccess: (data: any) => toast({ title: "History cleared", description: `${data?.cleared_trades ?? 0} trades, ${data?.cleared_logs ?? 0} logs deleted.` }),
+                      onError: err(toast),
+                    });
+                  }}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />Clear History
+                </Button>
               </CardContent>
             </Card>
 
@@ -640,18 +661,63 @@ function DiagnosticBox({ title, tone, lines }: { title: string; tone: "ok" | "wa
   );
 }
 
-function SignalBoard({ signals }: { signals: Array<{ symbol: string; signal: string; price: number; changePercent: number; confidence: number; timeframe: string; reason: string }> }) {
+function SignalBoard({ signals }: { signals: Array<{ symbol: string; signal: string; price: number; changePercent: number; confidence: number; timeframe: string; reason: string; rsi14?: number | null; emaBullish?: boolean | null; macdBullish?: boolean | null; macdHistGrowing?: boolean | null; htfBullish?: boolean | null; htf4hBullish?: boolean | null; symbolPerfAdj?: number | null }> }) {
   return (
     <Card>
-      <CardHeader><CardTitle>Signal History Scanner</CardTitle></CardHeader>
+      <CardHeader><CardTitle>Signal Scanner</CardTitle></CardHeader>
       <CardContent className="space-y-2">
         {signals.slice(0, 10).map((signal) => (
           <div key={signal.symbol} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-            <div>
-              <div className="flex items-center gap-2"><Badge variant={statusVariant(signal.signal)}>{signal.signal}</Badge><span className="font-medium">FUTURES - {signal.symbol} - {signal.timeframe}</span></div>
-              <div className="mt-1 text-xs text-muted-foreground">{signal.reason}</div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Badge variant={statusVariant(signal.signal)}>{signal.signal}</Badge>
+                <span className="font-medium">FUTURES - {signal.symbol} - {signal.timeframe}</span>
+
+                {/* RSI */}
+                {signal.rsi14 != null && (
+                  <span className={cn("text-xs px-1.5 py-0.5 rounded font-mono", signal.rsi14 >= 70 ? "bg-destructive/20 text-destructive" : signal.rsi14 <= 30 ? "bg-running/20 text-running" : "bg-muted text-muted-foreground")}>
+                    RSI {n(signal.rsi14, 1)}
+                  </span>
+                )}
+
+                {/* MACD */}
+                {signal.macdBullish != null && (
+                  <span className={cn("text-xs px-1.5 py-0.5 rounded font-mono", signal.macdBullish ? "bg-running/20 text-running" : "bg-destructive/20 text-destructive")}>
+                    MACD {signal.macdBullish ? "▲" : "▼"}{signal.macdHistGrowing ? "+" : ""}
+                  </span>
+                )}
+
+                {/* EMA crossover */}
+                {signal.emaBullish != null && (
+                  <span className={cn("text-xs px-1.5 py-0.5 rounded", signal.emaBullish ? "bg-running/20 text-running" : "bg-destructive/20 text-destructive")}>
+                    EMA {signal.emaBullish ? "↑" : "↓"}
+                  </span>
+                )}
+
+                {/* 1h HTF */}
+                {signal.htfBullish != null && (
+                  <span className={cn("text-xs px-1.5 py-0.5 rounded", signal.htfBullish ? "bg-running/10 text-running" : "bg-destructive/10 text-destructive")}>
+                    1h {signal.htfBullish ? "▲" : "▼"}
+                  </span>
+                )}
+
+                {/* 4h HTF */}
+                {signal.htf4hBullish != null && (
+                  <span className={cn("text-xs px-1.5 py-0.5 rounded font-semibold", signal.htf4hBullish ? "bg-running/10 text-running" : "bg-destructive/10 text-destructive")}>
+                    4h {signal.htf4hBullish ? "▲▲" : "▼▼"}
+                  </span>
+                )}
+
+                {/* Symbol performance */}
+                {signal.symbolPerfAdj != null && signal.symbolPerfAdj !== 0 && (
+                  <span className={cn("text-xs px-1.5 py-0.5 rounded", signal.symbolPerfAdj > 0 ? "bg-running/10 text-running" : "bg-destructive/10 text-destructive")}>
+                    Perf {signal.symbolPerfAdj > 0 ? "+" : ""}{(signal.symbolPerfAdj * 100).toFixed(0)}%
+                  </span>
+                )}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground truncate">{signal.reason}</div>
             </div>
-            <div className="text-right">
+            <div className="text-right ml-3 shrink-0">
               <div>{n(signal.price, 8)}</div>
               <div className={cn("text-xs", signal.changePercent >= 0 ? "text-running" : "text-destructive")}>{n(signal.changePercent, 2)}% | {n(signal.confidence * 100, 1)}%</div>
             </div>
@@ -865,7 +931,45 @@ function ConfigPanel({ envMode, status, settings, setSettings, notes, setNotes, 
         <div className="grid gap-2 sm:grid-cols-2">
           <Toggle label="Auto paper execute" checked={settings.autoExecutePaperSignals} onChange={(value) => update("autoExecutePaperSignals", value)} />
           <Toggle label="Avoid choppy market" checked={settings.avoidChoppyMarket} onChange={(value) => update("avoidChoppyMarket", value)} />
+          <div className={cn("flex items-center justify-between rounded-md p-3 border", settings.useLiveDataFeed ? "border-green-500/40 bg-green-500/10" : "border-muted")}>
+            <div>
+              <div className="text-sm font-medium">Live Data Feed</div>
+              <div className="text-xs text-muted-foreground">{settings.useLiveDataFeed ? "fapi.binance.com — real prices" : "Testnet data"}</div>
+            </div>
+            <Switch checked={settings.useLiveDataFeed} onCheckedChange={(v) => update("useLiveDataFeed", v)} />
+          </div>
         </div>
+
+        {/* Trading Hours */}
+        <div className="rounded-md border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">Trading Hours (UTC)</div>
+              <div className="text-xs text-muted-foreground">Only enter positions within this window. 24h = disable.</div>
+            </div>
+            <Switch
+              checked={settings.tradingHoursEnabled}
+              onCheckedChange={(v) => update("tradingHoursEnabled", v)}
+            />
+          </div>
+          {settings.tradingHoursEnabled && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Start (UTC)">
+                <Input type="time" value={settings.tradingHoursStartUtc} onChange={(e) => update("tradingHoursStartUtc", e.target.value)} />
+              </Field>
+              <Field label="End (UTC)">
+                <Input type="time" value={settings.tradingHoursEndUtc} onChange={(e) => update("tradingHoursEndUtc", e.target.value)} />
+              </Field>
+            </div>
+          )}
+          {settings.tradingHoursEnabled && (
+            <div className="text-xs text-muted-foreground">
+              Active window: {settings.tradingHoursStartUtc} → {settings.tradingHoursEndUtc} UTC
+              {settings.tradingHoursStartUtc > settings.tradingHoursEndUtc ? " (overnight window)" : ""}
+            </div>
+          )}
+        </div>
+
         <Field label="Algorithm Notes"><Textarea className="min-h-[120px] font-mono text-xs" value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
         <Button className="w-full" disabled={busy} onClick={onSave}><Save className="mr-2 h-4 w-4" />Save Algorithm</Button>
       </CardContent>

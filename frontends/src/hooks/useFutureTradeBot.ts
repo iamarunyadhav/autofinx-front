@@ -31,6 +31,10 @@ export interface FutureTradeSettings {
   autoExecutePaperSignals: boolean;
   avoidChoppyMarket: boolean;
   emergencyStop: boolean;
+  tradingHoursEnabled: boolean;
+  tradingHoursStartUtc: string;
+  tradingHoursEndUtc: string;
+  useLiveDataFeed: boolean;
 }
 
 export interface FutureTradeStatus {
@@ -90,6 +94,13 @@ export interface FutureSignal {
   dynamicMode?: string;
   timeframe: string;
   reason: string;
+  rsi14?: number | null;
+  emaBullish?: boolean | null;
+  macdBullish?: boolean | null;
+  macdHistGrowing?: boolean | null;
+  htfBullish?: boolean | null;
+  htf4hBullish?: boolean | null;
+  symbolPerfAdj?: number | null;
 }
 
 export interface FutureTradeDynamicDecision {
@@ -466,5 +477,6 @@ export function useFutureTradeBot(workspaceId?: string) {
     emergencyStop: useAction("emergency-stop"),
     resetPaper: useAction("reset-paper"),
     resetDailyLoss: useAction("reset-daily-loss"),
+    clearHistory: useAction("clear-history"),
   };
 }
