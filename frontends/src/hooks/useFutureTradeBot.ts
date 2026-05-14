@@ -17,6 +17,7 @@ export interface FutureTradeSettings {
   dynamicMinConfidenceCeiling: number;
   dynamicReentryBuffer: number;
   dynamicSuggestionEnabled: boolean;
+  corePassRule?: number;
   takeProfitPercent: number;
   stopLossPercent: number;
   trailingTakeProfitPercent: number;
@@ -35,6 +36,16 @@ export interface FutureTradeSettings {
   tradingHoursStartUtc: string;
   tradingHoursEndUtc: string;
   useLiveDataFeed: boolean;
+  indicatorInfluence?: Record<string, number>;
+}
+
+export interface FutureTradeComponentBreakdown {
+  key: string;
+  label: string;
+  rawScore: number;
+  influenceLevel: number;
+  finalContribution: number;
+  impact: "positive" | "negative" | string;
 }
 
 export interface FutureTradeStatus {
@@ -305,6 +316,20 @@ export interface FutureTradeDashboard {
     negativeFactors: string[];
     componentScores: Record<string, number>;
     voteSummary?: Record<string, number | string>;
+    checks?: {
+      vwapAligned?: boolean;
+      emaAligned?: boolean;
+      adxValue?: number;
+      macdDirection?: boolean;
+      rsiValue?: number;
+      volumeAligned?: boolean;
+      volumeRatio?: number;
+      htfAligned?: boolean;
+      corePassRule?: number;
+      buyCoreChecks?: Record<string, boolean>;
+      sellCoreChecks?: Record<string, boolean>;
+    };
+    componentBreakdown?: Record<string, FutureTradeComponentBreakdown>;
     timing?: {
       sequenceLastCandleTime?: string | null;
       higherTimeframeLastCandleTime?: string | null;
@@ -451,6 +476,23 @@ export interface FutureTradeLog {
     trendStrength?: number | null;
     directionAgreement?: number | null;
     choppy?: boolean | null;
+    activeConfidenceMin?: number | null;
+    vwapAligned?: boolean | null;
+    emaAligned?: boolean | null;
+    adxValue?: number | null;
+    macdDirection?: boolean | null;
+    rsiValue?: number | null;
+    volumeAligned?: boolean | null;
+    volumeRatio?: number | null;
+    htfAligned?: boolean | null;
+    softPenaltyCount?: number | null;
+    softPenalties?: string[] | null;
+    hardBlocker?: string | null;
+    hardBlockers?: string[] | null;
+    positiveFactors?: string[] | null;
+    negativeFactors?: string[] | null;
+    componentScores?: Record<string, number> | null;
+    componentBreakdown?: Record<string, FutureTradeComponentBreakdown> | null;
     [key: string]: unknown;
   } | null;
   occurred_at: string;

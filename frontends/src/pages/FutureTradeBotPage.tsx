@@ -5,9 +5,11 @@ import { FutureTradeProChart } from "@/components/future-trade/FutureTradeProCha
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,6 +27,101 @@ const FUTURE_TRADE_ALL_SYMBOLS = [
   "APTUSDT", "ARBUSDT", "OPUSDT", "SUIUSDT", "SEIUSDT",
 ];
 
+const BALANCED_INFLUENCE_DEFAULTS: Record<string, number> = {
+  vwapPositive: 7,
+  emaPositive: 7,
+  adxPositive: 6,
+  macdPositive: 7,
+  rsiPositive: 2,
+  volumePositive: 2,
+  htfPositive: 2,
+  macroPositive: 2,
+  structurePositive: 2,
+  sequencePositive: 4,
+  extensionPositive: 2,
+  symbolPerfPositive: 1,
+  symbolPerfPenalty: 1,
+  macdHistogramBonus: 4,
+  directionalSignalBonus: 5,
+  trendContinuationBonus: 5,
+  volumePenalty: 2,
+  macdPenalty: 2,
+  htfPenalty: 2,
+  structurePenalty: 2,
+  extensionPenalty: 2,
+  rsiPenalty: 2,
+  choppyPenalty: 2,
+  weakSetupPenalty: 1,
+  recentAccuracyWeight: 3,
+  lossStreakWeight: 3,
+  atrWeight: 3,
+  volatilityWeight: 3,
+};
+
+const CORE_ONLY_INFLUENCE_DEFAULTS: Record<string, number> = {
+  ...BALANCED_INFLUENCE_DEFAULTS,
+  rsiPositive: 0,
+  volumePositive: 0,
+  htfPositive: 0,
+  macroPositive: 0,
+  structurePositive: 0,
+  sequencePositive: 0,
+  extensionPositive: 0,
+  symbolPerfPositive: 0,
+  symbolPerfPenalty: 0,
+  volumePenalty: 0,
+  htfPenalty: 0,
+  structurePenalty: 0,
+  extensionPenalty: 0,
+  rsiPenalty: 0,
+  choppyPenalty: 0,
+  weakSetupPenalty: 0,
+};
+
+const AGGRESSIVE_INFLUENCE_DEFAULTS: Record<string, number> = {
+  ...BALANCED_INFLUENCE_DEFAULTS,
+  vwapPositive: 8,
+  emaPositive: 8,
+  adxPositive: 7,
+  macdPositive: 8,
+  directionalSignalBonus: 6,
+  volumePenalty: 1,
+  macdPenalty: 1,
+  htfPenalty: 1,
+  structurePenalty: 1,
+  extensionPenalty: 1,
+  choppyPenalty: 1,
+  weakSetupPenalty: 1,
+};
+
+const CONSERVATIVE_INFLUENCE_DEFAULTS: Record<string, number> = {
+  ...BALANCED_INFLUENCE_DEFAULTS,
+  vwapPositive: 6,
+  emaPositive: 6,
+  adxPositive: 6,
+  macdPositive: 6,
+  htfPositive: 4,
+  structurePositive: 4,
+  volumePenalty: 4,
+  macdPenalty: 4,
+  htfPenalty: 4,
+  structurePenalty: 4,
+  extensionPenalty: 4,
+  choppyPenalty: 4,
+  weakSetupPenalty: 3,
+  recentAccuracyWeight: 4,
+  lossStreakWeight: 4,
+  atrWeight: 4,
+  volatilityWeight: 4,
+};
+
+const INDICATOR_PRESETS = [
+  { key: "balanced", label: "Balanced", corePassRule: 3, indicatorInfluence: BALANCED_INFLUENCE_DEFAULTS },
+  { key: "core_only", label: "Core Only", corePassRule: 2, indicatorInfluence: CORE_ONLY_INFLUENCE_DEFAULTS },
+  { key: "aggressive", label: "Aggressive Live Test", corePassRule: 2, indicatorInfluence: AGGRESSIVE_INFLUENCE_DEFAULTS },
+  { key: "conservative", label: "Conservative", corePassRule: 4, indicatorInfluence: CONSERVATIVE_INFLUENCE_DEFAULTS },
+] as const;
+
 const DEFAULT_SETTINGS: FutureTradeSettings = {
   symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "AVAXUSDT"],
   timeframe: "5m",
@@ -34,32 +131,65 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   leverage: 3,
   marginMode: "isolated",
   tradeAmountUsdt: 25,
-  minConfidence: 0.76,
-  confidenceMode: "fully_dynamic",
+  minConfidence: 0.52,
+  confidenceMode: "fixed",
   dynamicLookbackMinutes: 10,
-  dynamicMinConfidenceFloor: 0.68,
-  dynamicMinConfidenceCeiling: 0.88,
-  dynamicReentryBuffer: 0.02,
-  dynamicSuggestionEnabled: true,
+  dynamicMinConfidenceFloor: 0.5,
+  dynamicMinConfidenceCeiling: 0.62,
+  dynamicReentryBuffer: 0.005,
+  dynamicSuggestionEnabled: false,
+  corePassRule: 3,
   takeProfitPercent: 1.2,
   stopLossPercent: 0.4,
-  trailingTakeProfitPercent: 0.28,
-  rollbackLossPercent: 0.35,
+  trailingTakeProfitPercent: 0.3,
+  rollbackLossPercent: 0.25,
   maxDailyLossPercent: 2,
   maxOpenPositions: 1,
-  maxTradesPerDay: 8,
+  maxTradesPerDay: 25,
   maxLeverage: 5,
   maxSpreadPercent: 0.12,
-  cooldownSeconds: 90,
+  cooldownSeconds: 60,
   scanIntervalSeconds: 3,
   autoExecutePaperSignals: true,
-  avoidChoppyMarket: true,
+  avoidChoppyMarket: false,
   emergencyStop: false,
   tradingHoursEnabled: false,
   tradingHoursStartUtc: "00:00",
   tradingHoursEndUtc: "23:59",
   useLiveDataFeed: true,
+  indicatorInfluence: { ...BALANCED_INFLUENCE_DEFAULTS },
 };
+
+const INDICATOR_INFLUENCE_CONTROLS = [
+  { key: "vwapPositive", label: "VWAP positive", note: "Direction alignment contribution", impact: "positive" },
+  { key: "emaPositive", label: "EMA positive", note: "5m EMA trend alignment contribution", impact: "positive" },
+  { key: "adxPositive", label: "ADX positive", note: "Trend strength contribution", impact: "positive" },
+  { key: "macdPositive", label: "MACD positive", note: "Directional momentum contribution", impact: "positive" },
+  { key: "rsiPositive", label: "RSI positive", note: "Momentum window contribution", impact: "positive" },
+  { key: "volumePositive", label: "Volume positive", note: "Participation confirmation contribution", impact: "positive" },
+  { key: "htfPositive", label: "HTF positive", note: "1h higher timeframe alignment", impact: "positive" },
+  { key: "macroPositive", label: "4h HTF positive", note: "Macro filter contribution", impact: "positive" },
+  { key: "structurePositive", label: "Structure positive", note: "15m structure/order block/MSB", impact: "positive" },
+  { key: "sequencePositive", label: "Sequence positive", note: "Recent candle direction strength", impact: "positive" },
+  { key: "extensionPositive", label: "Entry extension positive", note: "Reward when entry is not overextended", impact: "positive" },
+  { key: "symbolPerfPositive", label: "Symbol performance positive", note: "Positive recent symbol performance", impact: "positive" },
+  { key: "symbolPerfPenalty", label: "Symbol performance penalty", note: "Negative recent symbol performance", impact: "negative" },
+  { key: "macdHistogramBonus", label: "MACD histogram bonus", note: "Extra momentum bonus" },
+  { key: "directionalSignalBonus", label: "Directional bonus", note: "Non-WAIT directional bonus" },
+  { key: "trendContinuationBonus", label: "Trend continuation", note: "Core trend continuation bonus" },
+  { key: "volumePenalty", label: "Volume penalty", note: "Penalty when volume confirmation fails" },
+  { key: "macdPenalty", label: "MACD penalty", note: "Penalty when MACD direction fails" },
+  { key: "htfPenalty", label: "HTF penalty", note: "Penalty when HTF disagrees" },
+  { key: "structurePenalty", label: "Structure penalty", note: "Penalty when structure is missing" },
+  { key: "extensionPenalty", label: "Extension penalty", note: "Penalty when entry is stretched" },
+  { key: "rsiPenalty", label: "RSI penalty", note: "Penalty when RSI window fails" },
+  { key: "choppyPenalty", label: "Choppy market", note: "Penalty when choppy regime detected" },
+  { key: "weakSetupPenalty", label: "Weak setup", note: "Penalty when weak setup is detected" },
+  { key: "recentAccuracyWeight", label: "Recent accuracy", note: "Semi/fully dynamic recent accuracy influence", impact: "dynamic" },
+  { key: "lossStreakWeight", label: "Loss streak", note: "Recent loss cooldown/threshold influence", impact: "dynamic" },
+  { key: "atrWeight", label: "ATR", note: "ATR-driven TP/SL influence", impact: "dynamic" },
+  { key: "volatilityWeight", label: "Volatility", note: "Volatility cooldown/size influence", impact: "dynamic" },
+] as const;
 
 const DEFAULT_ENV_CONFIG: FutureTradeEnvConfig = {
   mode: "paper",
@@ -153,6 +283,47 @@ function statusVariant(value?: string) {
   return "outline";
 }
 
+function normalizeInfluenceMultiplier(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  const normalized = parsed > 2 ? parsed / 5 : parsed;
+  return Math.min(2, Math.max(0, normalized));
+}
+
+function displayInfluenceWeight(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 5;
+  return parsed > 2 ? parsed : parsed * 5;
+}
+
+function mergeInfluenceWeights(weights?: Record<string, number> | null) {
+  return {
+    ...BALANCED_INFLUENCE_DEFAULTS,
+    ...(weights ?? {}),
+  };
+}
+
+function simulateSignalConfidence(
+  debug: FutureTradeDashboard["signalDebug"] | null | undefined,
+  settings: Pick<FutureTradeSettings, "indicatorInfluence" | "corePassRule">,
+) {
+  const breakdown = debug?.componentBreakdown ?? {};
+  const mergedWeights = mergeInfluenceWeights(settings.indicatorInfluence);
+  const finalConfidence = Object.values(breakdown).reduce((total, item) => {
+    return total + (Number(item.rawScore ?? 0) * normalizeInfluenceMultiplier(mergedWeights[item.key]));
+  }, 0);
+  const coreChecks = debug?.checks?.[debug?.signalSide === "SELL" ? "sellCoreChecks" : "buyCoreChecks"] ?? {};
+  const corePassCount = Object.values(coreChecks).filter(Boolean).length;
+  const required = Math.min(4, Math.max(2, Number(settings.corePassRule ?? debug?.checks?.corePassRule ?? 3)));
+
+  return {
+    finalConfidence: Math.min(0.99, Math.max(0.01, Number(finalConfidence.toFixed(4)))),
+    corePassCount,
+    corePassRule: required,
+    corePassed: corePassCount >= required,
+  };
+}
+
 export default function FutureTradeBotPage() {
   const { currentWorkspace, loading } = useWorkspace();
   const bot = useFutureTradeBot(currentWorkspace?.id);
@@ -204,6 +375,9 @@ export default function FutureTradeBotPage() {
   };
 
   const save = () => {
+    if (!window.confirm("Save Future Trade algorithm changes now? Unsaved slider changes will become active after this save.")) {
+      return;
+    }
     bot.updateConfig.mutate(
       { settings: { ...settings, paperTrading: !settings.liveTrading }, algorithm_notes: notes },
       {
@@ -459,7 +633,7 @@ export default function FutureTradeBotPage() {
                 <TabsTrigger value="my-config">My Config</TabsTrigger>
               </TabsList>
               <TabsContent value="algorithm">
-                <ConfigPanel envMode={envSettings.mode} status={status} settings={settings} setSettings={setSettings} notes={notes} setNotes={setNotes} availableSymbols={bot.config.data?.available_symbols ?? FUTURE_TRADE_ALL_SYMBOLS} onSave={save} busy={busy} />
+                <ConfigPanel envMode={envSettings.mode} status={status} debug={dashboard?.signalDebug} settings={settings} setSettings={setSettings} notes={notes} setNotes={setNotes} availableSymbols={bot.config.data?.available_symbols ?? FUTURE_TRADE_ALL_SYMBOLS} onSave={save} busy={busy} />
               </TabsContent>
               <TabsContent value="my-config">
                 <MyConfigPanel envSettings={envSettings} setEnvSettings={setEnvSettings} liveSecret={liveSecret} setLiveSecret={setLiveSecret} testnetSecret={testnetSecret} setTestnetSecret={setTestnetSecret} onSave={saveEnv} onTestConnection={testEnvConnection} busy={envBusy || bot.testConnection.isPending} />
@@ -900,11 +1074,30 @@ function DynamicSuggestionPanel({ dynamic, onApplyRecommendation, onRestoreManua
   );
 }
 
-function ConfigPanel({ envMode, status, settings, setSettings, notes, setNotes, availableSymbols, onSave, busy }: { envMode: FutureTradeEnvConfig["mode"]; status?: { dailyLossLocked?: boolean; manualRestartAllowed?: boolean } | null; settings: FutureTradeSettings; setSettings: (settings: FutureTradeSettings) => void; notes: string; setNotes: (value: string) => void; availableSymbols: string[]; onSave: () => void; busy: boolean }) {
+function ConfigPanel({ envMode, status, debug, settings, setSettings, notes, setNotes, availableSymbols, onSave, busy }: { envMode: FutureTradeEnvConfig["mode"]; status?: { dailyLossLocked?: boolean; manualRestartAllowed?: boolean; activeMinConfidence?: number | null } | null; debug?: FutureTradeDashboard["signalDebug"] | null; settings: FutureTradeSettings; setSettings: (settings: FutureTradeSettings) => void; notes: string; setNotes: (value: string) => void; availableSymbols: string[]; onSave: () => void; busy: boolean }) {
   const update = <K extends keyof FutureTradeSettings>(key: K, value: FutureTradeSettings[K]) => setSettings({ ...settings, [key]: value });
   const recoveryMode = Boolean(status?.dailyLossLocked);
   const applyRecoveryPreset = () => setSettings({ ...settings, ...LOSS_LOCK_RECOVERY_PRESET });
   const applyStrictPreset = () => setSettings({ ...settings, ...STRICT_BTC_ETH_FULLY_DYNAMIC_PRESET });
+  const applyInfluencePreset = (preset: typeof INDICATOR_PRESETS[number]) => setSettings({
+    ...settings,
+    corePassRule: preset.corePassRule,
+    indicatorInfluence: { ...preset.indicatorInfluence },
+  });
+  const updateInfluence = (key: string, value: number) => setSettings({
+    ...settings,
+    indicatorInfluence: {
+      ...mergeInfluenceWeights(DEFAULT_SETTINGS.indicatorInfluence),
+      ...(settings.indicatorInfluence ?? {}),
+      [key]: Number(value.toFixed(2)),
+    },
+  });
+  const resetInfluenceControls = () => update("indicatorInfluence", { ...(DEFAULT_SETTINGS.indicatorInfluence ?? {}) });
+  const simulatedCurrent = useMemo(() => simulateSignalConfidence(debug, settings), [debug, settings]);
+  const presetComparisons = useMemo(() => INDICATOR_PRESETS.map((preset) => ({
+    label: preset.label,
+    ...simulateSignalConfidence(debug, preset),
+  })), [debug]);
 
   const toggleSymbol = (sym: string) => {
     const active = settings.symbols.includes(sym);
@@ -988,6 +1181,25 @@ function ConfigPanel({ envMode, status, settings, setSettings, notes, setNotes, 
             </div>
           </RadioGroup>
         </Field>
+        <Field label="Core pass rule" note="How many core indicators must align before the setup can pass the core gate.">
+          <RadioGroup value={String(settings.corePassRule ?? 3)} onValueChange={(value) => update("corePassRule", Number(value))}>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {[
+                ["2", "2 of 4", "Faster entries, lighter core filter."],
+                ["3", "3 of 4", "Balanced default."],
+                ["4", "4 of 4", "Strictest core confirmation."],
+              ].map(([value, title, description]) => (
+                <label key={value} className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm">
+                  <RadioGroupItem value={value} className="mt-1" />
+                  <span>
+                    <span className="block font-medium">{title}</span>
+                    <span className="block text-xs text-muted-foreground">{description}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </RadioGroup>
+        </Field>
         <div className="grid gap-3 sm:grid-cols-2">
           {(["leverage", "tradeAmountUsdt", "minConfidence", "dynamicLookbackMinutes", "dynamicMinConfidenceFloor", "dynamicMinConfidenceCeiling", "dynamicReentryBuffer", "takeProfitPercent", "stopLossPercent", "trailingTakeProfitPercent", "rollbackLossPercent", "maxDailyLossPercent", "maxTradesPerDay", "cooldownSeconds"] as const).map((key) => {
             const highlighted = recoveryMode && (LOSS_LOCK_RECOVERY_KEYS as readonly string[]).includes(key);
@@ -1005,6 +1217,86 @@ function ConfigPanel({ envMode, status, settings, setSettings, notes, setNotes, 
             );
           })}
         </div>
+        <Card className="border-dashed">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-base">Indicator Influence Controls</CardTitle>
+            <div className="flex flex-wrap gap-2">
+              {INDICATOR_PRESETS.map((preset) => (
+                <Button key={preset.key} type="button" variant="outline" size="sm" onClick={() => applyInfluencePreset(preset)}>
+                  {preset.label}
+                </Button>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={resetInfluenceControls}>
+                Reset Weights
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+              Weight scale: `0-10`. `5` = neutral/default. `0` = disable. `10` = strongest influence. Positive and penalty weights are separate where needed, so you can reduce blockers without weakening good signals.
+            </div>
+            <div className="overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Factor</TableHead>
+                    <TableHead>Impact</TableHead>
+                    <TableHead>Power</TableHead>
+                    <TableHead>Value</TableHead>
+                    <TableHead>Use</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {INDICATOR_INFLUENCE_CONTROLS.map((item) => {
+                    const current = displayInfluenceWeight(settings.indicatorInfluence?.[item.key] ?? DEFAULT_SETTINGS.indicatorInfluence?.[item.key] ?? 5);
+                    return (
+                      <TableRow key={item.key}>
+                        <TableCell className="font-medium">{item.label}</TableCell>
+                        <TableCell className="text-xs uppercase text-muted-foreground">{("impact" in item && item.impact) ? item.impact : "positive"}</TableCell>
+                        <TableCell className="min-w-[220px]">
+                          <Slider
+                            min={0}
+                            max={10}
+                            step={1}
+                            value={[current]}
+                            onValueChange={([value]) => updateInfluence(item.key, value ?? 5)}
+                          />
+                        </TableCell>
+                        <TableCell className="font-mono">{n(current, 0)}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{item.note}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-dashed">
+          <CardHeader><CardTitle className="text-base">Dry-Run Simulation</CardTitle></CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-md border bg-muted/20 p-3 text-sm">
+              <div className="font-medium">Current unsaved settings</div>
+              <div className="mt-2 grid gap-2 text-xs">
+                <Row label="Dry-run confidence" value={`${n(simulatedCurrent.finalConfidence * 100, 2)}%`} />
+                <Row label="Current active minimum" value={`${n((Number(status?.activeMinConfidence ?? settings.minConfidence)) * 100, 2)}%`} />
+                <Row label="Core pass" value={`${simulatedCurrent.corePassCount}/${simulatedCurrent.corePassRule} ${simulatedCurrent.corePassed ? "PASS" : "FAIL"}`} />
+                <Row label="Live order placement" value="Disabled in dry-run" />
+              </div>
+            </div>
+            <div className="rounded-md border bg-muted/20 p-3 text-sm">
+              <div className="font-medium">Preset comparison for current signal</div>
+              <div className="mt-2 space-y-2 text-xs">
+                {presetComparisons.map((preset) => (
+                  <div key={preset.label} className="flex items-center justify-between rounded border px-2 py-1">
+                    <span>{preset.label}</span>
+                    <span className="font-mono">{n(preset.finalConfidence * 100, 2)}% | {preset.corePassCount}/{preset.corePassRule}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
         <div className="grid gap-2 sm:grid-cols-2">
           <Toggle label="Auto paper execute" checked={settings.autoExecutePaperSignals} onChange={(value) => update("autoExecutePaperSignals", value)} />
           <Toggle label="Avoid choppy market" checked={settings.avoidChoppyMarket} onChange={(value) => update("avoidChoppyMarket", value)} />
@@ -1048,6 +1340,9 @@ function ConfigPanel({ envMode, status, settings, setSettings, notes, setNotes, 
         </div>
 
         <Field label="Algorithm Notes"><Textarea className="min-h-[120px] font-mono text-xs" value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+        <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+          Slider changes are local only until you press `Save Algorithm` and confirm.
+        </div>
         <Button className="w-full" disabled={busy} onClick={onSave}><Save className="mr-2 h-4 w-4" />Save Algorithm</Button>
       </CardContent>
     </Card>
@@ -1222,6 +1517,11 @@ function flattenTradeForExport(trade: FutureTradeRecord) {
 }
 
 function flattenTrackerRowForExport(log: FutureTradeLog) {
+  const hardBlockers = normalizeList(log.context?.hardBlockers, log.context?.hardBlocker);
+  const softPenalties = normalizeList(log.context?.softPenalties);
+  const positiveFactors = normalizeList(log.context?.positiveFactors);
+  const negativeFactors = normalizeList(log.context?.negativeFactors);
+
   return {
     id: log.id,
     occurred_at: log.occurred_at,
@@ -1241,6 +1541,7 @@ function flattenTrackerRowForExport(log: FutureTradeLog) {
     algorithm_mode: log.context?.algorithmMode ?? "",
     algorithm_flag: log.context?.algorithmFlag ?? "NORMAL",
     effective_min_confidence: log.context?.effectiveMinConfidence ?? "",
+    active_confidence_min: log.context?.activeConfidenceMin ?? log.context?.effectiveMinConfidence ?? "",
     active_take_profit_percent: log.context?.activeTakeProfitPercent ?? "",
     active_stop_loss_percent: log.context?.activeStopLossPercent ?? "",
     active_trailing_take_profit_percent: log.context?.activeTrailingTakeProfitPercent ?? "",
@@ -1248,9 +1549,51 @@ function flattenTrackerRowForExport(log: FutureTradeLog) {
     active_trade_amount_usdt: log.context?.activeTradeAmountUsdt ?? "",
     trend_strength: log.context?.trendStrength ?? "",
     direction_agreement: log.context?.directionAgreement ?? "",
+    vwap_aligned: booleanExportValue(log.context?.vwapAligned),
+    ema_aligned: booleanExportValue(log.context?.emaAligned),
+    adx_value: log.context?.adxValue ?? "",
+    macd_direction: booleanExportValue(log.context?.macdDirection),
+    rsi_value: log.context?.rsiValue ?? "",
+    volume_aligned: booleanExportValue(log.context?.volumeAligned),
+    volume_ratio: log.context?.volumeRatio ?? "",
+    htf_aligned: booleanExportValue(log.context?.htfAligned),
+    soft_penalty_count: log.context?.softPenaltyCount ?? softPenalties.length,
+    soft_penalties: softPenalties.join(" | "),
+    hard_blocker: log.context?.hardBlocker ?? "",
+    hard_blockers: hardBlockers.join(" | "),
+    positive_factors: positiveFactors.join(" | "),
+    negative_factors: negativeFactors.join(" | "),
+    component_scores_json: log.context?.componentScores ? JSON.stringify(log.context.componentScores) : "",
+    component_breakdown_json: log.context?.componentBreakdown ? JSON.stringify(log.context.componentBreakdown) : "",
     choppy: log.context?.choppy == null ? "" : log.context.choppy ? "true" : "false",
     context_json: log.context ? JSON.stringify(log.context) : "",
   };
+}
+
+function booleanExportValue(value: boolean | null | undefined) {
+  if (value == null) return "";
+  return value ? "true" : "false";
+}
+
+function boolBadge(value: boolean | null | undefined) {
+  if (value == null) return "-";
+  return value ? "Yes" : "No";
+}
+
+function normalizeList(value: unknown, fallback?: unknown) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).filter(Boolean);
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    return [value];
+  }
+  if (typeof fallback === "string" && fallback.trim() !== "") {
+    return [fallback];
+  }
+  if (Array.isArray(fallback)) {
+    return fallback.map((item) => String(item)).filter(Boolean);
+  }
+  return [] as string[];
 }
 
 function xmlEscape(value: unknown) {
@@ -1314,6 +1657,7 @@ function downloadExcelWorkbook(filename: string, sheets: Array<{ name: string; r
 function DynamicRuntimeTracker({ logs }: { logs: FutureTradeLog[] }) {
   const rows = useMemo(() => logs.filter((log) => TRACKER_EVENTS.has(log.event)), [logs]);
   const [page, setPage] = useState(1);
+  const [selectedRow, setSelectedRow] = useState<FutureTradeLog | null>(null);
   const totalPages = Math.max(1, Math.ceil(rows.length / TRACKER_PAGE_SIZE));
 
   useEffect(() => {
@@ -1352,12 +1696,22 @@ function DynamicRuntimeTracker({ logs }: { logs: FutureTradeLog[] }) {
               <TableHead>Size</TableHead>
               <TableHead>Trend</TableHead>
               <TableHead>Choppy</TableHead>
+              <TableHead>VWAP</TableHead>
+              <TableHead>EMA</TableHead>
+              <TableHead>ADX</TableHead>
+              <TableHead>MACD</TableHead>
+              <TableHead>RSI</TableHead>
+              <TableHead>Volume</TableHead>
+              <TableHead>HTF</TableHead>
+              <TableHead>Soft</TableHead>
+              <TableHead>Hard blocker</TableHead>
+              <TableHead>More</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {paginatedRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={14} className="text-center text-sm text-muted-foreground">No runtime status changes yet.</TableCell>
+                <TableCell colSpan={24} className="text-center text-sm text-muted-foreground">No runtime status changes yet.</TableCell>
               </TableRow>
             ) : paginatedRows.map((row) => (
               <TableRow key={row.id}>
@@ -1375,6 +1729,18 @@ function DynamicRuntimeTracker({ logs }: { logs: FutureTradeLog[] }) {
                 <TableCell>{row.context?.activeTradeAmountUsdt != null ? n(row.context.activeTradeAmountUsdt, 2) : "-"}</TableCell>
                 <TableCell>{row.context?.trendStrength != null ? `${n(row.context.trendStrength * 100, 0)}%` : "-"}</TableCell>
                 <TableCell>{row.context?.choppy == null ? "-" : row.context.choppy ? "Yes" : "No"}</TableCell>
+                <TableCell>{boolBadge(row.context?.vwapAligned)}</TableCell>
+                <TableCell>{boolBadge(row.context?.emaAligned)}</TableCell>
+                <TableCell>{row.context?.adxValue != null ? n(row.context.adxValue, 2) : "-"}</TableCell>
+                <TableCell>{boolBadge(row.context?.macdDirection)}</TableCell>
+                <TableCell>{row.context?.rsiValue != null ? n(row.context.rsiValue, 2) : "-"}</TableCell>
+                <TableCell>{row.context?.volumeRatio != null ? `${boolBadge(row.context?.volumeAligned)} (${n(row.context.volumeRatio, 2)})` : boolBadge(row.context?.volumeAligned)}</TableCell>
+                <TableCell>{boolBadge(row.context?.htfAligned)}</TableCell>
+                <TableCell>{row.context?.softPenaltyCount ?? normalizeList(row.context?.softPenalties).length}</TableCell>
+                <TableCell>{row.context?.hardBlocker ?? normalizeList(row.context?.hardBlockers)[0] ?? "-"}</TableCell>
+                <TableCell>
+                  <Button variant="outline" size="sm" onClick={() => setSelectedRow(row)}>More</Button>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -1561,6 +1927,12 @@ function SignalDebugPanel({
     negativeFactors?: string[];
     componentScores?: Record<string, number>;
     voteSummary?: Record<string, number | string>;
+    checks?: {
+      corePassRule?: number;
+      buyCoreChecks?: Record<string, boolean>;
+      sellCoreChecks?: Record<string, boolean>;
+    };
+    componentBreakdown?: Record<string, { label: string; rawScore: number; influenceLevel: number; finalContribution: number; impact: string }>;
   } | null;
 }) {
   if (!status && !debug) return null;
@@ -1620,6 +1992,46 @@ function SignalDebugPanel({
                   <Row key={key} label={humanizeCode(key)} value={`${n(Number(value) * 100, 2)}%`} />
                 ))}
               </div>
+            </div>
+            <div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-sky-400">Confidence breakdown</div>
+              <div className="overflow-x-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Factor</TableHead>
+                      <TableHead>Impact</TableHead>
+                      <TableHead>Raw</TableHead>
+                      <TableHead>Influence</TableHead>
+                      <TableHead>Final</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {Object.entries(debug?.componentBreakdown ?? {}).length ? Object.entries(debug?.componentBreakdown ?? {}).map(([key, item]) => (
+                      <TableRow key={key}>
+                        <TableCell>{item.label ?? humanizeCode(key)}</TableCell>
+                        <TableCell className="uppercase text-muted-foreground">{item.impact}</TableCell>
+                        <TableCell>{n(Number(item.rawScore ?? 0) * 100, 2)}%</TableCell>
+                        <TableCell>{n(item.influenceLevel ?? 1, 2)}x</TableCell>
+                        <TableCell className={cn(Number(item.finalContribution ?? 0) < 0 ? "text-rose-400" : "text-emerald-400")}>
+                          {n(Number(item.finalContribution ?? 0) * 100, 2)}%
+                        </TableCell>
+                      </TableRow>
+                    )) : (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-xs text-muted-foreground">No component breakdown yet.</TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+            <div className="grid gap-2 text-xs sm:grid-cols-2">
+              <Row
+                label="Core pass"
+                value={`${Object.values(debug?.checks?.[debug?.signalSide === "SELL" ? "sellCoreChecks" : "buyCoreChecks"] ?? {}).filter(Boolean).length}/${Number(debug?.checks?.corePassRule ?? 3)} required`}
+              />
+              <Row label="Signal side" value={String(debug?.signalSide ?? "-")} />
             </div>
           </div>
         </details>
@@ -1698,6 +2110,56 @@ function LiveFeedDaemonCard({
           Best mode: keep this daemon running for shared websocket ticks and kline cache. If it is offline, Future Trade falls back to REST polling.
         </div>
       </CardContent>
+      <Dialog open={!!selectedRow} onOpenChange={(open) => !open && setSelectedRow(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Runtime Tracker Detail</DialogTitle>
+          </DialogHeader>
+          {selectedRow ? (
+            <div className="space-y-4 text-sm">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <Row label="Time" value={new Date(selectedRow.occurred_at).toLocaleString()} />
+                <Row label="Event" value={selectedRow.event} />
+                <Row label="Status" value={trackerStatusLabel(selectedRow)} />
+                <Row label="Signal" value={selectedRow.signal || "-"} />
+                <Row label="Confidence" value={`${n(Number(selectedRow.confidence ?? 0) * 100, 2)}%`} />
+                <Row label="Active Min" value={selectedRow.context?.activeConfidenceMin != null ? `${n(selectedRow.context.activeConfidenceMin * 100, 2)}%` : "-"} />
+                <Row label="VWAP aligned" value={boolBadge(selectedRow.context?.vwapAligned)} />
+                <Row label="EMA aligned" value={boolBadge(selectedRow.context?.emaAligned)} />
+                <Row label="ADX value" value={selectedRow.context?.adxValue != null ? n(selectedRow.context.adxValue, 2) : "-"} />
+                <Row label="MACD direction" value={boolBadge(selectedRow.context?.macdDirection)} />
+                <Row label="RSI" value={selectedRow.context?.rsiValue != null ? n(selectedRow.context.rsiValue, 2) : "-"} />
+                <Row label="Volume" value={selectedRow.context?.volumeRatio != null ? `${boolBadge(selectedRow.context?.volumeAligned)} (${n(selectedRow.context.volumeRatio, 2)})` : boolBadge(selectedRow.context?.volumeAligned)} />
+                <Row label="HTF" value={boolBadge(selectedRow.context?.htfAligned)} />
+                <Row label="Soft penalty count" value={String(selectedRow.context?.softPenaltyCount ?? normalizeList(selectedRow.context?.softPenalties).length)} />
+                <Row label="Hard blocker" value={selectedRow.context?.hardBlocker ?? normalizeList(selectedRow.context?.hardBlockers)[0] ?? "-"} />
+              </div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-md border p-3">
+                  <div className="mb-2 font-medium">Soft penalties</div>
+                  <div className="text-muted-foreground">{normalizeList(selectedRow.context?.softPenalties).join(" | ") || "-"}</div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="mb-2 font-medium">Hard blockers</div>
+                  <div className="text-muted-foreground">{normalizeList(selectedRow.context?.hardBlockers, selectedRow.context?.hardBlocker).join(" | ") || "-"}</div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="mb-2 font-medium">Positive factors</div>
+                  <div className="text-muted-foreground">{normalizeList(selectedRow.context?.positiveFactors).join(" | ") || "-"}</div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="mb-2 font-medium">Negative factors</div>
+                  <div className="text-muted-foreground">{normalizeList(selectedRow.context?.negativeFactors).join(" | ") || "-"}</div>
+                </div>
+              </div>
+              <div className="rounded-md border p-3">
+                <div className="mb-2 font-medium">Component scores</div>
+                <pre className="overflow-x-auto text-xs text-muted-foreground">{JSON.stringify(selectedRow.context?.componentScores ?? {}, null, 2)}</pre>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
