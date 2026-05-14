@@ -139,6 +139,7 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   dynamicReentryBuffer: 0.005,
   dynamicSuggestionEnabled: false,
   corePassRule: 3,
+  classicSimpleMode: false,
   takeProfitPercent: 1.2,
   stopLossPercent: 0.4,
   trailingTakeProfitPercent: 0.3,
@@ -317,8 +318,16 @@ function mergeInfluenceWeights(weights?: Record<string, number> | null) {
 
 function simulateSignalConfidence(
   debug: FutureTradeDashboard["signalDebug"] | null | undefined,
-  settings: Pick<FutureTradeSettings, "indicatorInfluence" | "corePassRule">,
+  settings: Pick<FutureTradeSettings, "indicatorInfluence" | "corePassRule" | "classicSimpleMode">,
 ) {
+  if (settings.classicSimpleMode || debug?.checks?.classicSimpleMode) {
+    return {
+      finalConfidence: Math.min(0.99, Math.max(0.01, Number((debug?.finalConfidence ?? 0.5).toFixed(4)))),
+      corePassCount: 0,
+      corePassRule: 0,
+      corePassed: true,
+    };
+  }
   const breakdown = debug?.componentBreakdown ?? {};
   const mergedWeights = mergeInfluenceWeights(settings.indicatorInfluence);
   const finalConfidence = Object.values(breakdown).reduce((total, item) => {
@@ -1091,8 +1100,19 @@ function ConfigPanel({ envMode, status, debug, settings, setSettings, notes, set
   const recoveryMode = Boolean(status?.dailyLossLocked);
   const applyRecoveryPreset = () => setSettings({ ...settings, ...LOSS_LOCK_RECOVERY_PRESET });
   const applyStrictPreset = () => setSettings({ ...settings, ...STRICT_BTC_ETH_FULLY_DYNAMIC_PRESET });
+  const applyClassicSimpleMode = () => setSettings({
+    ...settings,
+    classicSimpleMode: true,
+    confidenceMode: "fixed",
+    minConfidence: Math.min(Number(settings.minConfidence ?? 0.52), 0.5),
+    dynamicMinConfidenceFloor: 0.45,
+    dynamicMinConfidenceCeiling: 0.55,
+    corePassRule: 2,
+    avoidChoppyMarket: false,
+  });
   const applyInfluencePreset = (preset: typeof INDICATOR_PRESETS[number]) => setSettings({
     ...settings,
+    classicSimpleMode: false,
     corePassRule: preset.corePassRule,
     indicatorInfluence: { ...preset.indicatorInfluence },
   });
@@ -1174,6 +1194,25 @@ function ConfigPanel({ envMode, status, debug, settings, setSettings, notes, set
             Stricter fully dynamic starter for BTC and ETH only.
           </div>
         </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button type="button" variant={settings.classicSimpleMode ? "default" : "outline"} onClick={applyClassicSimpleMode}>
+            Enable Indicators Off Mode
+          </Button>
+          <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            Classic simple mode ignores indicator influence, soft penalties, and dynamic inflation. Signals follow basic graph price action like the older simple flow.
+          </div>
+        </div>
+        <div className={cn("flex items-center justify-between rounded-md p-3 border", settings.classicSimpleMode ? "border-cyan-500/40 bg-cyan-500/10" : "border-muted")}>
+          <div>
+            <div className="text-sm font-medium">Indicators Off / Classic Simple Mode</div>
+            <div className="text-xs text-muted-foreground">
+              {settings.classicSimpleMode
+                ? "Active: scanner uses simple graph/price-action signals only."
+                : "Off: scanner uses the full indicator + influence system."}
+            </div>
+          </div>
+          <Switch checked={Boolean(settings.classicSimpleMode)} onCheckedChange={(v) => update("classicSimpleMode", v)} />
+        </div>
         <Field label="Confidence algorithm">
           <RadioGroup value={settings.confidenceMode || "fixed"} onValueChange={(value) => update("confidenceMode", value)}>
             <div className="grid gap-2">
@@ -1243,9 +1282,11 @@ function ConfigPanel({ envMode, status, debug, settings, setSettings, notes, set
               </Button>
             </div>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className={cn("space-y-3", settings.classicSimpleMode && "opacity-60")}>
             <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
-              Weight scale: `0-10`. `5` = neutral/default. `0` = disable. `10` = strongest influence. Positive and penalty weights are separate where needed, so you can reduce blockers without weakening good signals.
+              {settings.classicSimpleMode
+                ? "Classic simple mode is active. These weights are ignored until you turn classic mode off."
+                : "Weight scale: `0-10`. `5` = neutral/default. `0` = disable. `10` = strongest influence. Positive and penalty weights are separate where needed, so you can reduce blockers without weakening good signals."}
             </div>
             <div className="overflow-x-auto rounded-md border">
               <Table>
@@ -1271,6 +1312,7 @@ function ConfigPanel({ envMode, status, debug, settings, setSettings, notes, set
                             max={10}
                             step={1}
                             value={[current]}
+                            disabled={Boolean(settings.classicSimpleMode)}
                             onValueChange={([value]) => updateInfluence(item.key, value ?? 5)}
                           />
                         </TableCell>

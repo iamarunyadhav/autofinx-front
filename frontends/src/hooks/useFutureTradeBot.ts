@@ -18,6 +18,7 @@ export interface FutureTradeSettings {
   dynamicReentryBuffer: number;
   dynamicSuggestionEnabled: boolean;
   corePassRule?: number;
+  classicSimpleMode?: boolean;
   takeProfitPercent: number;
   stopLossPercent: number;
   trailingTakeProfitPercent: number;
@@ -328,6 +329,7 @@ export interface FutureTradeDashboard {
       corePassRule?: number;
       buyCoreChecks?: Record<string, boolean>;
       sellCoreChecks?: Record<string, boolean>;
+      classicSimpleMode?: boolean;
     };
     componentBreakdown?: Record<string, FutureTradeComponentBreakdown>;
     timing?: {
