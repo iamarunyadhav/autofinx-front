@@ -355,9 +355,15 @@ export default function FutureTradeBotPage() {
                 <Row label="Active minimum" value={`${n((status?.activeMinConfidence ?? settings.minConfidence) * 100, 2)}%`} />
                 <Row label="Confidence gap" value={`${n((status?.signalConfidenceGap ?? 0) * 100, 2)}%`} />
               </div>
+              <div className="grid gap-2 text-xs sm:grid-cols-2">
+                <Row label="Live update mode" value={String(status?.liveStatus?.mode ?? "-")} />
+                <Row label="Indicator timing" value={String(status?.liveStatus?.indicatorMode ?? "-")} />
+              </div>
             </CardContent>
           </Card>
         ) : null}
+
+        <SignalDebugPanel status={status} debug={dashboard?.signalDebug} />
 
         <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
           <div className="space-y-6">
@@ -1513,4 +1519,102 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
 
 function Row({ label, value }: { label: string; value: string }) {
   return <div className="flex justify-between gap-3"><span className="text-muted-foreground">{label}</span><span className="font-medium">{value}</span></div>;
+}
+
+function SignalDebugPanel({
+  status,
+  debug,
+}: {
+  status?: {
+    currentPrice?: number | null;
+    currentSignal?: string | null;
+    confidence?: number | null;
+    activeMinConfidence?: number | null;
+    signalConfidenceGap?: number | null;
+    lastScanAt?: string | null;
+    liveStatus?: {
+      mode: string;
+      indicatorMode: string;
+      dataSource?: string | null;
+      lastUpdateTime?: string | null;
+      lastCandleTime?: string | null;
+      higherTimeframeLastCandleTime?: string | null;
+      ageSeconds?: number | null;
+      isStale?: boolean;
+    } | null;
+  } | null;
+  debug?: {
+    decision?: string;
+    decisionStatus?: string;
+    signalSide?: string;
+    finalConfidence?: number;
+    positiveFactors?: string[];
+    negativeFactors?: string[];
+    componentScores?: Record<string, number>;
+    voteSummary?: Record<string, number | string>;
+  } | null;
+}) {
+  if (!status && !debug) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Signal Debug</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <details className="group rounded-md border bg-muted/20 p-3">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium">
+            <span>Confidence breakdown and blockers</span>
+            <span className="text-xs text-muted-foreground group-open:hidden">Tap to expand</span>
+          </summary>
+          <div className="mt-4 space-y-4 text-sm">
+            <div className="grid gap-2 text-xs sm:grid-cols-2">
+              <Row label="Decision" value={String(debug?.decision ?? status?.currentSignal ?? "WAIT")} />
+              <Row label="Decision status" value={String(debug?.decisionStatus ?? "-")} />
+              <Row label="Signal side" value={String(debug?.signalSide ?? "-")} />
+              <Row label="Last price" value={n(Number(status?.currentPrice ?? 0), 6)} />
+              <Row label="Confidence" value={`${n((Number(debug?.finalConfidence ?? status?.confidence ?? 0)) * 100, 2)}%`} />
+              <Row label="Active minimum" value={`${n((Number(status?.activeMinConfidence ?? 0)) * 100, 2)}%`} />
+              <Row label="Gap" value={`${n((Number(status?.signalConfidenceGap ?? 0)) * 100, 2)}%`} />
+              <Row label="Last scan" value={status?.lastScanAt ? new Date(status.lastScanAt).toLocaleTimeString() : "-"} />
+              <Row label="Live mode" value={String(status?.liveStatus?.mode ?? "-")} />
+              <Row label="Indicator mode" value={String(status?.liveStatus?.indicatorMode ?? "-")} />
+              <Row label="Data source" value={String(status?.liveStatus?.dataSource ?? "-")} />
+              <Row label="Stale" value={status?.liveStatus?.isStale ? `Yes (${status?.liveStatus?.ageSeconds ?? 0}s)` : "No"} />
+              <Row label="5m candle time" value={status?.liveStatus?.lastCandleTime ? new Date(status.liveStatus.lastCandleTime).toLocaleTimeString() : "-"} />
+              <Row label="1h candle time" value={status?.liveStatus?.higherTimeframeLastCandleTime ? new Date(status.liveStatus.higherTimeframeLastCandleTime).toLocaleTimeString() : "-"} />
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-emerald-400">Positive factors</div>
+                <div className="space-y-1 text-xs text-muted-foreground">
+                  {(debug?.positiveFactors ?? []).length ? (debug?.positiveFactors ?? []).map((item) => (
+                    <div key={item} className="rounded border border-emerald-500/20 bg-emerald-500/5 px-2 py-1">{item}</div>
+                  )) : <div>-</div>}
+                </div>
+              </div>
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-rose-400">Blockers</div>
+                <div className="space-y-1 text-xs text-muted-foreground">
+                  {(debug?.negativeFactors ?? []).length ? (debug?.negativeFactors ?? []).map((item) => (
+                    <div key={item} className="rounded border border-rose-500/20 bg-rose-500/5 px-2 py-1">{item}</div>
+                  )) : <div>-</div>}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-cyan-400">Component scores</div>
+              <div className="grid gap-2 text-xs sm:grid-cols-2">
+                {Object.entries(debug?.componentScores ?? {}).map(([key, value]) => (
+                  <Row key={key} label={humanizeCode(key)} value={`${n(Number(value) * 100, 2)}%`} />
+                ))}
+              </div>
+            </div>
+          </div>
+        </details>
+      </CardContent>
+    </Card>
+  );
 }

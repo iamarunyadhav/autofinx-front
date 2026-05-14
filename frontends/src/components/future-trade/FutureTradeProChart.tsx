@@ -479,7 +479,7 @@ export function FutureTradeProChart({ candles, runtimePoints, settings, symbol, 
       <div className="flex flex-wrap gap-2 text-xs">
         <Badge variant="default">PRO Scalper</Badge>
         <Badge variant="outline">{symbol || "Symbol"} · {timeframe}</Badge>
-        <Badge variant={trendUp ? "default" : "destructive"}>{trendUp ? "EMA Trend Up" : "EMA Trend Down"}</Badge>
+        <Badge variant={trendUp ? "default" : "destructive"}>{trendUp ? "Chart EMA34/89 Up" : "Chart EMA34/89 Down"}</Badge>
         <Badge variant={adxReady ? "default" : "secondary"}>ADX {latest?.adx.toFixed(1)}{adxReady ? " strong" : " weak"}</Badge>
         <Badge variant="secondary">VWAP {latest?.vwap.toFixed(2)}</Badge>
         <Badge variant="secondary">OR {latest?.orHigh?.toFixed(2) ?? "-"} / {latest?.orLow?.toFixed(2) ?? "-"}</Badge>

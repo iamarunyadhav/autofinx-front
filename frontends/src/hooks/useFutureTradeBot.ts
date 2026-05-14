@@ -62,6 +62,20 @@ export interface FutureTradeStatus {
   winRate: number;
   tradeCountToday: number;
   lastScanAt?: string | null;
+  liveStatus?: {
+    mode: string;
+    priceUpdateMode: string;
+    indicatorMode: string;
+    lastUpdateTime?: string | null;
+    lastChartPointTime?: string | null;
+    lastCandleTime?: string | null;
+    higherTimeframeLastCandleTime?: string | null;
+    ageSeconds?: number | null;
+    scanIntervalSeconds?: number | null;
+    isStale?: boolean;
+    scannerSnapshotCount?: number;
+    dataSource?: string | null;
+  };
   settings: FutureTradeSettings;
   dynamic?: FutureTradeDynamicDecision;
   paperTrading: boolean;
@@ -273,6 +287,20 @@ export interface FutureTradeDashboard {
   status: FutureTradeStatus;
   scanner: FutureSignal[];
   bestSignal?: FutureSignal | null;
+  signalDebug?: {
+    decision: string;
+    decisionStatus: string;
+    signalSide: string;
+    finalConfidence: number;
+    positiveFactors: string[];
+    negativeFactors: string[];
+    componentScores: Record<string, number>;
+    voteSummary?: Record<string, number | string>;
+    timing?: {
+      sequenceLastCandleTime?: string | null;
+      higherTimeframeLastCandleTime?: string | null;
+    };
+  } | null;
   chart: FutureTradeDynamicPoint[];
   marketChart?: FutureTradeMarketChart;
   indicatorSuite?: FutureTradeIndicatorSuite;
