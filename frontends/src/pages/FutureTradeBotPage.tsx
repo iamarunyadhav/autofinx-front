@@ -283,6 +283,18 @@ function statusVariant(value?: string) {
   return "outline";
 }
 
+function resolveMasterSignal(
+  status?: FutureTradeDashboard["status"] | null,
+  debug?: FutureTradeDashboard["signalDebug"] | null,
+  bestSignal?: FutureTradeDashboard["bestSignal"] | null,
+) {
+  const candidate = String(debug?.decision ?? status?.currentSignal ?? bestSignal?.signal ?? "WAIT").toUpperCase();
+  if (["BUY", "SELL", "WAIT"].includes(candidate)) {
+    return candidate;
+  }
+  return "WAIT";
+}
+
 function normalizeInfluenceMultiplier(value: unknown) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 1;
@@ -1756,6 +1768,56 @@ function DynamicRuntimeTracker({ logs }: { logs: FutureTradeLog[] }) {
           </div>
         </div>
       </CardContent>
+      <Dialog open={!!selectedRow} onOpenChange={(open) => !open && setSelectedRow(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Runtime Tracker Detail</DialogTitle>
+          </DialogHeader>
+          {selectedRow ? (
+            <div className="space-y-4 text-sm">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <Row label="Time" value={new Date(selectedRow.occurred_at).toLocaleString()} />
+                <Row label="Event" value={selectedRow.event} />
+                <Row label="Status" value={trackerStatusLabel(selectedRow)} />
+                <Row label="Signal" value={selectedRow.signal || "-"} />
+                <Row label="Confidence" value={`${n(Number(selectedRow.confidence ?? 0) * 100, 2)}%`} />
+                <Row label="Active Min" value={selectedRow.context?.activeConfidenceMin != null ? `${n(selectedRow.context.activeConfidenceMin * 100, 2)}%` : "-"} />
+                <Row label="VWAP aligned" value={boolBadge(selectedRow.context?.vwapAligned)} />
+                <Row label="EMA aligned" value={boolBadge(selectedRow.context?.emaAligned)} />
+                <Row label="ADX value" value={selectedRow.context?.adxValue != null ? n(selectedRow.context.adxValue, 2) : "-"} />
+                <Row label="MACD direction" value={boolBadge(selectedRow.context?.macdDirection)} />
+                <Row label="RSI" value={selectedRow.context?.rsiValue != null ? n(selectedRow.context.rsiValue, 2) : "-"} />
+                <Row label="Volume" value={selectedRow.context?.volumeRatio != null ? `${boolBadge(selectedRow.context?.volumeAligned)} (${n(selectedRow.context.volumeRatio, 2)})` : boolBadge(selectedRow.context?.volumeAligned)} />
+                <Row label="HTF" value={boolBadge(selectedRow.context?.htfAligned)} />
+                <Row label="Soft penalty count" value={String(selectedRow.context?.softPenaltyCount ?? normalizeList(selectedRow.context?.softPenalties).length)} />
+                <Row label="Hard blocker" value={selectedRow.context?.hardBlocker ?? normalizeList(selectedRow.context?.hardBlockers)[0] ?? "-"} />
+              </div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-md border p-3">
+                  <div className="mb-2 font-medium">Soft penalties</div>
+                  <div className="text-muted-foreground">{normalizeList(selectedRow.context?.softPenalties).join(" | ") || "-"}</div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="mb-2 font-medium">Hard blockers</div>
+                  <div className="text-muted-foreground">{normalizeList(selectedRow.context?.hardBlockers, selectedRow.context?.hardBlocker).join(" | ") || "-"}</div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="mb-2 font-medium">Positive factors</div>
+                  <div className="text-muted-foreground">{normalizeList(selectedRow.context?.positiveFactors).join(" | ") || "-"}</div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="mb-2 font-medium">Negative factors</div>
+                  <div className="text-muted-foreground">{normalizeList(selectedRow.context?.negativeFactors).join(" | ") || "-"}</div>
+                </div>
+              </div>
+              <div className="rounded-md border p-3">
+                <div className="mb-2 font-medium">Component scores</div>
+                <pre className="overflow-x-auto text-xs text-muted-foreground">{JSON.stringify(selectedRow.context?.componentScores ?? {}, null, 2)}</pre>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
@@ -2110,56 +2172,6 @@ function LiveFeedDaemonCard({
           Best mode: keep this daemon running for shared websocket ticks and kline cache. If it is offline, Future Trade falls back to REST polling.
         </div>
       </CardContent>
-      <Dialog open={!!selectedRow} onOpenChange={(open) => !open && setSelectedRow(null)}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Runtime Tracker Detail</DialogTitle>
-          </DialogHeader>
-          {selectedRow ? (
-            <div className="space-y-4 text-sm">
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                <Row label="Time" value={new Date(selectedRow.occurred_at).toLocaleString()} />
-                <Row label="Event" value={selectedRow.event} />
-                <Row label="Status" value={trackerStatusLabel(selectedRow)} />
-                <Row label="Signal" value={selectedRow.signal || "-"} />
-                <Row label="Confidence" value={`${n(Number(selectedRow.confidence ?? 0) * 100, 2)}%`} />
-                <Row label="Active Min" value={selectedRow.context?.activeConfidenceMin != null ? `${n(selectedRow.context.activeConfidenceMin * 100, 2)}%` : "-"} />
-                <Row label="VWAP aligned" value={boolBadge(selectedRow.context?.vwapAligned)} />
-                <Row label="EMA aligned" value={boolBadge(selectedRow.context?.emaAligned)} />
-                <Row label="ADX value" value={selectedRow.context?.adxValue != null ? n(selectedRow.context.adxValue, 2) : "-"} />
-                <Row label="MACD direction" value={boolBadge(selectedRow.context?.macdDirection)} />
-                <Row label="RSI" value={selectedRow.context?.rsiValue != null ? n(selectedRow.context.rsiValue, 2) : "-"} />
-                <Row label="Volume" value={selectedRow.context?.volumeRatio != null ? `${boolBadge(selectedRow.context?.volumeAligned)} (${n(selectedRow.context.volumeRatio, 2)})` : boolBadge(selectedRow.context?.volumeAligned)} />
-                <Row label="HTF" value={boolBadge(selectedRow.context?.htfAligned)} />
-                <Row label="Soft penalty count" value={String(selectedRow.context?.softPenaltyCount ?? normalizeList(selectedRow.context?.softPenalties).length)} />
-                <Row label="Hard blocker" value={selectedRow.context?.hardBlocker ?? normalizeList(selectedRow.context?.hardBlockers)[0] ?? "-"} />
-              </div>
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-md border p-3">
-                  <div className="mb-2 font-medium">Soft penalties</div>
-                  <div className="text-muted-foreground">{normalizeList(selectedRow.context?.softPenalties).join(" | ") || "-"}</div>
-                </div>
-                <div className="rounded-md border p-3">
-                  <div className="mb-2 font-medium">Hard blockers</div>
-                  <div className="text-muted-foreground">{normalizeList(selectedRow.context?.hardBlockers, selectedRow.context?.hardBlocker).join(" | ") || "-"}</div>
-                </div>
-                <div className="rounded-md border p-3">
-                  <div className="mb-2 font-medium">Positive factors</div>
-                  <div className="text-muted-foreground">{normalizeList(selectedRow.context?.positiveFactors).join(" | ") || "-"}</div>
-                </div>
-                <div className="rounded-md border p-3">
-                  <div className="mb-2 font-medium">Negative factors</div>
-                  <div className="text-muted-foreground">{normalizeList(selectedRow.context?.negativeFactors).join(" | ") || "-"}</div>
-                </div>
-              </div>
-              <div className="rounded-md border p-3">
-                <div className="mb-2 font-medium">Component scores</div>
-                <pre className="overflow-x-auto text-xs text-muted-foreground">{JSON.stringify(selectedRow.context?.componentScores ?? {}, null, 2)}</pre>
-              </div>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
     </Card>
   );
 }
