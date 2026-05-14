@@ -75,6 +75,15 @@ export interface FutureTradeStatus {
     isStale?: boolean;
     scannerSnapshotCount?: number;
     dataSource?: string | null;
+    daemon?: {
+      running: boolean;
+      pid?: number | null;
+      startedAt?: string | null;
+      lastTickAt?: string | null;
+      feedAgeSeconds?: number | null;
+      restartRecommended?: boolean;
+      symbolSetInSync?: boolean;
+    };
   };
   settings: FutureTradeSettings;
   dynamic?: FutureTradeDynamicDecision;
@@ -353,6 +362,26 @@ export interface FutureTradeEnvConfigPayload {
   replace_testnet_secret?: boolean;
 }
 
+export interface FutureTradeLiveFeedStatus {
+  running: boolean;
+  pid?: number | null;
+  mode: string;
+  dataSource: string;
+  startedAt?: string | null;
+  command?: string | null;
+  logPath?: string | null;
+  errorLogPath?: string | null;
+  workspaceScope?: string | null;
+  lastTickAt?: string | null;
+  ageSeconds?: number | null;
+  isFresh?: boolean;
+  desiredSymbols: string[];
+  runningSymbols: string[];
+  symbolSetInSync: boolean;
+  restartRecommended: boolean;
+  message?: string | null;
+}
+
 export interface FutureTradeConnectionTest {
   connected: boolean;
   mode?: string;
@@ -466,6 +495,13 @@ export function useFutureTradeBot(workspaceId?: string) {
     enabled,
   });
 
+  const liveFeed = useQuery({
+    queryKey: ["future-trade", workspaceId, "live-feed"],
+    queryFn: async () => (await api.get<FutureTradeLiveFeedStatus>(`${base}/live-feed`)).data,
+    enabled,
+    refetchInterval: 3000,
+  });
+
   const useAction = (name: string) => useMutation({
     mutationFn: async () => (await api.post(`${base}/${name}`, {})).data,
     onSuccess: invalidate,
@@ -490,16 +526,25 @@ export function useFutureTradeBot(workspaceId?: string) {
     onSuccess: invalidate,
   });
 
+  const liveFeedAction = (name: "start" | "stop" | "restart") => useMutation({
+    mutationFn: async () => (await api.post<FutureTradeLiveFeedStatus>(`${base}/live-feed/${name}`, {})).data,
+    onSuccess: invalidate,
+  });
+
   return {
     dashboard,
     config,
     trades,
     logs,
     envConfig,
+    liveFeed,
     updateConfig,
     updateEnvConfig,
     testConnection,
     recover,
+    startLiveFeed: liveFeedAction("start"),
+    stopLiveFeed: liveFeedAction("stop"),
+    restartLiveFeed: liveFeedAction("restart"),
     start: useAction("start"),
     stop: useAction("stop"),
     emergencyStop: useAction("emergency-stop"),

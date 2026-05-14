@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, Bot, Brain, Download, FileSpreadsheet, Lightbulb, Power, RefreshCw, Save, ShieldAlert, Square, Trash2, Wallet } from "lucide-react";
+import { Activity, AlertTriangle, Bot, Brain, Download, FileSpreadsheet, Lightbulb, Power, RefreshCw, Save, ShieldAlert, Square, Trash2, Wallet } from "lucide-react";
 import { AppShell } from "@/components/layout";
 import { FutureTradeProChart } from "@/components/future-trade/FutureTradeProChart";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { usePruneStalePendingJobs, useRestartWorkers } from "@/hooks/useJobs";
-import { useFutureTradeBot, type FutureTradeDiagnostics, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeIndicatorSuite, type FutureTradeLog, type FutureTradeRecord, type FutureTradeRecoveryResult, type FutureTradeSettings } from "@/hooks/useFutureTradeBot";
+import { useFutureTradeBot, type FutureTradeDiagnostics, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeIndicatorSuite, type FutureTradeLiveFeedStatus, type FutureTradeLog, type FutureTradeRecord, type FutureTradeRecoveryResult, type FutureTradeSettings } from "@/hooks/useFutureTradeBot";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { cn } from "@/lib/utils";
 
@@ -183,6 +183,7 @@ export default function FutureTradeBotPage() {
   const diagnostics = dashboard?.diagnostics;
   const savedSettings = useMemo(() => ({ ...DEFAULT_SETTINGS, ...(bot.config.data?.settings ?? {}) }), [bot.config.data?.settings]);
   const busy = bot.start.isPending || bot.stop.isPending || bot.emergencyStop.isPending || bot.resetPaper.isPending || bot.resetDailyLoss.isPending || bot.updateConfig.isPending || bot.recover.isPending || bot.clearHistory.isPending;
+  const liveFeedBusy = bot.startLiveFeed.isPending || bot.stopLiveFeed.isPending || bot.restartLiveFeed.isPending;
   const envBusy = bot.updateEnvConfig.isPending || bot.envConfig.isFetching;
   const runtimeChart = useMemo(() => dashboard?.chart ?? [], [dashboard?.chart]);
   const trackerRows = useMemo(() => (bot.logs.data ?? []).filter((log) => TRACKER_EVENTS.has(log.event)), [bot.logs.data]);
@@ -437,6 +438,14 @@ export default function FutureTradeBotPage() {
                 </Button>
               </CardContent>
             </Card>
+
+            <LiveFeedDaemonCard
+              liveFeed={bot.liveFeed.data}
+              busy={liveFeedBusy}
+              onStart={() => bot.startLiveFeed.mutate(undefined, { onError: err(toast) })}
+              onStop={() => bot.stopLiveFeed.mutate(undefined, { onError: err(toast) })}
+              onRestart={() => bot.restartLiveFeed.mutate(undefined, { onError: err(toast) })}
+            />
 
             <RiskPanel settings={settings} dynamic={dashboard?.dynamic ?? status?.dynamic} />
             <DynamicSuggestionPanel
@@ -1614,6 +1623,80 @@ function SignalDebugPanel({
             </div>
           </div>
         </details>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LiveFeedDaemonCard({
+  liveFeed,
+  busy,
+  onStart,
+  onStop,
+  onRestart,
+}: {
+  liveFeed?: FutureTradeLiveFeedStatus;
+  busy: boolean;
+  onStart: () => void;
+  onStop: () => void;
+  onRestart: () => void;
+}) {
+  const running = Boolean(liveFeed?.running);
+  const fresh = Boolean(liveFeed?.isFresh);
+  const badgeVariant = running && fresh ? "default" : running ? "secondary" : "outline";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Activity className="h-4 w-4" />
+          Future Trade Live Feed
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+          <div>
+            <div className="text-sm font-medium">Feed mode</div>
+            <div className="text-xs text-muted-foreground">{liveFeed?.message ?? "Loading daemon status..."}</div>
+          </div>
+          <Badge variant={badgeVariant}>{liveFeed?.mode ?? "UNKNOWN"}</Badge>
+        </div>
+
+        <div className="grid gap-2 text-xs">
+          <Row label="Source" value={String(liveFeed?.dataSource ?? "-")} />
+          <Row label="PID" value={liveFeed?.pid ? String(liveFeed.pid) : "-"} />
+          <Row label="Started" value={liveFeed?.startedAt ? new Date(liveFeed.startedAt).toLocaleString() : "-"} />
+          <Row label="Last feed tick" value={liveFeed?.lastTickAt ? new Date(liveFeed.lastTickAt).toLocaleTimeString() : "-"} />
+          <Row label="Feed freshness" value={liveFeed?.ageSeconds != null ? `${liveFeed.ageSeconds}s` : "-"} />
+          <Row label="Symbol sync" value={liveFeed?.symbolSetInSync ? "In sync" : "Restart recommended"} />
+          <Row label="Symbols" value={liveFeed?.desiredSymbols?.join(", ") || "-"} />
+        </div>
+
+        {liveFeed?.command ? (
+          <div className="rounded-md border bg-muted/20 p-3 text-[11px] text-muted-foreground">
+            <div className="font-medium text-foreground">Daemon command</div>
+            <div className="mt-1 break-all font-mono">{liveFeed.command}</div>
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-3 gap-2">
+          <Button disabled={busy || running} onClick={onStart}>
+            <Power className="mr-2 h-4 w-4" />
+            Start
+          </Button>
+          <Button disabled={busy || !running} variant="outline" onClick={onRestart}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Restart
+          </Button>
+          <Button disabled={busy || !running} variant="secondary" onClick={onStop}>
+            <Square className="mr-2 h-4 w-4" />
+            Stop
+          </Button>
+        </div>
+
+        <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+          Best mode: keep this daemon running for shared websocket ticks and kline cache. If it is offline, Future Trade falls back to REST polling.
+        </div>
       </CardContent>
     </Card>
   );
