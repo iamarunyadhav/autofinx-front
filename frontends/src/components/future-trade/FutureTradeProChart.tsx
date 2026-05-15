@@ -23,6 +23,7 @@ type Props = {
   timeframe: string;
   bestSignal?: FutureSignal | null;
   levels?: Record<string, number | null>;
+  overlayHints?: string[];
 };
 
 type EnrichedCandle = FutureTradeCandle & {
@@ -457,7 +458,7 @@ function ChartTooltipContent({ active, payload }: any) {
   );
 }
 
-export function FutureTradeProChart({ candles, runtimePoints, settings, symbol, timeframe, bestSignal, levels }: Props) {
+export function FutureTradeProChart({ candles, runtimePoints, settings, symbol, timeframe, bestSignal, levels, overlayHints = [] }: Props) {
   const prepared = useMemo(() => buildChartData(candles, timeframe), [candles, timeframe]);
   const zones = useMemo(() => findZones(prepared.data), [prepared.data]);
   const densities = useMemo(() => findDensityBands(prepared.data), [prepared.data]);
@@ -486,6 +487,9 @@ export function FutureTradeProChart({ candles, runtimePoints, settings, symbol, 
         <Badge variant={bestSignal?.signal === "BUY" ? "default" : bestSignal?.signal === "SELL" ? "destructive" : "secondary"}>
           {bestSignal?.signal || "WAIT"} {bestSignal?.confidence != null ? `${(bestSignal.confidence * 100).toFixed(1)}%` : ""}
         </Badge>
+        {overlayHints.slice(0, 4).map((item) => (
+          <Badge key={item} variant="outline">Imported {item}</Badge>
+        ))}
       </div>
 
       <div className="min-h-0 flex-1">

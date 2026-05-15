@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Activity, AlertTriangle, Bot, Brain, Download, FileSpreadsheet, Lightbulb, Power, RefreshCw, Save, ShieldAlert, Square, Trash2, Wallet } from "lucide-react";
+import { Activity, AlertTriangle, Bot, Brain, Download, FileSpreadsheet, Lightbulb, Power, RefreshCw, Save, ShieldAlert, Square, Trash2, Upload, Wallet } from "lucide-react";
 import { AppShell } from "@/components/layout";
 import { FutureTradeProChart } from "@/components/future-trade/FutureTradeProChart";
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { usePruneStalePendingJobs, useRestartWorkers } from "@/hooks/useJobs";
-import { useFutureTradeBot, type FutureTradeDiagnostics, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeIndicatorSuite, type FutureTradeLiveFeedStatus, type FutureTradeLog, type FutureTradeRecord, type FutureTradeRecoveryResult, type FutureTradeSettings } from "@/hooks/useFutureTradeBot";
+import { useFutureTradeBot, type FutureTradeConfig, type FutureTradeDashboard, type FutureTradeDiagnostics, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeIndicatorSuite, type FutureTradeLiveFeedStatus, type FutureTradeLog, type FutureTradeRecord, type FutureTradeRecoveryResult, type FutureTradeResearchLab, type FutureTradeSettings, type FutureTradeTuningPlanPreview } from "@/hooks/useFutureTradeBot";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { cn } from "@/lib/utils";
 
@@ -140,6 +140,7 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   dynamicSuggestionEnabled: false,
   corePassRule: 3,
   classicSimpleMode: false,
+  strictEntryGuards: false,
   takeProfitPercent: 1.2,
   stopLossPercent: 0.4,
   trailingTakeProfitPercent: 0.3,
@@ -316,9 +317,43 @@ function mergeInfluenceWeights(weights?: Record<string, number> | null) {
   };
 }
 
+function resolveStrategyMode(settings: Pick<FutureTradeSettings, "classicSimpleMode" | "corePassRule" | "indicatorInfluence">) {
+  if (settings.classicSimpleMode) {
+    return "Classic Simple Live Signal";
+  }
+
+  const merged = mergeInfluenceWeights(settings.indicatorInfluence);
+  const coreOnlyKeys = Object.keys(CORE_ONLY_INFLUENCE_DEFAULTS) as Array<keyof typeof CORE_ONLY_INFLUENCE_DEFAULTS>;
+  const coreOnlyMatch = coreOnlyKeys.every((key) => Number(merged[key] ?? 0) === Number(CORE_ONLY_INFLUENCE_DEFAULTS[key] ?? 0));
+
+  if ((settings.corePassRule ?? 3) <= 2 && coreOnlyMatch) {
+    return "Core Only";
+  }
+
+  return "Full Indicator Intelligence";
+}
+
+function liveFeedWarning(mode?: string | null) {
+  if (String(mode ?? "").toUpperCase() === "REST_FALLBACK") {
+    return "Live data may be delayed because websocket cache is not active.";
+  }
+
+  return null;
+}
+
+function controlEnabled(
+  settings: Pick<FutureTradeSettings, "indicatorControls">,
+  key: string,
+  fallbackWeight?: number,
+) {
+  const control = settings.indicatorControls?.[key];
+  if (!control) return (fallbackWeight ?? 0) > 0;
+  return Boolean(control.enabled);
+}
+
 function simulateSignalConfidence(
   debug: FutureTradeDashboard["signalDebug"] | null | undefined,
-  settings: Pick<FutureTradeSettings, "indicatorInfluence" | "corePassRule" | "classicSimpleMode">,
+  settings: Pick<FutureTradeSettings, "indicatorInfluence" | "indicatorControls" | "corePassRule" | "classicSimpleMode">,
 ) {
   if (settings.classicSimpleMode || debug?.checks?.classicSimpleMode) {
     return {
@@ -331,7 +366,9 @@ function simulateSignalConfidence(
   const breakdown = debug?.componentBreakdown ?? {};
   const mergedWeights = mergeInfluenceWeights(settings.indicatorInfluence);
   const finalConfidence = Object.values(breakdown).reduce((total, item) => {
-    return total + (Number(item.rawScore ?? 0) * normalizeInfluenceMultiplier(mergedWeights[item.key]));
+    const enabled = controlEnabled(settings, item.key, mergedWeights[item.key]);
+    const multiplier = enabled ? normalizeInfluenceMultiplier(mergedWeights[item.key]) : 0;
+    return total + (Number(item.rawScore ?? 0) * multiplier);
   }, 0);
   const coreChecks = debug?.checks?.[debug?.signalSide === "SELL" ? "sellCoreChecks" : "buyCoreChecks"] ?? {};
   const corePassCount = Object.values(coreChecks).filter(Boolean).length;
@@ -354,6 +391,15 @@ export default function FutureTradeBotPage() {
   const [envSettings, setEnvSettings] = useState<FutureTradeEnvConfig>(DEFAULT_ENV_CONFIG);
   const [liveSecret, setLiveSecret] = useState("");
   const [testnetSecret, setTestnetSecret] = useState("");
+  const [importScriptOpen, setImportScriptOpen] = useState(false);
+  const [importTradesOpen, setImportTradesOpen] = useState(false);
+  const [scriptName, setScriptName] = useState("");
+  const [scriptSource, setScriptSource] = useState("pine");
+  const [scriptBody, setScriptBody] = useState("");
+  const [tradeDatasetName, setTradeDatasetName] = useState("");
+  const [tradeDatasetFormat, setTradeDatasetFormat] = useState<"csv" | "json">("csv");
+  const [tradeDatasetBody, setTradeDatasetBody] = useState("");
+  const [tuningPlan, setTuningPlan] = useState<FutureTradeTuningPlanPreview | null>(null);
 
   useEffect(() => {
     if (bot.config.data?.settings) {
@@ -376,11 +422,13 @@ export default function FutureTradeBotPage() {
   const savedSettings = useMemo(() => ({ ...DEFAULT_SETTINGS, ...(bot.config.data?.settings ?? {}) }), [bot.config.data?.settings]);
   const busy = bot.start.isPending || bot.stop.isPending || bot.emergencyStop.isPending || bot.resetPaper.isPending || bot.resetDailyLoss.isPending || bot.updateConfig.isPending || bot.recover.isPending || bot.clearHistory.isPending;
   const liveFeedBusy = bot.startLiveFeed.isPending || bot.stopLiveFeed.isPending || bot.restartLiveFeed.isPending;
+  const researchBusy = bot.importScript.isPending || bot.importTrades.isPending;
   const envBusy = bot.updateEnvConfig.isPending || bot.envConfig.isFetching;
   const runtimeChart = useMemo(() => dashboard?.chart ?? [], [dashboard?.chart]);
   const trackerRows = useMemo(() => (bot.logs.data ?? []).filter((log) => TRACKER_EVENTS.has(log.event)), [bot.logs.data]);
   const liveModeBlocked = Boolean(settings.liveTrading && !status?.liveTradingEnvEnabled);
   const latestRuntimeAlert = diagnostics?.latestAlert;
+  const tuningBusy = bot.generateTuningPlan.isPending;
 
   const runRecovery = (action: "auto" | "sync_state" | "cancel_reduce_only") => {
     bot.recover.mutate(action, {
@@ -406,6 +454,16 @@ export default function FutureTradeBotPage() {
         onError: (error) => toast({ title: "Save failed", description: error instanceof Error ? error.message : "Request failed", variant: "destructive" }),
       }
     );
+  };
+
+  const generateTuningPlan = () => {
+    bot.generateTuningPlan.mutate(undefined, {
+      onSuccess: (plan) => {
+        setTuningPlan(plan);
+        toast({ title: "Tuning plan generated", description: "Preview only. Nothing was applied." });
+      },
+      onError: (error) => toast({ title: "Tuning plan failed", description: error instanceof Error ? error.message : "Request failed", variant: "destructive" }),
+    });
   };
 
   const saveEnv = () => {
@@ -497,6 +555,36 @@ export default function FutureTradeBotPage() {
     toast({ title: "Future Trade export ready", description: `${tradeRows.length} trades and ${runtimeRows.length} runtime rows exported.` });
   };
 
+  const handleImportScript = () => {
+    bot.importScript.mutate(
+      { name: scriptName, source: scriptSource, script: scriptBody },
+      {
+        onSuccess: () => {
+          toast({ title: "Script imported", description: "Research lab parsed the script and extracted indicator hints." });
+          setImportScriptOpen(false);
+          setScriptName("");
+          setScriptBody("");
+        },
+        onError: err(toast),
+      },
+    );
+  };
+
+  const handleImportTrades = () => {
+    bot.importTrades.mutate(
+      { name: tradeDatasetName, format: tradeDatasetFormat, payload: tradeDatasetBody },
+      {
+        onSuccess: () => {
+          toast({ title: "Trade dataset imported", description: "Imported trade history is now part of the research analysis." });
+          setImportTradesOpen(false);
+          setTradeDatasetName("");
+          setTradeDatasetBody("");
+        },
+        onError: err(toast),
+      },
+    );
+  };
+
   if (loading || !currentWorkspace) {
     return <AppShell><div className="p-6 text-sm text-muted-foreground">Loading workspace...</div></AppShell>;
   }
@@ -551,15 +639,30 @@ export default function FutureTradeBotPage() {
                 <Row label="Active minimum" value={`${n((status?.activeMinConfidence ?? settings.minConfidence) * 100, 2)}%`} />
                 <Row label="Confidence gap" value={`${n((status?.signalConfidenceGap ?? 0) * 100, 2)}%`} />
               </div>
-              <div className="grid gap-2 text-xs sm:grid-cols-2">
+              <div className="grid gap-2 text-xs sm:grid-cols-3">
+                <Row label="Strategy mode" value={resolveStrategyMode(settings)} />
                 <Row label="Live update mode" value={String(status?.liveStatus?.mode ?? "-")} />
                 <Row label="Indicator timing" value={String(status?.liveStatus?.indicatorMode ?? "-")} />
               </div>
+              {liveFeedWarning(status?.liveStatus?.mode) ? (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                  {liveFeedWarning(status?.liveStatus?.mode)}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         ) : null}
 
         <SignalDebugPanel status={status} debug={dashboard?.signalDebug} />
+        <IndicatorIntelligencePanel intelligence={dashboard?.indicatorIntelligence} />
+        <ResearchLabPanel researchLab={dashboard?.researchLab} />
+        <MissedTradeAuditPanel audit={dashboard?.missedTradeAudit} />
+        <TuningPlanPanel
+          tuningPlan={tuningPlan}
+          versions={bot.config.data?.config_versions ?? []}
+          onGenerate={generateTuningPlan}
+          busy={tuningBusy}
+        />
 
         <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
           <div className="space-y-6">
@@ -577,6 +680,7 @@ export default function FutureTradeBotPage() {
                   timeframe={dashboard?.marketChart?.timeframe ?? settings.timeframe}
                   bestSignal={dashboard?.bestSignal}
                   levels={dashboard?.levels}
+                  overlayHints={dashboard?.researchLab?.overlayHints ?? []}
                 />
               </CardContent>
             </Card>
@@ -589,6 +693,14 @@ export default function FutureTradeBotPage() {
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setImportScriptOpen(true)}>
+                <Upload className="mr-2 h-4 w-4" />
+                Import Script
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setImportTradesOpen(true)}>
+                <Upload className="mr-2 h-4 w-4" />
+                Import Trades
+              </Button>
               <Button variant="outline" size="sm" onClick={exportTradeHistory}>
                 <Download className="mr-2 h-4 w-4" />
                 Export Trades
@@ -654,7 +766,7 @@ export default function FutureTradeBotPage() {
                 <TabsTrigger value="my-config">My Config</TabsTrigger>
               </TabsList>
               <TabsContent value="algorithm">
-                <ConfigPanel envMode={envSettings.mode} status={status} debug={dashboard?.signalDebug} settings={settings} setSettings={setSettings} notes={notes} setNotes={setNotes} availableSymbols={bot.config.data?.available_symbols ?? FUTURE_TRADE_ALL_SYMBOLS} onSave={save} busy={busy} />
+                <ConfigPanel envMode={envSettings.mode} status={status} debug={dashboard?.signalDebug} intelligence={dashboard?.indicatorIntelligence} settings={settings} setSettings={setSettings} notes={notes} setNotes={setNotes} availableSymbols={bot.config.data?.available_symbols ?? FUTURE_TRADE_ALL_SYMBOLS} onSave={save} busy={busy} />
               </TabsContent>
               <TabsContent value="my-config">
                 <MyConfigPanel envSettings={envSettings} setEnvSettings={setEnvSettings} liveSecret={liveSecret} setLiveSecret={setLiveSecret} testnetSecret={testnetSecret} setTestnetSecret={setTestnetSecret} onSave={saveEnv} onTestConnection={testEnvConnection} busy={envBusy || bot.testConnection.isPending} />
@@ -664,6 +776,51 @@ export default function FutureTradeBotPage() {
           </div>
         </div>
       </div>
+      <Dialog open={importScriptOpen} onOpenChange={setImportScriptOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader><DialogTitle>Import Pine / Strategy Script</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <Field label="Name"><Input value={scriptName} onChange={(e) => setScriptName(e.target.value)} placeholder="Optional display name" /></Field>
+            <Field label="Source"><Input value={scriptSource} onChange={(e) => setScriptSource(e.target.value)} placeholder="pine, tradingview, custom" /></Field>
+            <Field label="Script body">
+              <Textarea className="min-h-[320px] font-mono text-xs" value={scriptBody} onChange={(e) => setScriptBody(e.target.value)} placeholder="Paste Pine Script or previous strategy script here..." />
+            </Field>
+            <Button disabled={researchBusy || scriptBody.trim() === ""} onClick={handleImportScript}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import Script
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={importTradesOpen} onOpenChange={setImportTradesOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader><DialogTitle>Import Previous Trade Dataset</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <Field label="Dataset name"><Input value={tradeDatasetName} onChange={(e) => setTradeDatasetName(e.target.value)} placeholder="Optional dataset name" /></Field>
+            <Field label="Format">
+              <RadioGroup value={tradeDatasetFormat} onValueChange={(value) => setTradeDatasetFormat(value as "csv" | "json")}>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm">
+                    <RadioGroupItem value="csv" className="mt-1" />
+                    <span><span className="block font-medium">CSV</span><span className="block text-xs text-muted-foreground">Header example: symbol,timeframe,side,entry,exit,net_pnl,vwap_aligned,ema_aligned,adx_ready</span></span>
+                  </label>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm">
+                    <RadioGroupItem value="json" className="mt-1" />
+                    <span><span className="block font-medium">JSON</span><span className="block text-xs text-muted-foreground">Array of trade rows with pnl/outcome and optional indicator flags.</span></span>
+                  </label>
+                </div>
+              </RadioGroup>
+            </Field>
+            <Field label="Payload">
+              <Textarea className="min-h-[320px] font-mono text-xs" value={tradeDatasetBody} onChange={(e) => setTradeDatasetBody(e.target.value)} placeholder="Paste CSV or JSON trade rows here..." />
+            </Field>
+            <Button disabled={researchBusy || tradeDatasetBody.trim() === ""} onClick={handleImportTrades}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import Trades
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }
@@ -1095,7 +1252,7 @@ function DynamicSuggestionPanel({ dynamic, onApplyRecommendation, onRestoreManua
   );
 }
 
-function ConfigPanel({ envMode, status, debug, settings, setSettings, notes, setNotes, availableSymbols, onSave, busy }: { envMode: FutureTradeEnvConfig["mode"]; status?: { dailyLossLocked?: boolean; manualRestartAllowed?: boolean; activeMinConfidence?: number | null } | null; debug?: FutureTradeDashboard["signalDebug"] | null; settings: FutureTradeSettings; setSettings: (settings: FutureTradeSettings) => void; notes: string; setNotes: (value: string) => void; availableSymbols: string[]; onSave: () => void; busy: boolean }) {
+function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettings, notes, setNotes, availableSymbols, onSave, busy }: { envMode: FutureTradeEnvConfig["mode"]; status?: { dailyLossLocked?: boolean; manualRestartAllowed?: boolean; activeMinConfidence?: number | null } | null; debug?: FutureTradeDashboard["signalDebug"] | null; intelligence?: FutureTradeDashboard["indicatorIntelligence"] | null; settings: FutureTradeSettings; setSettings: (settings: FutureTradeSettings) => void; notes: string; setNotes: (value: string) => void; availableSymbols: string[]; onSave: () => void; busy: boolean }) {
   const update = <K extends keyof FutureTradeSettings>(key: K, value: FutureTradeSettings[K]) => setSettings({ ...settings, [key]: value });
   const recoveryMode = Boolean(status?.dailyLossLocked);
   const applyRecoveryPreset = () => setSettings({ ...settings, ...LOSS_LOCK_RECOVERY_PRESET });
@@ -1115,6 +1272,21 @@ function ConfigPanel({ envMode, status, debug, settings, setSettings, notes, set
     classicSimpleMode: false,
     corePassRule: preset.corePassRule,
     indicatorInfluence: { ...preset.indicatorInfluence },
+    indicatorControls: Object.fromEntries(Object.entries(preset.indicatorInfluence).map(([key, weight]) => [
+      key,
+      {
+        ...(settings.indicatorControls?.[key] ?? {}),
+        key,
+        label: intelligence?.controls.find((item) => item.key === key)?.label ?? key,
+        note: intelligence?.controls.find((item) => item.key === key)?.note ?? "",
+        category: intelligence?.controls.find((item) => item.key === key)?.category ?? "indicator",
+        impact: intelligence?.controls.find((item) => item.key === key)?.impact ?? "positive",
+        defaultWeight: displayInfluenceWeight(DEFAULT_SETTINGS.indicatorInfluence?.[key] ?? 5),
+        configurable: true,
+        enabled: weight > 0,
+        weight,
+      },
+    ])),
   });
   const updateInfluence = (key: string, value: number) => setSettings({
     ...settings,
@@ -1123,13 +1295,91 @@ function ConfigPanel({ envMode, status, debug, settings, setSettings, notes, set
       ...(settings.indicatorInfluence ?? {}),
       [key]: Number(value.toFixed(2)),
     },
+    indicatorControls: {
+      ...(settings.indicatorControls ?? {}),
+      [key]: {
+        ...(settings.indicatorControls?.[key] ?? {}),
+        key,
+        label: intelligence?.controls.find((item) => item.key === key)?.label ?? key,
+        note: intelligence?.controls.find((item) => item.key === key)?.note ?? "",
+        category: intelligence?.controls.find((item) => item.key === key)?.category ?? "indicator",
+        impact: intelligence?.controls.find((item) => item.key === key)?.impact ?? "positive",
+        defaultWeight: displayInfluenceWeight(DEFAULT_SETTINGS.indicatorInfluence?.[key] ?? 5),
+        configurable: true,
+        enabled: Number(value) > 0,
+        weight: Number(value.toFixed(2)),
+      },
+    },
   });
-  const resetInfluenceControls = () => update("indicatorInfluence", { ...(DEFAULT_SETTINGS.indicatorInfluence ?? {}) });
+  const toggleInfluence = (key: string, enabled: boolean) => setSettings({
+    ...settings,
+    indicatorInfluence: {
+      ...mergeInfluenceWeights(DEFAULT_SETTINGS.indicatorInfluence),
+      ...(settings.indicatorInfluence ?? {}),
+      [key]: enabled
+        ? Number(settings.indicatorControls?.[key]?.weight ?? settings.indicatorInfluence?.[key] ?? DEFAULT_SETTINGS.indicatorInfluence?.[key] ?? 5)
+        : 0,
+    },
+    indicatorControls: {
+      ...(settings.indicatorControls ?? {}),
+      [key]: {
+        ...(settings.indicatorControls?.[key] ?? {}),
+        key,
+        label: intelligence?.controls.find((item) => item.key === key)?.label ?? key,
+        note: intelligence?.controls.find((item) => item.key === key)?.note ?? "",
+        category: intelligence?.controls.find((item) => item.key === key)?.category ?? "indicator",
+        impact: intelligence?.controls.find((item) => item.key === key)?.impact ?? "positive",
+        defaultWeight: displayInfluenceWeight(DEFAULT_SETTINGS.indicatorInfluence?.[key] ?? 5),
+        configurable: true,
+        enabled,
+        weight: enabled
+          ? Number(settings.indicatorControls?.[key]?.weight ?? settings.indicatorInfluence?.[key] ?? DEFAULT_SETTINGS.indicatorInfluence?.[key] ?? 5)
+          : Number(settings.indicatorControls?.[key]?.weight ?? settings.indicatorInfluence?.[key] ?? DEFAULT_SETTINGS.indicatorInfluence?.[key] ?? 5),
+      },
+    },
+  });
+  const resetInfluenceControls = () => setSettings({
+    ...settings,
+    indicatorInfluence: { ...(DEFAULT_SETTINGS.indicatorInfluence ?? {}) },
+    indicatorControls: Object.fromEntries(Object.entries(DEFAULT_SETTINGS.indicatorInfluence ?? {}).map(([key, weight]) => [
+      key,
+      {
+        ...(settings.indicatorControls?.[key] ?? {}),
+        key,
+        label: intelligence?.controls.find((item) => item.key === key)?.label ?? key,
+        note: intelligence?.controls.find((item) => item.key === key)?.note ?? "",
+        category: intelligence?.controls.find((item) => item.key === key)?.category ?? "indicator",
+        impact: intelligence?.controls.find((item) => item.key === key)?.impact ?? "positive",
+        defaultWeight: displayInfluenceWeight(weight),
+        configurable: true,
+        enabled: Number(weight) > 0,
+        weight: Number(weight),
+      },
+    ])),
+  });
   const simulatedCurrent = useMemo(() => simulateSignalConfidence(debug, settings), [debug, settings]);
   const presetComparisons = useMemo(() => INDICATOR_PRESETS.map((preset) => ({
     label: preset.label,
     ...simulateSignalConfidence(debug, preset),
   })), [debug]);
+  const influenceControls = useMemo(() => {
+    const backendControls = intelligence?.controls ?? [];
+    if (backendControls.length) {
+      const order = new Map(INDICATOR_INFLUENCE_CONTROLS.map((item, index) => [item.key, index]));
+      return [...backendControls].sort((left, right) => (order.get(left.key) ?? 999) - (order.get(right.key) ?? 999));
+    }
+    return INDICATOR_INFLUENCE_CONTROLS.map((item) => ({
+      key: item.key,
+      label: item.label,
+      note: item.note,
+      impact: item.impact ?? "positive",
+      category: "indicator",
+      weight: Number(settings.indicatorInfluence?.[item.key] ?? DEFAULT_SETTINGS.indicatorInfluence?.[item.key] ?? 5),
+      enabled: controlEnabled(settings, item.key, Number(settings.indicatorInfluence?.[item.key] ?? DEFAULT_SETTINGS.indicatorInfluence?.[item.key] ?? 5)),
+      defaultWeight: Number(DEFAULT_SETTINGS.indicatorInfluence?.[item.key] ?? 5),
+      configurable: true,
+    }));
+  }, [intelligence, settings]);
 
   const toggleSymbol = (sym: string) => {
     const active = settings.symbols.includes(sym);
@@ -1194,6 +1444,22 @@ function ConfigPanel({ envMode, status, debug, settings, setSettings, notes, set
             Stricter fully dynamic starter for BTC and ETH only.
           </div>
         </div>
+        <Field label="Strategy mode" note="Quick switch between the full weighted engine, the lighter core-only filter, and classic graph-based live signals.">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Button type="button" variant={resolveStrategyMode(settings) === "Full Indicator Intelligence" ? "default" : "outline"} onClick={() => applyInfluencePreset(INDICATOR_PRESETS[0])}>
+              Full Indicator Intelligence
+            </Button>
+            <Button type="button" variant={resolveStrategyMode(settings) === "Core Only" ? "default" : "outline"} onClick={() => applyInfluencePreset(INDICATOR_PRESETS[1])}>
+              Core Only
+            </Button>
+            <Button type="button" variant={settings.classicSimpleMode ? "default" : "outline"} onClick={applyClassicSimpleMode}>
+              Classic Simple Live Signal
+            </Button>
+          </div>
+          <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            Current strategy mode: <span className="font-medium text-foreground">{resolveStrategyMode(settings)}</span>
+          </div>
+        </Field>
         <div className="grid gap-2 sm:grid-cols-2">
           <Button type="button" variant={settings.classicSimpleMode ? "default" : "outline"} onClick={applyClassicSimpleMode}>
             Enable Indicators Off Mode
@@ -1212,6 +1478,17 @@ function ConfigPanel({ envMode, status, debug, settings, setSettings, notes, set
             </div>
           </div>
           <Switch checked={Boolean(settings.classicSimpleMode)} onCheckedChange={(v) => update("classicSimpleMode", v)} />
+        </div>
+        <div className={cn("flex items-center justify-between rounded-md border p-3", settings.strictEntryGuards ? "border-amber-500/40 bg-amber-500/10" : "border-muted")}>
+          <div>
+            <div className="text-sm font-medium">Strict Entry Guards</div>
+            <div className="text-xs text-muted-foreground">
+              {settings.strictEntryGuards
+                ? "Active: UT + structure context + weak-setup guard can force WAIT."
+                : "Default off: stronger trade preservation, fewer skips from indicator-only conflicts."}
+            </div>
+          </div>
+          <Switch checked={Boolean(settings.strictEntryGuards)} onCheckedChange={(v) => update("strictEntryGuards", v)} />
         </div>
         <Field label="Confidence algorithm">
           <RadioGroup value={settings.confidenceMode || "fixed"} onValueChange={(value) => update("confidenceMode", value)}>
@@ -1300,24 +1577,30 @@ function ConfigPanel({ envMode, status, debug, settings, setSettings, notes, set
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {INDICATOR_INFLUENCE_CONTROLS.map((item) => {
-                    const current = displayInfluenceWeight(settings.indicatorInfluence?.[item.key] ?? DEFAULT_SETTINGS.indicatorInfluence?.[item.key] ?? 5);
+                  {influenceControls.map((item) => {
+                    const current = displayInfluenceWeight(settings.indicatorInfluence?.[item.key] ?? item.weight ?? DEFAULT_SETTINGS.indicatorInfluence?.[item.key] ?? 5);
+                    const enabled = controlEnabled(settings, item.key, current);
                     return (
                       <TableRow key={item.key}>
                         <TableCell className="font-medium">{item.label}</TableCell>
-                        <TableCell className="text-xs uppercase text-muted-foreground">{("impact" in item && item.impact) ? item.impact : "positive"}</TableCell>
+                        <TableCell className="text-xs uppercase text-muted-foreground">{item.impact ?? "positive"}</TableCell>
                         <TableCell className="min-w-[220px]">
                           <Slider
                             min={0}
                             max={10}
                             step={1}
                             value={[current]}
-                            disabled={Boolean(settings.classicSimpleMode)}
+                            disabled={Boolean(settings.classicSimpleMode) || !enabled}
                             onValueChange={([value]) => updateInfluence(item.key, value ?? 5)}
                           />
                         </TableCell>
                         <TableCell className="font-mono">{n(current, 0)}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{item.note}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          <div className="flex items-center justify-between gap-2">
+                            <span>{item.note}</span>
+                            <Switch checked={enabled} disabled={Boolean(settings.classicSimpleMode)} onCheckedChange={(value) => toggleInfluence(item.key, value)} />
+                          </div>
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -1498,6 +1781,390 @@ function MyConfigPanel({
 function LogFeed({ logs }: { logs: Array<{ id: string; event: string; symbol?: string | null; signal?: string | null; reason?: string | null; occurred_at: string }> }) {
   return (
     <Card><CardHeader><CardTitle>Decision Feed</CardTitle></CardHeader><CardContent className="space-y-2">{logs.slice(0, 10).map((log) => <div key={log.id} className="rounded-md border px-3 py-2 text-sm"><div className="flex items-center justify-between gap-3"><div><Badge variant={statusVariant(log.event)}>{log.event}</Badge><span className="ml-2 text-muted-foreground">{log.symbol} {log.signal}</span></div><span className="text-[11px] text-muted-foreground">{new Date(log.occurred_at).toLocaleTimeString()}</span></div><div className="mt-1 text-xs text-muted-foreground">{log.reason}</div></div>)}</CardContent></Card>
+  );
+}
+
+function IndicatorIntelligencePanel({ intelligence }: { intelligence?: FutureTradeDashboard["indicatorIntelligence"] | null }) {
+  if (!intelligence) return null;
+
+  const current = intelligence.currentBreakdown ?? [];
+  const performance = intelligence.performance ?? [];
+  const suggestions = intelligence.suggestions ?? [];
+  const validation = intelligence.validation;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="flex items-center gap-2"><Lightbulb className="h-4 w-4" />Indicator Intelligence</CardTitle>
+        <Badge variant="outline">{intelligence.profile.replace(/_/g, " ")}</Badge>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {validation ? (
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded-md border bg-muted/20 p-3 text-sm">
+              <div className="text-muted-foreground">Readiness</div>
+              <div className="mt-1 text-xl font-semibold">{validation.overallReadinessScore}/100</div>
+            </div>
+            <div className="rounded-md border bg-muted/20 p-3 text-sm">
+              <div className="text-muted-foreground">Graph Mode</div>
+              <div className="mt-1 font-semibold">{validation.normalGraphModeWorks ? "OK" : "Check"}</div>
+            </div>
+            <div className="rounded-md border bg-muted/20 p-3 text-sm">
+              <div className="text-muted-foreground">Live Signal Flow</div>
+              <div className="mt-1 font-semibold">{validation.liveSignalFlowDetected ? "Detected" : "No signal yet"}</div>
+            </div>
+            <div className="rounded-md border bg-muted/20 p-3 text-sm">
+              <div className="text-muted-foreground">Indicators Off</div>
+              <div className="mt-1 font-semibold">{validation.classicSimpleMode ? "Active" : "Available"}</div>
+            </div>
+          </div>
+        ) : null}
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div className="rounded-md border bg-muted/20 p-3">
+            <div className="text-sm font-medium">Current influence</div>
+            <div className="mt-3 space-y-2 text-xs">
+              {current.slice(0, 8).map((item) => (
+                <div key={`${item.controlKey ?? item.key}-${item.label}`} className="flex items-center justify-between gap-3 rounded border px-2 py-1">
+                  <div>
+                    <div className="font-medium">{item.label}</div>
+                    <div className="text-muted-foreground">{item.enabled ? `On • W${item.configuredWeight ?? 0}` : "Off"} • {item.category ?? "indicator"}</div>
+                  </div>
+                  <span className={cn("font-mono", Number(item.finalContribution ?? 0) >= 0 ? "text-running" : "text-destructive")}>
+                    {Number(item.finalContribution ?? 0) >= 0 ? "+" : ""}{n(item.finalContribution ?? 0, 4)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-md border bg-muted/20 p-3">
+            <div className="text-sm font-medium">Accuracy snapshot</div>
+            <div className="mt-3 space-y-2 text-xs">
+              {performance.slice(0, 6).map((item) => (
+                <div key={item.key} className="rounded border px-2 py-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{item.label}</span>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">{item.sampleState}</Badge>
+                      <Badge variant={item.rating === "A" ? "default" : item.rating === "B" ? "secondary" : item.rating === "C" ? "outline" : "destructive"}>{item.rating ?? "-"}</Badge>
+                    </div>
+                  </div>
+                  <div className="mt-1 grid gap-1 text-muted-foreground">
+                    <span>Samples {item.samples} • W{item.weight} • Avg {n(item.avgContribution, 4)} • Score {item.successScore ?? 0}</span>
+                    <span>Success {item.successRate != null ? `${n(item.successRate * 100, 0)}%` : "-"} • Points {n(item.successPoints ?? 0, 1)}</span>
+                    <span>Support win {item.supportiveWinRate != null ? `${n(item.supportiveWinRate * 100, 0)}%` : "-" } • Block accuracy {item.blockingAccuracy != null ? `${n(item.blockingAccuracy * 100, 0)}%` : "-"}</span>
+                    <span>Tracker align {item.trackerAlignmentRate != null ? `${n(item.trackerAlignmentRate * 100, 0)}%` : "-"}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-md border bg-muted/20 p-3">
+            <div className="text-sm font-medium">Strategy suggestions</div>
+            <div className="mt-3 space-y-2 text-xs">
+              {suggestions.slice(0, 6).map((item) => (
+                <div key={`${item.key}-${item.action}`} className="rounded border px-2 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{item.title}</span>
+                    <Badge variant={item.severity === "high" ? "destructive" : item.severity === "medium" ? "secondary" : "outline"}>{item.action}</Badge>
+                  </div>
+                  <div className="mt-1 text-muted-foreground">{item.reason}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="rounded-md border bg-muted/20 p-3">
+          <div className="text-sm font-medium">Hard safety blockers</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {intelligence.hardBlockers.map((item) => (
+              <Badge key={item.key} variant="destructive">{item.label}</Badge>
+            ))}
+          </div>
+          <div className="mt-3 text-xs text-muted-foreground">
+            These are always read-only guards. Indicator controls can change confidence scoring only; they cannot bypass execution safety.
+          </div>
+          {intelligence.integrationReadiness?.note ? (
+            <div className="mt-2 text-xs text-muted-foreground">{intelligence.integrationReadiness.note}</div>
+          ) : null}
+          {validation?.blockers?.length ? (
+            <div className="mt-2 text-xs text-destructive">{validation.blockers.join(" | ")}</div>
+          ) : (
+            <div className="mt-2 text-xs text-muted-foreground">No active indicator-system blocker detected in the current validation snapshot.</div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ResearchLabPanel({ researchLab }: { researchLab?: FutureTradeResearchLab | null }) {
+  if (!researchLab) return null;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="flex items-center gap-2"><Brain className="h-4 w-4" />Research Lab</CardTitle>
+        <Badge variant="outline">{researchLab.scripts.length} scripts · {researchLab.datasets.length} datasets</Badge>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div className="rounded-md border bg-muted/20 p-3">
+            <div className="text-sm font-medium">Imported scripts</div>
+            <div className="mt-3 space-y-2 text-xs">
+              {researchLab.scripts.length ? researchLab.scripts.slice(0, 6).map((script) => (
+                <div key={script.id} className="rounded border px-2 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{script.name}</span>
+                    <Badge variant="outline">{script.scriptType}</Badge>
+                  </div>
+                  <div className="mt-1 text-muted-foreground">
+                    {script.source} {script.version ? `v${script.version}` : ""} · {script.lineCount} lines
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {script.detectedIndicators.slice(0, 6).map((item) => <Badge key={`${script.id}-${item}`} variant="secondary">{item}</Badge>)}
+                  </div>
+                </div>
+              )) : <div className="text-muted-foreground">No external scripts imported yet.</div>}
+            </div>
+          </div>
+          <div className="rounded-md border bg-muted/20 p-3">
+            <div className="text-sm font-medium">Imported trade stats</div>
+            <div className="mt-3 space-y-2 text-xs">
+              {researchLab.importedIndicatorStats.length ? researchLab.importedIndicatorStats.slice(0, 8).map((item) => (
+                <div key={item.key} className="rounded border px-2 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{item.key.toUpperCase()}</span>
+                    <span className="font-mono">{item.winRate != null ? `${n(item.winRate * 100, 0)}%` : "-"}</span>
+                  </div>
+                  <div className="mt-1 text-muted-foreground">Samples {item.samples} · Wins {item.wins} · Losses {item.losses} · Avg PnL {n(item.avgPnl, 4)}</div>
+                </div>
+              )) : <div className="text-muted-foreground">No imported trade dataset analysis yet.</div>}
+            </div>
+          </div>
+          <div className="rounded-md border bg-muted/20 p-3">
+            <div className="text-sm font-medium">Training-style suggestions</div>
+            <div className="mt-3 space-y-2 text-xs">
+              {researchLab.trainingSuggestions.length ? researchLab.trainingSuggestions.map((item) => (
+                <div key={`${item.key}-${item.action}`} className="rounded border px-2 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{item.title}</span>
+                    <Badge variant="outline">{item.action}</Badge>
+                  </div>
+                  <div className="mt-1 text-muted-foreground">{item.reason}</div>
+                </div>
+              )) : <div className="text-muted-foreground">Import more scripts or trade datasets to generate optimizer guidance.</div>}
+            </div>
+          </div>
+        </div>
+        <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+          Overlay hints on the graph are extracted from imported scripts. This is parser-based metadata mapping, not full Pine execution yet. Imported data is used for analysis and suggestions only, not for bypassing live safety guards.
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MissedTradeAuditPanel({ audit }: { audit?: FutureTradeDashboard["missedTradeAudit"] | null }) {
+  if (!audit) return null;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="flex items-center gap-2"><Activity className="h-4 w-4" />Missed Trade Audit</CardTitle>
+        <Badge variant="outline">{audit.totalSkippedSignals} skipped · {audit.reviewedSignals} reviewed</Badge>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-6">
+          <div className="rounded-md border bg-muted/20 p-3 text-sm"><div className="text-muted-foreground">Missed wins</div><div className="mt-1 text-xl font-semibold">{audit.missedWins}</div></div>
+          <div className="rounded-md border bg-muted/20 p-3 text-sm"><div className="text-muted-foreground">Correct skips</div><div className="mt-1 text-xl font-semibold">{audit.correctSkips}</div></div>
+          <div className="rounded-md border bg-muted/20 p-3 text-sm"><div className="text-muted-foreground">Avoided losses</div><div className="mt-1 text-xl font-semibold">{audit.avoidedLosses}</div></div>
+          <div className="rounded-md border bg-muted/20 p-3 text-sm"><div className="text-muted-foreground">Neutral</div><div className="mt-1 text-xl font-semibold">{audit.neutral}</div></div>
+          <div className="rounded-md border bg-muted/20 p-3 text-sm"><div className="text-muted-foreground">Pending review</div><div className="mt-1 text-xl font-semibold">{audit.pendingReview}</div></div>
+          <div className="rounded-md border bg-muted/20 p-3 text-sm"><div className="text-muted-foreground">Missed win rate</div><div className="mt-1 text-xl font-semibold">{audit.missedWinRate != null ? `${n(audit.missedWinRate * 100, 0)}%` : "-"}</div></div>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+          <div className="rounded-md border bg-muted/20 p-3">
+            <div className="mb-4 text-sm font-medium">Mode comparison</div>
+            <div className="mb-4 overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Mode</TableHead>
+                    <TableHead className="text-right">Would trade</TableHead>
+                    <TableHead className="text-right">Captured wins</TableHead>
+                    <TableHead className="text-right">Bad signals</TableHead>
+                    <TableHead className="text-right">Correct skips</TableHead>
+                    <TableHead className="text-right">Net PnL</TableHead>
+                    <TableHead>Recommendation</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {audit.modeComparison.length ? audit.modeComparison.map((item) => (
+                    <TableRow key={item.mode}>
+                      <TableCell className="font-medium">{item.mode.replace(/_/g, " ")}</TableCell>
+                      <TableCell className="text-right">{item.wouldTrade}</TableCell>
+                      <TableCell className="text-right">{item.capturedMissedWins}</TableCell>
+                      <TableCell className="text-right">{item.allowedBadSignals}</TableCell>
+                      <TableCell className="text-right">{item.correctSkips}</TableCell>
+                      <TableCell className="text-right">{n(item.netWouldHavePnlPercent, 2)}%</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{item.recommendation}</TableCell>
+                    </TableRow>
+                  )) : (
+                    <TableRow><TableCell colSpan={7} className="text-center text-sm text-muted-foreground">No mode comparison data yet.</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            <div className="text-sm font-medium">Top blockers causing skips</div>
+            <div className="mt-3 overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Blocker</TableHead>
+                    <TableHead className="text-right">Skips</TableHead>
+                    <TableHead className="text-right">Missed wins</TableHead>
+                    <TableHead className="text-right">Protected</TableHead>
+                    <TableHead className="text-right">Accuracy</TableHead>
+                    <TableHead>Recommendation</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {audit.topBlockers.length ? audit.topBlockers.map((item) => (
+                    <TableRow key={item.key}>
+                      <TableCell className="font-medium">{item.label}</TableCell>
+                      <TableCell className="text-right">{item.totalSkips}</TableCell>
+                      <TableCell className="text-right">{item.missedWins}</TableCell>
+                      <TableCell className="text-right">{item.correctSkips + item.avoidedLosses}</TableCell>
+                      <TableCell className="text-right">{n(item.accuracy * 100, 0)}%</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {item.factor} · W{item.currentWeight}→{item.recommendedWeight} · {item.recommendation}
+                        <div>{item.reason}</div>
+                      </TableCell>
+                    </TableRow>
+                  )) : (
+                    <TableRow><TableCell colSpan={6} className="text-center text-sm text-muted-foreground">No missed-trade blocker analytics yet.</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+
+          <div className="rounded-md border bg-muted/20 p-3">
+            <div className="text-sm font-medium">Recent skipped signals</div>
+            <div className="mt-3 space-y-2 text-xs">
+              {audit.recent.length ? audit.recent.map((item) => (
+                <div key={item.id} className="rounded border px-2 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{item.symbol} {item.side}</span>
+                    <Badge variant={item.wouldHaveResult === "MISSED_WIN" ? "destructive" : item.wouldHaveResult === "AVOIDED_LOSS" || item.wouldHaveResult === "CORRECT_SKIP" ? "secondary" : "outline"}>
+                      {item.wouldHaveResult ?? item.status}
+                    </Badge>
+                  </div>
+                  <div className="mt-1 text-muted-foreground">
+                    Conf {n(item.finalConfidence * 100, 1)}% / Min {n(item.activeMinimum * 100, 1)}% · Gap {n(item.confidenceGap * 100, 1)}%
+                  </div>
+                  <div className="mt-1 text-muted-foreground">
+                    {item.topSkipReason ?? "Skipped"} · {item.topBlockers.slice(0, 3).join(" | ")}
+                  </div>
+                  <div className="mt-1 text-muted-foreground">
+                    Window {item.reviewWindowMinutes}m · First hit {item.firstHit ?? "-"} · Gross {item.grossWouldHavePnlPercent != null ? `${n(item.grossWouldHavePnlPercent, 2)}%` : "-"} · Net {item.netWouldHavePnlPercent != null ? `${n(item.netWouldHavePnlPercent, 2)}%` : "-"}
+                  </div>
+                  {item.modeComparison ? (
+                    <div className="mt-1 text-muted-foreground">
+                      {Object.entries(item.modeComparison).map(([mode, row]) => `${mode.replace(/_/g, " ")}: ${row.decision} @ ${n(row.confidence * 100, 1)}%`).join(" · ")}
+                    </div>
+                  ) : null}
+                </div>
+              )) : <div className="text-muted-foreground">No skipped-signal audit records yet.</div>}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TuningPlanPanel({
+  tuningPlan,
+  versions,
+  onGenerate,
+  busy,
+}: {
+  tuningPlan: FutureTradeTuningPlanPreview | null;
+  versions: NonNullable<FutureTradeConfig["config_versions"]>;
+  onGenerate: () => void;
+  busy: boolean;
+}) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="flex items-center gap-2"><Brain className="h-4 w-4" />Tuning Plan Preview</CardTitle>
+        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={onGenerate}>
+          {busy ? "Generating..." : "Generate Tuning Plan"}
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {tuningPlan ? (
+          <>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                <div className="text-muted-foreground">Current</div>
+                <div className="mt-1 font-semibold">{tuningPlan.current.mode.replace(/_/g, " ")}</div>
+                <div className="text-xs text-muted-foreground">Min {n(tuningPlan.current.minConfidence * 100, 1)}% · {tuningPlan.current.confidenceMode}</div>
+              </div>
+              <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                <div className="text-muted-foreground">Recommended</div>
+                <div className="mt-1 font-semibold">{tuningPlan.recommended.mode.replace(/_/g, " ")}</div>
+                <div className="text-xs text-muted-foreground">Min {n(tuningPlan.recommended.minConfidence * 100, 1)}% · {tuningPlan.recommended.confidenceMode}</div>
+              </div>
+              <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                <div className="text-muted-foreground">Forward validation</div>
+                <div className="mt-1 font-semibold">{tuningPlan.forwardValidation.reviewedSamples} samples</div>
+                <div className="text-xs text-muted-foreground">{tuningPlan.forwardValidation.recommendation}</div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-md border px-3 py-2 text-sm">Captured missed wins Δ: <span className="font-semibold">{tuningPlan.previewImpact.capturedMissedWinsDelta >= 0 ? "+" : ""}{tuningPlan.previewImpact.capturedMissedWinsDelta}</span></div>
+              <div className="rounded-md border px-3 py-2 text-sm">Allowed bad signals Δ: <span className="font-semibold">{tuningPlan.previewImpact.allowedBadSignalsDelta >= 0 ? "+" : ""}{tuningPlan.previewImpact.allowedBadSignalsDelta}</span></div>
+              <div className="rounded-md border px-3 py-2 text-sm">Net PnL Δ: <span className="font-semibold">{tuningPlan.previewImpact.netWouldHavePnlDelta >= 0 ? "+" : ""}{n(tuningPlan.previewImpact.netWouldHavePnlDelta, 2)}%</span></div>
+            </div>
+
+            <div className="rounded-md border bg-muted/20 p-3">
+              <div className="text-sm font-medium">Recommended weight changes</div>
+              <div className="mt-3 space-y-2 text-xs">
+                {tuningPlan.recommended.weightChanges.length ? tuningPlan.recommended.weightChanges.map((item) => (
+                  <div key={item.factor} className="rounded border px-2 py-2">
+                    <div className="font-medium">{item.factor} · W{item.currentWeight}→{item.recommendedWeight}</div>
+                    <div className="mt-1 text-muted-foreground">{item.reason}</div>
+                  </div>
+                )) : <div className="text-muted-foreground">No immediate weight changes recommended.</div>}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+            Generate a tuning plan to preview recommended mode, threshold, confidence mode, and weight changes using missed-trade audit evidence. Preview only; nothing is auto-applied.
+          </div>
+        )}
+
+        <div className="rounded-md border bg-muted/20 p-3">
+          <div className="text-sm font-medium">Config versions</div>
+          <div className="mt-3 space-y-2 text-xs">
+            {versions.length ? versions.map((item) => (
+              <div key={item.id} className="rounded border px-2 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium">V{item.versionNumber} · {item.label ?? item.source}</span>
+                  <Badge variant="outline">{item.source}</Badge>
+                </div>
+                <div className="mt-1 text-muted-foreground">{item.createdAt ? new Date(item.createdAt).toLocaleString() : "-"}</div>
+              </div>
+            )) : <div className="text-muted-foreground">No saved config versions yet.</div>}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -2062,6 +2729,7 @@ function SignalDebugPanel({
               <Row label="Active minimum" value={`${n((Number(status?.activeMinConfidence ?? 0)) * 100, 2)}%`} />
               <Row label="Gap" value={`${n((Number(status?.signalConfidenceGap ?? 0)) * 100, 2)}%`} />
               <Row label="Last scan" value={status?.lastScanAt ? new Date(status.lastScanAt).toLocaleTimeString() : "-"} />
+              <Row label="Strategy mode" value={resolveStrategyMode(settings)} />
               <Row label="Live mode" value={String(status?.liveStatus?.mode ?? "-")} />
               <Row label="Indicator mode" value={String(status?.liveStatus?.indicatorMode ?? "-")} />
               <Row label="Data source" value={String(status?.liveStatus?.dataSource ?? "-")} />
@@ -2069,6 +2737,12 @@ function SignalDebugPanel({
               <Row label="5m candle time" value={status?.liveStatus?.lastCandleTime ? new Date(status.liveStatus.lastCandleTime).toLocaleTimeString() : "-"} />
               <Row label="1h candle time" value={status?.liveStatus?.higherTimeframeLastCandleTime ? new Date(status.liveStatus.higherTimeframeLastCandleTime).toLocaleTimeString() : "-"} />
             </div>
+
+            {liveFeedWarning(status?.liveStatus?.mode) ? (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                {liveFeedWarning(status?.liveStatus?.mode)}
+              </div>
+            ) : null}
 
             <div className="grid gap-4 lg:grid-cols-2">
               <div>

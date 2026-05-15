@@ -19,6 +19,7 @@ export interface FutureTradeSettings {
   dynamicSuggestionEnabled: boolean;
   corePassRule?: number;
   classicSimpleMode?: boolean;
+  strictEntryGuards?: boolean;
   takeProfitPercent: number;
   stopLossPercent: number;
   trailingTakeProfitPercent: number;
@@ -38,6 +39,7 @@ export interface FutureTradeSettings {
   tradingHoursEndUtc: string;
   useLiveDataFeed: boolean;
   indicatorInfluence?: Record<string, number>;
+  indicatorControls?: Record<string, FutureTradeIndicatorControl>;
 }
 
 export interface FutureTradeComponentBreakdown {
@@ -47,6 +49,136 @@ export interface FutureTradeComponentBreakdown {
   influenceLevel: number;
   finalContribution: number;
   impact: "positive" | "negative" | string;
+  controlKey?: string;
+  enabled?: boolean;
+  configuredWeight?: number;
+  defaultWeight?: number;
+  category?: string;
+  note?: string;
+}
+
+export interface FutureTradeIndicatorControl {
+  key: string;
+  label: string;
+  note: string;
+  category: string;
+  impact: string;
+  weight: number;
+  enabled: boolean;
+  defaultWeight: number;
+  configurable: boolean;
+  aliases?: string[];
+}
+
+export interface FutureTradeIndicatorPerformance {
+  key: string;
+  label: string;
+  enabled: boolean;
+  weight: number;
+  impact: string;
+  category: string;
+  samples: number;
+  activeSamples: number;
+  wins: number;
+  losses: number;
+  positiveSamples: number;
+  negativeSamples: number;
+  positiveWinSamples: number;
+  positiveLossSamples: number;
+  negativeWinSamples: number;
+  negativeLossSamples: number;
+  avgContribution: number;
+  avgNetPnl: number;
+  supportiveWinRate?: number | null;
+  blockingAccuracy?: number | null;
+  overallAccuracy?: number | null;
+  trackerAlignmentRate?: number | null;
+  successPoints?: number;
+  successRate?: number | null;
+  successScore?: number;
+  rating?: string;
+  sampleState: string;
+  lastSeenAt?: string | null;
+}
+
+export interface FutureTradeIndicatorSuggestion {
+  key: string;
+  action: string;
+  severity: string;
+  title: string;
+  reason: string;
+}
+
+export interface FutureTradeIndicatorIntelligence {
+  profile: string;
+  controls: FutureTradeIndicatorControl[];
+  hardBlockers: Array<{ key: string; label: string }>;
+  currentBreakdown: FutureTradeComponentBreakdown[];
+  performance: FutureTradeIndicatorPerformance[];
+  validation?: {
+    classicSimpleMode: boolean;
+    normalGraphModeWorks: boolean;
+    liveSignalFlowDetected: boolean;
+    blockers: string[];
+    trackerAlignedIndicators: number;
+    highRatedIndicators: number;
+    overallReadinessScore: number;
+  };
+  suggestions: FutureTradeIndicatorSuggestion[];
+  integrationReadiness?: {
+    pineScriptImportReady?: boolean;
+    note?: string;
+  };
+}
+
+export interface FutureTradeResearchScript {
+  id: string;
+  name: string;
+  source: string;
+  scriptType: string;
+  version?: string | null;
+  scriptBody: string;
+  lineCount: number;
+  detectedIndicators: string[];
+  signalRules: string[];
+  overlayHints: Array<{ label: string; kind: string }>;
+  importedAt: string;
+}
+
+export interface FutureTradeResearchDataset {
+  id: string;
+  name: string;
+  format: string;
+  rowCount: number;
+  wins: number;
+  losses: number;
+  winRate?: number | null;
+  importedAt: string;
+}
+
+export interface FutureTradeResearchStat {
+  key: string;
+  samples: number;
+  wins: number;
+  losses: number;
+  avgPnl: number;
+  winRate?: number | null;
+}
+
+export interface FutureTradeResearchSuggestion {
+  key: string;
+  title: string;
+  reason: string;
+  action: string;
+}
+
+export interface FutureTradeResearchLab {
+  scripts: FutureTradeResearchScript[];
+  datasets: FutureTradeResearchDataset[];
+  importedIndicatorStats: FutureTradeResearchStat[];
+  trainingSuggestions: FutureTradeResearchSuggestion[];
+  localTradeSampleCount: number;
+  overlayHints: string[];
 }
 
 export interface FutureTradeStatus {
@@ -337,6 +469,79 @@ export interface FutureTradeDashboard {
       higherTimeframeLastCandleTime?: string | null;
     };
   } | null;
+  indicatorIntelligence?: FutureTradeIndicatorIntelligence | null;
+  researchLab?: FutureTradeResearchLab | null;
+  missedTradeAudit?: {
+    reviewWindows: number[];
+    defaultWindowMinutes: number;
+    totalSkippedSignals: number;
+    pendingReview: number;
+    reviewedSignals: number;
+    missedWins: number;
+    correctSkips: number;
+    avoidedLosses: number;
+    neutral: number;
+    badSignals: number;
+    missedWinRate?: number | null;
+    modeComparison: Array<{
+      mode: string;
+      wouldTrade: number;
+      capturedMissedWins: number;
+      allowedBadSignals: number;
+      correctSkips: number;
+      netWouldHavePnlPercent: number;
+      samples: number;
+      recommendation: string;
+    }>;
+    topBlockers: Array<{
+      key: string;
+      label: string;
+      factor: string;
+      currentWeight: number;
+      totalSkips: number;
+      missedWins: number;
+      correctSkips: number;
+      avoidedLosses: number;
+      neutral: number;
+      accuracy: number;
+      missedWinRate: number;
+      correctSkipRate: number;
+      avoidedLossRate: number;
+      sampleSizeQuality: string;
+      recommendation: string;
+      recommendedWeight: number;
+      reason: string;
+    }>;
+    recent: Array<{
+      id: string;
+      symbol: string;
+      side: string;
+      signalTime?: string | null;
+      finalConfidence: number;
+      activeMinimum: number;
+      confidenceGap: number;
+      topSkipReason?: string | null;
+      topBlockers: string[];
+      status: string;
+      reviewWindowMinutes: number;
+      firstHit?: string | null;
+      wouldHaveResult?: string | null;
+      grossWouldHavePnlPercent?: number | null;
+      netWouldHavePnlPercent?: number | null;
+      wouldHavePnlPercent?: number | null;
+      modeComparison?: Record<string, {
+        confidence: number;
+        activeMinimum: number;
+        decision: string;
+        topSkipReason?: string | null;
+        wouldCaptureMissedWin: boolean;
+        wouldAllowBadSignal: boolean;
+        wouldAllowAvoidedLoss: boolean;
+        wouldAllowCorrectSkip: boolean;
+        netWouldHavePnlPercent: number;
+      }>;
+    }>;
+  } | null;
   chart: FutureTradeDynamicPoint[];
   marketChart?: FutureTradeMarketChart;
   indicatorSuite?: FutureTradeIndicatorSuite;
@@ -357,6 +562,53 @@ export interface FutureTradeConfig {
   testnet_env_enabled?: boolean;
   real_env_enabled?: boolean;
   available_symbols?: string[];
+  config_versions?: Array<{
+    id: string;
+    versionNumber: number;
+    label?: string | null;
+    source: string;
+    summary?: Record<string, unknown> | null;
+    createdBy?: number | null;
+    createdAt?: string | null;
+  }>;
+}
+
+export interface FutureTradeTuningPlanPreview {
+  analysisOnly: boolean;
+  autoApply: boolean;
+  generatedAt: string;
+  current: {
+    mode: string;
+    minConfidence: number;
+    confidenceMode: string;
+    strictEntryGuards: boolean;
+  };
+  recommended: {
+    mode: string;
+    minConfidence: number;
+    confidenceMode: string;
+    strictEntryGuards: boolean;
+    weightChanges: Array<{
+      factor: string;
+      currentWeight: number;
+      recommendedWeight: number;
+      reason: string;
+    }>;
+  };
+  previewImpact: {
+    currentWouldTrade: number;
+    recommendedWouldTrade: number;
+    capturedMissedWinsDelta: number;
+    allowedBadSignalsDelta: number;
+    netWouldHavePnlDelta: number;
+  };
+  forwardValidation: {
+    reviewedSamples: number;
+    currentModeSummary?: Record<string, unknown>;
+    recommendedModeSummary?: Record<string, unknown>;
+    recommendation: string;
+  };
+  notes: string[];
 }
 
 export interface FutureTradeEnvConfig {
@@ -387,6 +639,18 @@ export interface FutureTradeEnvConfigPayload {
   testnet_api_secret?: string;
   replace_live_secret?: boolean;
   replace_testnet_secret?: boolean;
+}
+
+export interface FutureTradeScriptImportPayload {
+  name?: string;
+  source?: string;
+  script: string;
+}
+
+export interface FutureTradeTradeImportPayload {
+  name?: string;
+  format: "csv" | "json";
+  payload: string;
 }
 
 export interface FutureTradeLiveFeedStatus {
@@ -561,6 +825,10 @@ export function useFutureTradeBot(workspaceId?: string) {
     onSuccess: invalidate,
   });
 
+  const generateTuningPlan = useMutation({
+    mutationFn: async () => (await api.post<FutureTradeTuningPlanPreview>(`${base}/generate-tuning-plan`, {})).data,
+  });
+
   const testConnection = useMutation({
     mutationFn: async () => (await api.post<FutureTradeConnectionTest>(`${base}/test-connection`, {})).data,
   });
@@ -575,6 +843,16 @@ export function useFutureTradeBot(workspaceId?: string) {
     onSuccess: invalidate,
   });
 
+  const importScript = useMutation({
+    mutationFn: async (payload: FutureTradeScriptImportPayload) => (await api.post<FutureTradeResearchLab>(`${base}/import-script`, payload)).data,
+    onSuccess: invalidate,
+  });
+
+  const importTrades = useMutation({
+    mutationFn: async (payload: FutureTradeTradeImportPayload) => (await api.post<FutureTradeResearchLab>(`${base}/import-trades`, payload)).data,
+    onSuccess: invalidate,
+  });
+
   return {
     dashboard,
     config,
@@ -584,8 +862,11 @@ export function useFutureTradeBot(workspaceId?: string) {
     liveFeed,
     updateConfig,
     updateEnvConfig,
+    generateTuningPlan,
     testConnection,
     recover,
+    importScript,
+    importTrades,
     startLiveFeed: liveFeedAction("start"),
     stopLiveFeed: liveFeedAction("stop"),
     restartLiveFeed: liveFeedAction("restart"),
