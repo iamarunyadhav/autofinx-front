@@ -653,7 +653,7 @@ export default function FutureTradeBotPage() {
           </Card>
         ) : null}
 
-        <SignalDebugPanel status={status} debug={dashboard?.signalDebug} />
+        <SignalDebugPanel status={status} debug={dashboard?.signalDebug} settings={settings} />
         <IndicatorIntelligencePanel intelligence={dashboard?.indicatorIntelligence} />
         <ResearchLabPanel researchLab={dashboard?.researchLab} />
         <MissedTradeAuditPanel audit={dashboard?.missedTradeAudit} />
@@ -2670,6 +2670,7 @@ function Row({ label, value }: { label: string; value: string }) {
 function SignalDebugPanel({
   status,
   debug,
+  settings,
 }: {
   status?: {
     currentPrice?: number | null;
@@ -2705,6 +2706,7 @@ function SignalDebugPanel({
     };
     componentBreakdown?: Record<string, { label: string; rawScore: number; influenceLevel: number; finalContribution: number; impact: string }>;
   } | null;
+  settings: FutureTradeSettings;
 }) {
   if (!status && !debug) return null;
 
