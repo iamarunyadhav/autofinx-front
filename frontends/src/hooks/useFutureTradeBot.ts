@@ -332,12 +332,77 @@ export interface FutureTradeCandle {
   low: number;
   close: number;
   volume: number;
+  isFormingCandle?: boolean;
 }
 
 export interface FutureTradeMarketChart {
   symbol?: string | null;
   timeframe: string;
   candles: FutureTradeCandle[];
+  latestTickPrice?: number | null;
+  latestTickAt?: string | null;
+  chartUpdatedAt?: string | null;
+  isFormingCandle?: boolean;
+  dataSource?: string | null;
+}
+
+export interface FutureTradeLiveStatusLight {
+  workspaceId: string;
+  enabled: boolean;
+  paperTrading: boolean;
+  liveTrading: boolean;
+  mode: string;
+  strategyMode: string;
+  classicSimpleMode: boolean;
+  confidenceMode: string;
+  minConfidence: number;
+  activeMinimum: number;
+  strictEntryGuards: boolean;
+  corePassRule: number;
+  feedMode: string;
+  feedFresh: boolean;
+  tickAgeSeconds?: number | null;
+  lastTickAt?: string | null;
+  lastTickPrice?: number | null;
+  lastScanAt?: string | null;
+  scanAgeSeconds?: number | null;
+  chartUpdatedAt?: string | null;
+  chartAgeSeconds?: number | null;
+  currentSymbol?: string | null;
+  currentPrice: number;
+  currentSignal: string;
+  currentConfidence: number;
+  lastSkipReason?: string | null;
+  positionSide?: string | null;
+  walletBalance?: number | null;
+  availableBalance?: number | null;
+  accountAsset?: string | null;
+  minQuantityPrecheck?: {
+    symbol: string;
+    price: number;
+    stepSize: number;
+    minQty: number;
+    tradeAmountUsdt: number;
+    leverage: number;
+    notional: number;
+    minimumRequiredTradeAmountUsdt?: number | null;
+    recommendedTradeAmountUsdt?: number | null;
+    canTrade: boolean;
+  } | null;
+  updatedAt: string;
+}
+
+export interface FutureTradeScannerSnapshot {
+  updatedAt?: string | null;
+  scanAgeSeconds?: number | null;
+  symbols: Array<FutureSignal & {
+    activeMinimum?: number;
+    coreEntryPassed?: boolean;
+    componentScores?: Record<string, number>;
+    positiveFactors?: string[];
+    negativeFactors?: string[];
+    lastSkipReason?: string | null;
+  }>;
 }
 
 export interface FutureTradeIndicatorValidation {
@@ -774,7 +839,34 @@ export function useFutureTradeBot(workspaceId?: string) {
     queryKey: ["future-trade", workspaceId, "dashboard"],
     queryFn: async () => (await api.get<FutureTradeDashboard>(`${base}/dashboard`)).data,
     enabled,
+    refetchInterval: false,
+    staleTime: 10_000,
+  });
+
+  const liveStatus = useQuery({
+    queryKey: ["future-trade", workspaceId, "live-status"],
+    queryFn: async () => (await api.get<FutureTradeLiveStatusLight>(`${base}/live-status`)).data,
+    enabled,
     refetchInterval: 1000,
+  });
+
+  const scannerSnapshot = useQuery({
+    queryKey: ["future-trade", workspaceId, "scanner-snapshot"],
+    queryFn: async () => (await api.get<FutureTradeScannerSnapshot>(`${base}/scanner-snapshot`)).data,
+    enabled,
+    refetchInterval: 1500,
+  });
+
+  const liveChart = useQuery({
+    queryKey: ["future-trade", workspaceId, "chart", dashboard.data?.marketChart?.symbol, dashboard.data?.marketChart?.timeframe],
+    queryFn: async () => (await api.get<FutureTradeMarketChart>(`${base}/chart`, {
+      params: {
+        symbol: dashboard.data?.marketChart?.symbol,
+        timeframe: dashboard.data?.marketChart?.timeframe,
+      },
+    })).data,
+    enabled,
+    refetchInterval: 1500,
   });
 
   const config = useQuery({
@@ -855,6 +947,9 @@ export function useFutureTradeBot(workspaceId?: string) {
 
   return {
     dashboard,
+    liveStatus,
+    scannerSnapshot,
+    liveChart,
     config,
     trades,
     logs,

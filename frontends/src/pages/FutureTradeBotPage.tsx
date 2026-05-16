@@ -417,7 +417,33 @@ export default function FutureTradeBotPage() {
   }, [bot.envConfig.data]);
 
   const dashboard = bot.dashboard.data;
-  const status = dashboard?.status;
+  const fastStatus = bot.liveStatus.data;
+  const fastScanner = bot.scannerSnapshot.data?.symbols ?? dashboard?.scanner ?? [];
+  const fastChart = bot.liveChart.data ?? dashboard?.marketChart;
+  const fastBestSignal = fastScanner[0] ?? dashboard?.bestSignal;
+  const status = dashboard?.status
+    ? {
+        ...dashboard.status,
+        currentSymbol: fastStatus?.currentSymbol ?? dashboard.status.currentSymbol,
+        currentSignal: fastStatus?.currentSignal ?? dashboard.status.currentSignal,
+        currentPrice: fastStatus?.currentPrice ?? dashboard.status.currentPrice,
+        confidence: fastStatus?.currentConfidence ?? dashboard.status.confidence,
+        activeMinConfidence: fastStatus?.activeMinimum ?? dashboard.status.activeMinConfidence,
+        positionSide: fastStatus?.positionSide ?? dashboard.status.positionSide,
+        walletBalance: fastStatus?.walletBalance ?? dashboard.status.walletBalance,
+        availableBalance: fastStatus?.availableBalance ?? dashboard.status.availableBalance,
+        accountAsset: fastStatus?.accountAsset ?? dashboard.status.accountAsset,
+        lastScanAt: fastStatus?.lastScanAt ?? dashboard.status.lastScanAt,
+        liveStatus: {
+          ...dashboard.status.liveStatus,
+          mode: fastStatus?.feedMode ?? dashboard.status.liveStatus?.mode ?? "",
+          ageSeconds: fastStatus?.tickAgeSeconds ?? dashboard.status.liveStatus?.ageSeconds,
+          isStale: fastStatus?.tickAgeSeconds != null ? fastStatus.tickAgeSeconds > 10 : dashboard.status.liveStatus?.isStale,
+          lastUpdateTime: fastStatus?.updatedAt ?? dashboard.status.liveStatus?.lastUpdateTime,
+          dataSource: fastStatus?.feedMode ?? dashboard.status.liveStatus?.dataSource,
+        },
+      }
+    : undefined;
   const diagnostics = dashboard?.diagnostics;
   const savedSettings = useMemo(() => ({ ...DEFAULT_SETTINGS, ...(bot.config.data?.settings ?? {}) }), [bot.config.data?.settings]);
   const busy = bot.start.isPending || bot.stop.isPending || bot.emergencyStop.isPending || bot.resetPaper.isPending || bot.resetDailyLoss.isPending || bot.updateConfig.isPending || bot.recover.isPending || bot.clearHistory.isPending;
@@ -627,6 +653,12 @@ export default function FutureTradeBotPage() {
           <Metric title="Loss Summary" value={`${n(status?.botLoss ?? status?.dailyLoss, 4)} ${status?.accountAsset || "USDT"}`} sub={`Win ${n(status?.winRate, 2)}% | Trades ${n(status?.tradeCountToday, 0)}`} good={(status?.botLoss ?? status?.dailyLoss ?? 0) === 0} />
         </div>
 
+        <TopStatusStrip
+          liveStatus={fastStatus}
+          fallbackStatus={status}
+          minQtyWarning={fastStatus?.minQuantityPrecheck}
+        />
+
         {latestRuntimeAlert ? <LatestRuntimeAlert alert={latestRuntimeAlert} busy={bot.recover.isPending} onRecover={runRecovery} /> : null}
 
         {status?.entryReason ? (
@@ -669,16 +701,16 @@ export default function FutureTradeBotPage() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Live Futures Graph</CardTitle>
-                <Badge variant={statusVariant(dashboard?.bestSignal?.signal)}>{dashboard?.bestSignal?.signal || "WAIT"}</Badge>
+                <Badge variant={statusVariant(fastBestSignal?.signal)}>{fastBestSignal?.signal || "WAIT"}</Badge>
               </CardHeader>
               <CardContent className="h-[420px]">
                 <FutureTradeProChart
-                  candles={dashboard?.marketChart?.candles ?? []}
+                  candles={fastChart?.candles ?? []}
                   runtimePoints={runtimeChart}
                   settings={settings}
-                  symbol={dashboard?.marketChart?.symbol ?? status?.currentSymbol}
-                  timeframe={dashboard?.marketChart?.timeframe ?? settings.timeframe}
-                  bestSignal={dashboard?.bestSignal}
+                  symbol={fastChart?.symbol ?? status?.currentSymbol}
+                  timeframe={fastChart?.timeframe ?? settings.timeframe}
+                  bestSignal={fastBestSignal}
                   levels={dashboard?.levels}
                   overlayHints={dashboard?.researchLab?.overlayHints ?? []}
                 />
@@ -688,7 +720,7 @@ export default function FutureTradeBotPage() {
             <IndicatorExecutionPanel indicatorSuite={dashboard?.indicatorSuite} />
 
             <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-              <SignalBoard signals={dashboard?.scanner ?? []} />
+              <SignalBoard signals={fastScanner} />
               <Orderbook bids={dashboard?.orderbook.bids ?? []} asks={dashboard?.orderbook.asks ?? []} />
             </div>
 
@@ -832,6 +864,50 @@ function err(toast: ReturnType<typeof useToast>["toast"]) {
 function Metric({ title, value, sub, good, icon }: { title: string; value: string; sub: string; good?: boolean; icon?: ReactNode }) {
   return (
     <Card><CardHeader><CardTitle className="flex items-center gap-2 text-sm text-muted-foreground">{icon}{title}</CardTitle></CardHeader><CardContent><div className={cn("text-xl font-semibold", good === false && "text-destructive", good === true && "text-running")}>{value}</div><div className="mt-1 text-xs text-muted-foreground">{sub}</div></CardContent></Card>
+  );
+}
+
+function TopStatusStrip({
+  liveStatus,
+  fallbackStatus,
+  minQtyWarning,
+}: {
+  liveStatus?: ReturnType<typeof useFutureTradeBot>["liveStatus"]["data"];
+  fallbackStatus?: FutureTradeDashboard["status"] | null;
+  minQtyWarning?: NonNullable<ReturnType<typeof useFutureTradeBot>["liveStatus"]["data"]>["minQuantityPrecheck"];
+}) {
+  const feedMode = liveStatus?.feedMode ?? fallbackStatus?.liveStatus?.mode ?? "-";
+  const tickAge = liveStatus?.tickAgeSeconds ?? fallbackStatus?.liveStatus?.ageSeconds;
+  const scanAge = liveStatus?.scanAgeSeconds ?? null;
+  const feedVariant = String(feedMode).includes("STALE") || (tickAge ?? 0) > 10 ? "destructive" : String(feedMode).includes("REST") ? "secondary" : "default";
+  const scanVariant = scanAge != null && scanAge > 5 ? "destructive" : "default";
+
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-center gap-2 py-3 text-xs">
+        <Badge variant={liveStatus?.liveTrading || fallbackStatus?.liveTrading ? "outline" : "secondary"}>Mode: {liveStatus?.mode ?? fallbackStatus?.mode ?? "-"}</Badge>
+        <Badge variant={(liveStatus?.enabled ?? fallbackStatus?.status === "Running") ? "default" : "destructive"}>Workspace: {liveStatus?.enabled ? "Enabled" : "Disabled"}</Badge>
+        <Badge variant="outline">Strategy: {liveStatus?.strategyMode ?? "-"}</Badge>
+        <Badge variant="outline">Confidence: {liveStatus?.confidenceMode ?? fallbackStatus?.settings?.confidenceMode ?? "-"}</Badge>
+        <Badge variant="outline">Min {n((liveStatus?.minConfidence ?? fallbackStatus?.settings?.minConfidence ?? 0) * 100, 2)}%</Badge>
+        <Badge variant="outline">Active {n((liveStatus?.activeMinimum ?? fallbackStatus?.activeMinConfidence ?? 0) * 100, 2)}%</Badge>
+        <Badge variant={feedVariant}>Feed: {feedMode}</Badge>
+        <Badge variant={feedVariant}>Tick age: {tickAge ?? "-"}s</Badge>
+        <Badge variant={scanVariant}>Scan age: {scanAge ?? "-"}s</Badge>
+        <Badge variant="outline">Position: {liveStatus?.positionSide ?? fallbackStatus?.positionSide ?? "FLAT"}</Badge>
+        <Badge variant="outline">Wallet: {balanceValue(liveStatus?.walletBalance ?? fallbackStatus?.walletBalance, 4)} {liveStatus?.accountAsset ?? fallbackStatus?.accountAsset ?? "USDT"}</Badge>
+        <Badge variant={statusVariant(liveStatus?.currentSignal ?? fallbackStatus?.currentSignal)}>{liveStatus?.currentSignal ?? fallbackStatus?.currentSignal ?? "WAIT"} {n((liveStatus?.currentConfidence ?? fallbackStatus?.confidence ?? 0) * 100, 2)}%</Badge>
+        {liveStatus?.lastSkipReason ? <Badge variant="secondary">Skip: {liveStatus.lastSkipReason}</Badge> : null}
+        {liveStatus?.classicSimpleMode ? <Badge variant="destructive">Indicators are OFF. VWAP/EMA/ADX/MACD weights are ignored.</Badge> : null}
+        {tickAge != null && tickAge > 10 ? <Badge variant="destructive">Feed stale. Graph may not update.</Badge> : null}
+        {scanAge != null && scanAge > 5 ? <Badge variant="destructive">Scanner stale. Signals may not refresh.</Badge> : null}
+        {minQtyWarning && !minQtyWarning.canTrade ? (
+          <Badge variant="destructive">
+            {minQtyWarning.symbol} trade amount too low. Minimum recommended: {n(minQtyWarning.recommendedTradeAmountUsdt, 2)} USDT
+          </Badge>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 
