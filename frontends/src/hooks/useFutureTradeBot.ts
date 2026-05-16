@@ -342,8 +342,17 @@ export interface FutureTradeMarketChart {
   latestTickPrice?: number | null;
   latestTickAt?: string | null;
   chartUpdatedAt?: string | null;
+  chartAgeSeconds?: number;
+  tickAgeSeconds?: number;
+  lastCandleClose?: number | null;
   isFormingCandle?: boolean;
   dataSource?: string | null;
+  debug?: {
+    latestTickPrice?: number | null;
+    chartUpdatedAt?: string | null;
+    lastCandleClose?: number | null;
+    isFormingCandle?: boolean;
+  };
 }
 
 export interface FutureTradeLiveStatusLight {

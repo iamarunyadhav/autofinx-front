@@ -420,6 +420,20 @@ export default function FutureTradeBotPage() {
   const fastStatus = bot.liveStatus.data;
   const fastScanner = bot.scannerSnapshot.data?.symbols ?? dashboard?.scanner ?? [];
   const fastChart = bot.liveChart.data ?? dashboard?.marketChart;
+  const fastChartDebug = {
+    latestTickPrice: fastChart?.latestTickPrice ?? fastChart?.debug?.latestTickPrice ?? null,
+    chartUpdatedAt: fastChart?.chartUpdatedAt ?? fastChart?.debug?.chartUpdatedAt ?? null,
+    lastCandleClose: fastChart?.lastCandleClose ?? fastChart?.debug?.lastCandleClose ?? null,
+    isFormingCandle: fastChart?.isFormingCandle ?? fastChart?.debug?.isFormingCandle ?? false,
+  };
+  const liveCandles = useMemo(
+    () => (fastChart?.candles ?? []).map((candle, index, rows) => (
+      index === rows.length - 1
+        ? { ...candle, close: Number(fastChart?.lastCandleClose ?? candle.close), isFormingCandle: Boolean(fastChart?.isFormingCandle ?? candle.isFormingCandle) }
+        : candle
+    )),
+    [fastChart?.candles, fastChart?.chartUpdatedAt, fastChart?.latestTickPrice, fastChart?.lastCandleClose, fastChart?.isFormingCandle],
+  );
   const fastBestSignal = fastScanner[0] ?? dashboard?.bestSignal;
   const status = dashboard?.status
     ? {
@@ -705,7 +719,7 @@ export default function FutureTradeBotPage() {
               </CardHeader>
               <CardContent className="h-[420px]">
                 <FutureTradeProChart
-                  candles={fastChart?.candles ?? []}
+                  candles={liveCandles}
                   runtimePoints={runtimeChart}
                   settings={settings}
                   symbol={fastChart?.symbol ?? status?.currentSymbol}
@@ -713,8 +727,12 @@ export default function FutureTradeBotPage() {
                   bestSignal={fastBestSignal}
                   levels={dashboard?.levels}
                   overlayHints={dashboard?.researchLab?.overlayHints ?? []}
+                  chartDebug={fastChartDebug}
                 />
               </CardContent>
+              <div className="px-6 pb-4 text-xs text-muted-foreground">
+                Chart debug: latestTickPrice={fastChartDebug.latestTickPrice ?? "-"} | chartUpdatedAt={fastChartDebug.chartUpdatedAt ?? "-"} | lastCandleClose={fastChartDebug.lastCandleClose ?? "-"} | isFormingCandle={String(fastChartDebug.isFormingCandle)}
+              </div>
             </Card>
 
             <IndicatorExecutionPanel indicatorSuite={dashboard?.indicatorSuite} />

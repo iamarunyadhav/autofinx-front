@@ -24,6 +24,12 @@ type Props = {
   bestSignal?: FutureSignal | null;
   levels?: Record<string, number | null>;
   overlayHints?: string[];
+  chartDebug?: {
+    latestTickPrice?: number | null;
+    chartUpdatedAt?: string | null;
+    lastCandleClose?: number | null;
+    isFormingCandle?: boolean;
+  };
 };
 
 type EnrichedCandle = FutureTradeCandle & {
@@ -458,8 +464,9 @@ function ChartTooltipContent({ active, payload }: any) {
   );
 }
 
-export function FutureTradeProChart({ candles, runtimePoints, settings, symbol, timeframe, bestSignal, levels, overlayHints = [] }: Props) {
-  const prepared = useMemo(() => buildChartData(candles, timeframe), [candles, timeframe]);
+export function FutureTradeProChart({ candles, runtimePoints, settings, symbol, timeframe, bestSignal, levels, overlayHints = [], chartDebug }: Props) {
+  const chartVersion = `${chartDebug?.chartUpdatedAt ?? ""}|${chartDebug?.latestTickPrice ?? ""}|${chartDebug?.lastCandleClose ?? ""}|${chartDebug?.isFormingCandle ? "forming" : "closed"}`;
+  const prepared = useMemo(() => buildChartData(candles, timeframe), [candles, timeframe, chartVersion]);
   const zones = useMemo(() => findZones(prepared.data), [prepared.data]);
   const densities = useMemo(() => findDensityBands(prepared.data), [prepared.data]);
   const bubbles = useMemo(() => buildBubblePoints(prepared.data), [prepared.data]);
@@ -483,6 +490,11 @@ export function FutureTradeProChart({ candles, runtimePoints, settings, symbol, 
         <Badge variant={trendUp ? "default" : "destructive"}>{trendUp ? "Chart EMA34/89 Up" : "Chart EMA34/89 Down"}</Badge>
         <Badge variant={adxReady ? "default" : "secondary"}>ADX {latest?.adx.toFixed(1)}{adxReady ? " strong" : " weak"}</Badge>
         <Badge variant="secondary">VWAP {latest?.vwap.toFixed(2)}</Badge>
+        <Badge variant={chartDebug?.isFormingCandle ? "default" : "secondary"}>
+          Forming {chartDebug?.isFormingCandle ? "Yes" : "No"}
+        </Badge>
+        <Badge variant="outline">Tick {chartDebug?.latestTickPrice != null ? chartDebug.latestTickPrice.toFixed(4) : "-"}</Badge>
+        <Badge variant="outline">Close {chartDebug?.lastCandleClose != null ? chartDebug.lastCandleClose.toFixed(4) : latest?.close.toFixed(4)}</Badge>
         <Badge variant="secondary">OR {latest?.orHigh?.toFixed(2) ?? "-"} / {latest?.orLow?.toFixed(2) ?? "-"}</Badge>
         <Badge variant={bestSignal?.signal === "BUY" ? "default" : bestSignal?.signal === "SELL" ? "destructive" : "secondary"}>
           {bestSignal?.signal || "WAIT"} {bestSignal?.confidence != null ? `${(bestSignal.confidence * 100).toFixed(1)}%` : ""}
@@ -494,7 +506,7 @@ export function FutureTradeProChart({ candles, runtimePoints, settings, symbol, 
 
       <div className="min-h-0 flex-1">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={prepared.data} margin={{ top: 10, right: 18, bottom: 0, left: 0 }}>
+          <ComposedChart key={chartVersion} data={prepared.data} margin={{ top: 10, right: 18, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted/30" />
             <XAxis
               dataKey="index"
@@ -521,7 +533,7 @@ export function FutureTradeProChart({ candles, runtimePoints, settings, symbol, 
               />
             ))}
 
-            <Customized component={<CandleRenderer points={prepared.data} />} />
+            <Customized key={`candles-${chartVersion}`} component={<CandleRenderer points={prepared.data} />} />
             <Line dataKey="vwap" stroke="#facc15" strokeWidth={2} dot={false} isAnimationActive={false} />
             <Line dataKey="emaFast" stroke="#14b8a6" strokeWidth={1.5} dot={false} isAnimationActive={false} />
             <Line dataKey="emaSlow" stroke="#f97316" strokeWidth={1.5} dot={false} isAnimationActive={false} />
