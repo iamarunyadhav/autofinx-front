@@ -857,13 +857,15 @@ export function useFutureTradeBot(workspaceId?: string) {
     queryFn: async () => (await api.get<FutureTradeLiveStatusLight>(`${base}/live-status`)).data,
     enabled,
     refetchInterval: 1000,
+    refetchIntervalInBackground: false,
   });
 
   const scannerSnapshot = useQuery({
     queryKey: ["future-trade", workspaceId, "scanner-snapshot"],
     queryFn: async () => (await api.get<FutureTradeScannerSnapshot>(`${base}/scanner-snapshot`)).data,
     enabled,
-    refetchInterval: 1500,
+    refetchInterval: 2000,
+    refetchIntervalInBackground: false,
   });
 
   const liveChart = useQuery({
@@ -875,7 +877,8 @@ export function useFutureTradeBot(workspaceId?: string) {
       },
     })).data,
     enabled,
-    refetchInterval: 1500,
+    refetchInterval: 2000,
+    refetchIntervalInBackground: false,
   });
 
   const config = useQuery({
@@ -888,14 +891,16 @@ export function useFutureTradeBot(workspaceId?: string) {
     queryKey: ["future-trade", workspaceId, "trades"],
     queryFn: async () => (await api.get<FutureTradeRecord[]>(`${base}/trades?all=1`)).data,
     enabled,
-    refetchInterval: 1000,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 
   const logs = useQuery({
     queryKey: ["future-trade", workspaceId, "logs"],
     queryFn: async () => (await api.get<FutureTradeLog[]>(`${base}/logs?all=1`)).data,
     enabled,
-    refetchInterval: 1000,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 
   const envConfig = useQuery({
@@ -908,7 +913,8 @@ export function useFutureTradeBot(workspaceId?: string) {
     queryKey: ["future-trade", workspaceId, "live-feed"],
     queryFn: async () => (await api.get<FutureTradeLiveFeedStatus>(`${base}/live-feed`)).data,
     enabled,
-    refetchInterval: 3000,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 
   const useAction = (name: string) => useMutation({
