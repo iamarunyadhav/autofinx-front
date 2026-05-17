@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
+const FUTURE_TRADE_LIVE_REFRESH_MS = 1000;
+
 export interface FutureTradeSettings {
   symbols: string[];
   timeframe: string;
@@ -848,15 +850,16 @@ export function useFutureTradeBot(workspaceId?: string) {
     queryKey: ["future-trade", workspaceId, "dashboard"],
     queryFn: async () => (await api.get<FutureTradeDashboard>(`${base}/dashboard`)).data,
     enabled,
-    refetchInterval: false,
-    staleTime: 10_000,
+    refetchInterval: FUTURE_TRADE_LIVE_REFRESH_MS,
+    refetchIntervalInBackground: false,
+    staleTime: 0,
   });
 
   const liveStatus = useQuery({
     queryKey: ["future-trade", workspaceId, "live-status"],
     queryFn: async () => (await api.get<FutureTradeLiveStatusLight>(`${base}/live-status`)).data,
     enabled,
-    refetchInterval: 1000,
+    refetchInterval: FUTURE_TRADE_LIVE_REFRESH_MS,
     refetchIntervalInBackground: false,
   });
 
@@ -864,7 +867,7 @@ export function useFutureTradeBot(workspaceId?: string) {
     queryKey: ["future-trade", workspaceId, "scanner-snapshot"],
     queryFn: async () => (await api.get<FutureTradeScannerSnapshot>(`${base}/scanner-snapshot`)).data,
     enabled,
-    refetchInterval: 2000,
+    refetchInterval: FUTURE_TRADE_LIVE_REFRESH_MS,
     refetchIntervalInBackground: false,
   });
 
@@ -877,7 +880,7 @@ export function useFutureTradeBot(workspaceId?: string) {
       },
     })).data,
     enabled,
-    refetchInterval: 2000,
+    refetchInterval: FUTURE_TRADE_LIVE_REFRESH_MS,
     refetchIntervalInBackground: false,
   });
 

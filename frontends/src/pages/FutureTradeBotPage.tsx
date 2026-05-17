@@ -706,15 +706,6 @@ export default function FutureTradeBotPage() {
           accountAsset={status?.accountAsset || "USDT"}
         />
         <SignalDebugPanel status={status} debug={dashboard?.signalDebug} settings={settings} />
-        <IndicatorIntelligencePanel intelligence={dashboard?.indicatorIntelligence} />
-        <ResearchLabPanel researchLab={dashboard?.researchLab} />
-        <MissedTradeAuditPanel audit={dashboard?.missedTradeAudit} />
-        <TuningPlanPanel
-          tuningPlan={tuningPlan}
-          versions={bot.config.data?.config_versions ?? []}
-          onGenerate={generateTuningPlan}
-          busy={tuningBusy}
-        />
 
         <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
           <div className="space-y-6">
@@ -774,6 +765,15 @@ export default function FutureTradeBotPage() {
             <TradeHistory trades={bot.trades.data ?? []} liveTrading={status?.liveTrading ?? false} />
             <DynamicRuntimeTracker logs={bot.logs.data ?? []} />
             <RuntimeDiagnosticsPanel diagnostics={diagnostics} />
+            <IndicatorIntelligencePanel intelligence={dashboard?.indicatorIntelligence} />
+            <ResearchLabPanel researchLab={dashboard?.researchLab} />
+            <TuningPlanPanel
+              tuningPlan={tuningPlan}
+              versions={bot.config.data?.config_versions ?? []}
+              onGenerate={generateTuningPlan}
+              busy={tuningBusy}
+            />
+            <MissedTradeAuditPanel audit={dashboard?.missedTradeAudit} />
           </div>
 
           <div className="space-y-6">
@@ -946,9 +946,12 @@ function IndicatorExecutionPanel({ indicatorSuite }: { indicatorSuite?: FutureTr
       <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>{indicatorSuite.preset || "Indicator"} Confirmation Engine</CardTitle>
-        <Badge variant={indicatorSuite.executionReady ? "default" : indicatorSuite.state === "warming_up" ? "secondary" : "outline"}>
-          {indicatorSuite.executionReady ? "Execution Ready" : humanizeCode(indicatorSuite.state)}
-        </Badge>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Badge variant="outline">1s refresh</Badge>
+          <Badge variant={indicatorSuite.executionReady ? "default" : indicatorSuite.state === "warming_up" ? "secondary" : "outline"}>
+            {indicatorSuite.executionReady ? "Execution Ready" : humanizeCode(indicatorSuite.state)}
+          </Badge>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">{indicatorSuite.summary}</div>
@@ -1189,7 +1192,10 @@ function SignalBoard({ signals }: { signals: Array<{ symbol: string; signal: str
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Signal Scanner</CardTitle>
+        <div className="flex flex-row items-center justify-between gap-3">
+          <CardTitle>Signal Scanner</CardTitle>
+          <Badge variant="outline">1s refresh</Badge>
+        </div>
         <div className="text-xs text-muted-foreground">
           `BUY/SELL` means scanner direction. Red/green percent is recent price move, not confidence. The last percent is signal confidence, and a trade only qualifies when confidence is above the active minimum threshold.
         </div>
