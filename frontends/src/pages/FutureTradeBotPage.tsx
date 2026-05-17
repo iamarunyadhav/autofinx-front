@@ -660,7 +660,7 @@ export default function FutureTradeBotPage() {
           ) : null}
 
         <div className="grid gap-4 xl:grid-cols-5">
-          <Metric title="Total Profit" value={`${n(status?.totalProfit ?? status?.realizedPnl, 4)} ${status?.accountAsset || "USDT"}`} sub={`Realized ${n(status?.realizedPnl, 4)} | Unrealized ${n(status?.unrealizedPnlPercent, 4)}%`} good={(status?.totalProfit ?? status?.realizedPnl ?? 0) >= 0} />
+          <Metric title="Total Profit" value={`${n(dashboard?.realized?.totalProfit ?? status?.totalProfit ?? status?.realizedPnl, 4)} ${status?.accountAsset || "USDT"}`} sub={`Closed trades ${dashboard?.realized?.closedCount ?? 0} | Unrealized ${n(status?.unrealizedPnlPercent, 4)}%`} good={(dashboard?.realized?.totalProfit ?? status?.totalProfit ?? status?.realizedPnl ?? 0) >= 0} />
           <Metric title="Wallet Balance" value={`${balanceValue(status?.walletBalance, 4)} ${status?.accountAsset || "USDT"}`} sub={status?.balanceSource === "PAPER_LEDGER" ? "Paper mode wallet not linked" : status?.balanceSource === "BINANCE_UNAVAILABLE" ? (status?.balanceError || "Binance futures balance unavailable") : `Available ${balanceValue(status?.availableBalance, 4)}`} icon={<Wallet className="h-4 w-4" />} good={status?.balanceSource === "BINANCE_UNAVAILABLE" ? false : undefined} />
           <Metric title="Current Signal" value={status?.currentSignal || "WAITING"} sub={`${status?.currentSymbol || "No symbol"} | ${n((status?.confidence ?? 0) * 100, 2)}% vs ${n((status?.activeMinConfidence ?? settings.minConfidence) * 100, 2)}% min`} />
           <Metric title="Position" value={status?.positionSide || "FLAT"} sub={`Entry ${n(status?.entryPrice, 8)} | Qty ${n(status?.quantity, 6)}`} />
@@ -699,6 +699,12 @@ export default function FutureTradeBotPage() {
           </Card>
         ) : null}
 
+        <SafetyRuntimePanel
+          runtimeHealth={dashboard?.runtimeHealth}
+          signalStability={dashboard?.signalStability}
+          realized={dashboard?.realized}
+          accountAsset={status?.accountAsset || "USDT"}
+        />
         <SignalDebugPanel status={status} debug={dashboard?.signalDebug} settings={settings} />
         <IndicatorIntelligencePanel intelligence={dashboard?.indicatorIntelligence} />
         <ResearchLabPanel researchLab={dashboard?.researchLab} />
@@ -2759,6 +2765,134 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
 
 function Row({ label, value }: { label: string; value: string }) {
   return <div className="flex justify-between gap-3"><span className="text-muted-foreground">{label}</span><span className="font-medium">{value}</span></div>;
+}
+
+type SafetyRuntimeHealth = {
+  feedFresh?: boolean;
+  feedAgeSeconds?: number | null;
+  feedMode?: string | null;
+  lastTickAt?: string | null;
+  lastTickPrice?: number | null;
+  openLogicalTrades?: number | null;
+  reconciliationRequired?: number | null;
+  cooldownUntil?: string | null;
+  dailyLossLocked?: boolean;
+  liveMode?: boolean;
+  userStream?: {
+    configured?: boolean;
+    status?: string;
+    fresh?: boolean;
+    ageSeconds?: number | null;
+    lastEventAt?: string | null;
+    lastKeepAliveAt?: string | null;
+  } | null;
+  activeBlockers?: string[];
+  healthy?: boolean;
+} | null | undefined;
+
+type SafetySignalStability = {
+  raw?: string;
+  confirmed?: string;
+  executable?: string;
+  reason?: string;
+  confirmedScans?: number;
+  sameCandleFlip?: boolean;
+} | null | undefined;
+
+type SafetyRealized = {
+  closedCount?: number;
+  botProfit?: number;
+  botLoss?: number;
+  totalProfit?: number;
+  openPositions?: number;
+  reconciliationRequired?: number;
+} | null | undefined;
+
+function SafetyRuntimePanel({
+  runtimeHealth,
+  signalStability,
+  realized,
+  accountAsset,
+}: {
+  runtimeHealth: SafetyRuntimeHealth;
+  signalStability: SafetySignalStability;
+  realized: SafetyRealized;
+  accountAsset: string;
+}) {
+  if (!runtimeHealth && !signalStability && !realized) return null;
+
+  const blockers = runtimeHealth?.activeBlockers ?? [];
+  const healthy = Boolean(runtimeHealth?.healthy);
+  const sameCandleFlip = Boolean(signalStability?.sameCandleFlip);
+  const executable = signalStability?.executable ?? "WAIT";
+  const confirmed = signalStability?.confirmed ?? "WAIT";
+  const raw = signalStability?.raw ?? "WAIT";
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>Safety &amp; Signal Stability</CardTitle>
+        <Badge variant={healthy ? "default" : "destructive"}>{healthy ? "Healthy" : "Blocked"}</Badge>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-md border bg-muted/30 p-3">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Runtime health</div>
+            <div className="mt-2 space-y-1 text-xs">
+              <div>Feed: <span className={runtimeHealth?.feedFresh ? "text-emerald-400" : "text-amber-400"}>{runtimeHealth?.feedFresh ? "fresh" : "stale"}</span> ({runtimeHealth?.feedAgeSeconds ?? "-"}s ago)</div>
+              {runtimeHealth?.liveMode ? (
+                <div>
+                  User stream:{" "}
+                  <span className={runtimeHealth?.userStream?.fresh ? "text-emerald-400" : "text-rose-400"}>
+                    {runtimeHealth?.userStream?.status ?? "DISCONNECTED"}
+                  </span>
+                  {" "}({runtimeHealth?.userStream?.ageSeconds ?? "-"}s ago)
+                </div>
+              ) : (
+                <div>User stream: <span className="text-muted-foreground">paper mode</span></div>
+              )}
+              <div>Open logical trades: <span className="font-mono">{runtimeHealth?.openLogicalTrades ?? 0}</span></div>
+              <div>Reconciliation required: <span className="font-mono">{runtimeHealth?.reconciliationRequired ?? 0}</span></div>
+              <div>Cooldown until: <span className="font-mono">{runtimeHealth?.cooldownUntil ?? "-"}</span></div>
+              <div>Daily loss locked: <span className="font-mono">{runtimeHealth?.dailyLossLocked ? "yes" : "no"}</span></div>
+            </div>
+          </div>
+          <div className="rounded-md border bg-muted/30 p-3">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Signal stability</div>
+            <div className="mt-2 space-y-1 text-xs">
+              <div>Raw scanner: <span className="font-mono">{raw}</span></div>
+              <div>Confirmed: <span className="font-mono">{confirmed}</span></div>
+              <div>Executable: <span className={executable === "WAIT" ? "font-mono text-amber-400" : "font-mono text-emerald-400"}>{executable}</span></div>
+              <div>Confirmation scans: <span className="font-mono">{signalStability?.confirmedScans ?? 0}</span></div>
+              <div>Reason: <span className="font-mono">{signalStability?.reason ?? "-"}</span></div>
+              {sameCandleFlip ? <div className="text-amber-400">Same-candle flip detected — WAIT.</div> : null}
+            </div>
+          </div>
+          <div className="rounded-md border bg-muted/30 p-3">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Realized PnL (closed trades only)</div>
+            <div className="mt-2 space-y-1 text-xs">
+              <div>Total: <span className="font-mono">{Number(realized?.totalProfit ?? 0).toFixed(4)} {accountAsset}</span></div>
+              <div>Profit: <span className="font-mono text-emerald-400">{Number(realized?.botProfit ?? 0).toFixed(4)}</span></div>
+              <div>Loss: <span className="font-mono text-rose-400">{Number(realized?.botLoss ?? 0).toFixed(4)}</span></div>
+              <div>Closed: <span className="font-mono">{realized?.closedCount ?? 0}</span></div>
+              <div>Open: <span className="font-mono">{realized?.openPositions ?? 0}</span></div>
+            </div>
+          </div>
+        </div>
+        {blockers.length > 0 ? (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+            <div className="mb-1 font-medium uppercase tracking-wide">Active blockers</div>
+            <div className="flex flex-wrap gap-1">
+              {blockers.map((b) => (
+                <span key={b} className="rounded bg-amber-500/20 px-2 py-0.5 font-mono">{b}</span>
+              ))}
+            </div>
+            <div className="mt-2 text-[11px] opacity-80">Live execution stays paused while any blocker is active. Raw signal shown for reference only.</div>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
 }
 
 function SignalDebugPanel({
