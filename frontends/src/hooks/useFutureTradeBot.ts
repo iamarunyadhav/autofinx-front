@@ -4,6 +4,11 @@ import { api } from "@/lib/api";
 const FUTURE_TRADE_LIVE_REFRESH_MS = 1000;
 
 export interface FutureTradeSettings {
+  signalProfile?: string;
+  signalProfileName?: string;
+  marketProfile?: string;
+  validatedDefaultSymbols?: string[];
+  validationSymbols?: string[];
   symbols: string[];
   timeframe: string;
   paperTrading: boolean;

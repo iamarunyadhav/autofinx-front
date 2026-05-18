@@ -123,15 +123,20 @@ const INDICATOR_PRESETS = [
 ] as const;
 
 const DEFAULT_SETTINGS: FutureTradeSettings = {
-  symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "AVAXUSDT"],
-  timeframe: "5m",
+  signalProfile: "autofinx_prime_v6_1_7_crypto",
+  signalProfileName: "AutoFinX Prime v6.1.7 Crypto Stable Default",
+  marketProfile: "Crypto",
+  validatedDefaultSymbols: ["ETHUSDT", "BTCUSDT", "SOLUSDT"],
+  validationSymbols: ["ETHUSDT", "BTCUSDT", "SOLUSDT", "BNBUSDT"],
+  symbols: ["ETHUSDT", "BTCUSDT", "SOLUSDT"],
+  timeframe: "15m",
   paperTrading: true,
   liveTrading: false,
   forceTestnet: true,
   leverage: 3,
   marginMode: "isolated",
   tradeAmountUsdt: 25,
-  minConfidence: 0.52,
+  minConfidence: 0.72,
   confidenceMode: "fixed",
   dynamicLookbackMinutes: 10,
   dynamicMinConfidenceFloor: 0.5,
@@ -150,7 +155,7 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   maxTradesPerDay: 25,
   maxLeverage: 5,
   maxSpreadPercent: 0.12,
-  cooldownSeconds: 60,
+  cooldownSeconds: 900,
   scanIntervalSeconds: 3,
   autoExecutePaperSignals: true,
   avoidChoppyMarket: false,
@@ -266,7 +271,7 @@ const STRICT_BTC_ETH_FULLY_DYNAMIC_PRESET: Partial<FutureTradeSettings> = {
 
 function n(value: unknown, digits = 4) {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return "None";
+  if (!Number.isFinite(parsed)) return "-";
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: digits }).format(parsed);
 }
 
@@ -469,6 +474,12 @@ export default function FutureTradeBotPage() {
   const liveModeBlocked = Boolean(settings.liveTrading && !status?.liveTradingEnvEnabled);
   const latestRuntimeAlert = diagnostics?.latestAlert;
   const tuningBusy = bot.generateTuningPlan.isPending;
+  const displaySignal = fastBestSignal?.signal && fastBestSignal.signal !== "WAIT"
+    ? fastBestSignal.signal
+    : (status?.currentSignal || "WAIT");
+  const displaySignalSymbol = fastBestSignal?.symbol ?? status?.currentSymbol ?? null;
+  const displaySignalConfidence = fastBestSignal?.confidence ?? status?.confidence ?? 0;
+  const displaySignalMinimum = fastBestSignal?.effectiveMinConfidence ?? status?.activeMinConfidence ?? settings.minConfidence;
 
   const runRecovery = (action: "auto" | "sync_state" | "cancel_reduce_only") => {
     bot.recover.mutate(action, {
@@ -662,7 +673,7 @@ export default function FutureTradeBotPage() {
         <div className="grid gap-4 xl:grid-cols-5">
           <Metric title="Total Profit" value={`${n(dashboard?.realized?.totalProfit ?? status?.totalProfit ?? status?.realizedPnl, 4)} ${status?.accountAsset || "USDT"}`} sub={`Closed trades ${dashboard?.realized?.closedCount ?? 0} | Unrealized ${n(status?.unrealizedPnlPercent, 4)}%`} good={(dashboard?.realized?.totalProfit ?? status?.totalProfit ?? status?.realizedPnl ?? 0) >= 0} />
           <Metric title="Wallet Balance" value={`${balanceValue(status?.walletBalance, 4)} ${status?.accountAsset || "USDT"}`} sub={status?.balanceSource === "PAPER_LEDGER" ? "Paper mode wallet not linked" : status?.balanceSource === "BINANCE_UNAVAILABLE" ? (status?.balanceError || "Binance futures balance unavailable") : `Available ${balanceValue(status?.availableBalance, 4)}`} icon={<Wallet className="h-4 w-4" />} good={status?.balanceSource === "BINANCE_UNAVAILABLE" ? false : undefined} />
-          <Metric title="Current Signal" value={status?.currentSignal || "WAITING"} sub={`${status?.currentSymbol || "No symbol"} | ${n((status?.confidence ?? 0) * 100, 2)}% vs ${n((status?.activeMinConfidence ?? settings.minConfidence) * 100, 2)}% min`} />
+          <Metric title="Current Signal" value={displaySignal || "WAIT"} sub={`${displaySignalSymbol || "No symbol"} | confidence ${n(displaySignalConfidence * 100, 2)}% / min ${n(displaySignalMinimum * 100, 2)}%`} />
           <Metric title="Position" value={status?.positionSide || "FLAT"} sub={`Entry ${n(status?.entryPrice, 8)} | Qty ${n(status?.quantity, 6)}`} />
           <Metric title="Loss Summary" value={`${n(status?.botLoss ?? status?.dailyLoss, 4)} ${status?.accountAsset || "USDT"}`} sub={`Win ${n(status?.winRate, 2)}% | Trades ${n(status?.tradeCountToday, 0)}`} good={(status?.botLoss ?? status?.dailyLoss ?? 0) === 0} />
         </div>
@@ -1197,7 +1208,7 @@ function SignalBoard({ signals }: { signals: Array<{ symbol: string; signal: str
           <Badge variant="outline">1s refresh</Badge>
         </div>
         <div className="text-xs text-muted-foreground">
-          `BUY/SELL` means scanner direction. Red/green percent is recent price move, not confidence. The last percent is signal confidence, and a trade only qualifies when confidence is above the active minimum threshold.
+          BUY/SELL means scanner direction. Move is recent price change; red only means the latest move is negative. Confidence is shown separately and must be above the active minimum before a trade qualifies.
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -1254,7 +1265,8 @@ function SignalBoard({ signals }: { signals: Array<{ symbol: string; signal: str
             </div>
             <div className="text-right ml-3 shrink-0">
               <div>{n(signal.price, 8)}</div>
-              <div className={cn("text-xs", signal.changePercent >= 0 ? "text-running" : "text-destructive")}>{n(signal.changePercent, 2)}% | {n(signal.confidence * 100, 1)}%</div>
+              <div className={cn("text-xs", signal.changePercent >= 0 ? "text-running" : "text-destructive")}>Move {n(signal.changePercent, 2)}%</div>
+              <div className="text-xs text-muted-foreground">Conf {n(signal.confidence * 100, 1)}%</div>
             </div>
           </div>
         ))}
