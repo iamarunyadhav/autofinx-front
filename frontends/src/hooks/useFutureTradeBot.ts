@@ -7,6 +7,11 @@ export interface FutureTradeSettings {
   signalProfile?: string;
   signalProfileName?: string;
   marketProfile?: string;
+  mode?: string;
+  secondaryAiWeighting?: boolean;
+  legacyWeightedScoring?: boolean;
+  primeMirrorLiveEnabled?: boolean;
+  primeMirrorExecutionEnabled?: boolean;
   validatedDefaultSymbols?: string[];
   validationSymbols?: string[];
   symbols: string[];
@@ -24,6 +29,46 @@ export interface FutureTradeSettings {
   dynamicMinConfidenceCeiling: number;
   dynamicReentryBuffer: number;
   dynamicSuggestionEnabled: boolean;
+  tradeScoreThreshold?: number;
+  watchScoreThreshold?: number;
+  tradeDirection?: string;
+  htf1?: string;
+  htf2?: string;
+  emaFast?: number;
+  emaSlow?: number;
+  emaTrend?: number;
+  emaMajor?: number;
+  donchianLength?: number;
+  useVWAP?: boolean;
+  useDonchianScore?: boolean;
+  useVolume?: boolean;
+  useVolatilityFilter?: boolean;
+  useChopFilter?: boolean;
+  chopLength?: number;
+  cryptoChopMax?: number;
+  useMomentumBreakoutFilter?: boolean;
+  rsiLength?: number;
+  longRsiMin?: number;
+  longRsiMax?: number;
+  shortRsiMin?: number;
+  shortRsiMax?: number;
+  adxLength?: number;
+  adxSmoothing?: number;
+  adxMin?: number;
+  volumeLength?: number;
+  cryptoRelVolMin?: number;
+  atrLength?: number;
+  atrRegimeLength?: number;
+  cryptoMinAtrPct?: number;
+  cryptoMaxAtrPct?: number;
+  slAtrMultiplier?: number;
+  tp1RR?: number;
+  tp2RR?: number;
+  useAtrTrailingSecondHalf?: boolean;
+  trailAtrMultiplier?: number;
+  cooldownBars?: number;
+  exitOnStrongOppositeScore?: boolean;
+  oppositeExitScore?: number;
   corePassRule?: number;
   classicSimpleMode?: boolean;
   strictEntryGuards?: boolean;
@@ -39,6 +84,8 @@ export interface FutureTradeSettings {
   cooldownSeconds: number;
   scanIntervalSeconds: number;
   autoExecutePaperSignals: boolean;
+  signalSource?: "mirror" | "webhook" | "webhook_fallback";
+  pineWebhookFallbackTimeoutSeconds?: number;
   avoidChoppyMarket: boolean;
   emergencyStop: boolean;
   tradingHoursEnabled: boolean;
@@ -631,6 +678,46 @@ export interface FutureTradeDashboard {
   risk: { lossPrevention: string; paperTrading: boolean; liveTradingBlocked: boolean };
   dynamic?: FutureTradeDynamicDecision;
   diagnostics?: FutureTradeDiagnostics;
+  realized?: {
+    closedCount?: number;
+    logicalClosedCount?: number;
+    legacyClosedCount?: number;
+    botProfit?: number;
+    botLoss?: number;
+    totalProfit?: number;
+    openPositions?: number;
+    reconciliationRequired?: number;
+  } | null;
+  runtimeHealth?: {
+    feedFresh?: boolean;
+    feedAgeSeconds?: number | null;
+    feedMode?: string | null;
+    lastTickAt?: string | null;
+    lastTickPrice?: number | null;
+    openLogicalTrades?: number | null;
+    reconciliationRequired?: number | null;
+    cooldownUntil?: string | null;
+    dailyLossLocked?: boolean;
+    liveMode?: boolean;
+    userStream?: {
+      configured?: boolean;
+      status?: string;
+      fresh?: boolean;
+      ageSeconds?: number | null;
+      lastEventAt?: string | null;
+      lastKeepAliveAt?: string | null;
+    } | null;
+    activeBlockers?: string[];
+    healthy?: boolean;
+  } | null;
+  signalStability?: {
+    raw?: string;
+    confirmed?: string;
+    executable?: string;
+    reason?: string;
+    confirmedScans?: number;
+    sameCandleFlip?: boolean;
+  } | null;
 }
 
 export interface FutureTradeConfig {
@@ -739,6 +826,10 @@ export interface FutureTradeLiveFeedStatus {
   pid?: number | null;
   mode: string;
   dataSource: string;
+  startSupported?: boolean;
+  shellExecAvailable?: boolean;
+  manualRequired?: boolean;
+  manualCommand?: string | null;
   startedAt?: string | null;
   command?: string | null;
   logPath?: string | null;
