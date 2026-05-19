@@ -1378,7 +1378,7 @@ function DynamicSuggestionPanel({ dynamic, onApplyRecommendation, onRestoreManua
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2 text-xs">
-          <Row label="Mode" value={dynamic.mode.replace("_", " ")} />
+          <Row label="Mode" value={formatLabel(dynamic.mode, "dynamic")} />
           <Row label="Trend" value={`${n(dynamic.analysis.trendStrength * 100, 0)}%`} />
           <Row label="Direction" value={dynamic.analysis.direction} />
           <Row label="Agreement" value={`${n(dynamic.analysis.directionAgreement * 100, 0)}%`} />
@@ -1420,6 +1420,7 @@ function DynamicSuggestionPanel({ dynamic, onApplyRecommendation, onRestoreManua
 function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettings, notes, setNotes, availableSymbols, onSave, busy }: { envMode: FutureTradeEnvConfig["mode"]; status?: { dailyLossLocked?: boolean; manualRestartAllowed?: boolean; activeMinConfidence?: number | null } | null; debug?: FutureTradeDashboard["signalDebug"] | null; intelligence?: FutureTradeDashboard["indicatorIntelligence"] | null; settings: FutureTradeSettings; setSettings: (settings: FutureTradeSettings) => void; notes: string; setNotes: (value: string) => void; availableSymbols: string[]; onSave: () => void; busy: boolean }) {
   const update = <K extends keyof FutureTradeSettings>(key: K, value: FutureTradeSettings[K]) => setSettings({ ...settings, [key]: value });
   const isPrimeProfile = settings.signalProfile === "autofinx_prime_v6_1_7_crypto" && String(settings.marketProfile ?? "Crypto").toLowerCase() === "crypto";
+  const selectedSymbols = normalizeList(settings.symbols, DEFAULT_SETTINGS.symbols);
   const recoveryMode = Boolean(status?.dailyLossLocked);
   const applyRecoveryPreset = () => setSettings({ ...settings, ...LOSS_LOCK_RECOVERY_PRESET });
   const applyStrictPreset = () => setSettings({ ...settings, ...STRICT_BTC_ETH_FULLY_DYNAMIC_PRESET });
@@ -1548,9 +1549,9 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
   }, [intelligence, settings]);
 
   const toggleSymbol = (sym: string) => {
-    const active = settings.symbols.includes(sym);
-    if (active && settings.symbols.length <= 1) return; // keep at least one
-    const next = active ? settings.symbols.filter((s) => s !== sym) : [...settings.symbols, sym];
+    const active = selectedSymbols.includes(sym);
+    if (active && selectedSymbols.length <= 1) return; // keep at least one
+    const next = active ? selectedSymbols.filter((s) => s !== sym) : [...selectedSymbols, sym];
     update("symbols", next);
   };
 
@@ -1578,7 +1579,7 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
         <Field label="Symbols — click to toggle scan list">
           <div className="flex flex-wrap gap-2 rounded-md border p-2">
             {availableSymbols.map((sym) => {
-              const active = settings.symbols.includes(sym);
+              const active = selectedSymbols.includes(sym);
               return (
                 <button
                   key={sym}
@@ -1591,12 +1592,12 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
                       : "bg-muted text-muted-foreground hover:bg-muted/80"
                   )}
                 >
-                  {sym.replace("USDT", "")}
+                  {String(sym).replace("USDT", "")}
                 </button>
               );
             })}
           </div>
-          <p className="text-xs text-muted-foreground">{settings.symbols.length} coin{settings.symbols.length !== 1 ? "s" : ""} selected: {settings.symbols.map((s) => s.replace("USDT", "")).join(", ")}</p>
+          <p className="text-xs text-muted-foreground">{selectedSymbols.length} coin{selectedSymbols.length !== 1 ? "s" : ""} selected: {selectedSymbols.map((s) => String(s).replace("USDT", "")).join(", ")}</p>
         </Field>
         <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
           Execution mode is controlled from `My Config`.
@@ -2123,7 +2124,7 @@ function IndicatorIntelligencePanel({ intelligence }: { intelligence?: FutureTra
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="flex items-center gap-2"><Lightbulb className="h-4 w-4" />Indicator Intelligence</CardTitle>
-        <Badge variant="outline">{intelligence.profile.replace(/_/g, " ")}</Badge>
+        <Badge variant="outline">{formatLabel(intelligence.profile, "indicator profile")}</Badge>
       </CardHeader>
       <CardContent className="space-y-4">
         {validation ? (
@@ -2328,7 +2329,7 @@ function MissedTradeAuditPanel({ audit }: { audit?: FutureTradeDashboard["missed
                 <TableBody>
                   {audit.modeComparison.length ? audit.modeComparison.map((item) => (
                     <TableRow key={item.mode}>
-                      <TableCell className="font-medium">{item.mode.replace(/_/g, " ")}</TableCell>
+                      <TableCell className="font-medium">{formatLabel(item.mode, "mode")}</TableCell>
                       <TableCell className="text-right">{item.wouldTrade}</TableCell>
                       <TableCell className="text-right">{item.capturedMissedWins}</TableCell>
                       <TableCell className="text-right">{item.allowedBadSignals}</TableCell>
@@ -2399,7 +2400,7 @@ function MissedTradeAuditPanel({ audit }: { audit?: FutureTradeDashboard["missed
                   </div>
                   {item.modeComparison ? (
                     <div className="mt-1 text-muted-foreground">
-                      {Object.entries(item.modeComparison).map(([mode, row]) => `${mode.replace(/_/g, " ")}: ${row.decision} @ ${n(row.confidence * 100, 1)}%`).join(" · ")}
+                      {Object.entries(item.modeComparison).map(([mode, row]) => `${formatLabel(mode, "mode")}: ${row.decision} @ ${n(row.confidence * 100, 1)}%`).join(" · ")}
                     </div>
                   ) : null}
                 </div>
@@ -2437,12 +2438,12 @@ function TuningPlanPanel({
             <div className="grid gap-3 md:grid-cols-3">
               <div className="rounded-md border bg-muted/20 p-3 text-sm">
                 <div className="text-muted-foreground">Current</div>
-                <div className="mt-1 font-semibold">{tuningPlan.current.mode.replace(/_/g, " ")}</div>
+                <div className="mt-1 font-semibold">{formatLabel(tuningPlan.current.mode, "current")}</div>
                 <div className="text-xs text-muted-foreground">Min {n(tuningPlan.current.minConfidence * 100, 1)}% · {tuningPlan.current.confidenceMode}</div>
               </div>
               <div className="rounded-md border bg-muted/20 p-3 text-sm">
                 <div className="text-muted-foreground">Recommended</div>
-                <div className="mt-1 font-semibold">{tuningPlan.recommended.mode.replace(/_/g, " ")}</div>
+                <div className="mt-1 font-semibold">{formatLabel(tuningPlan.recommended.mode, "recommended")}</div>
                 <div className="text-xs text-muted-foreground">Min {n(tuningPlan.recommended.minConfidence * 100, 1)}% · {tuningPlan.recommended.confidenceMode}</div>
               </div>
               <div className="rounded-md border bg-muted/20 p-3 text-sm">
@@ -2967,8 +2968,14 @@ function trackerStatusLabel(log: FutureTradeLog) {
     .trim();
 }
 
-function humanizeCode(value: string) {
-  return value.replace(/_/g, " ").trim();
+function humanizeCode(value?: string | null) {
+  if (!value) return "-";
+  return String(value).replace(/_/g, " ").trim();
+}
+
+function formatLabel(value: unknown, fallback = "-") {
+  const text = String(value ?? fallback).trim();
+  return (text || fallback).replace(/_/g, " ");
 }
 
 function Field({ label, children, className, note }: { label: string; children: ReactNode; className?: string; note?: string }) {

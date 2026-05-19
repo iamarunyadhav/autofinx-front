@@ -988,7 +988,7 @@ export function useFutureTradeBot(workspaceId?: string) {
 
   const trades = useQuery({
     queryKey: ["future-trade", workspaceId, "trades"],
-    queryFn: async () => (await api.get<FutureTradeRecord[]>(`${base}/trades?all=1`)).data,
+    queryFn: async () => (await api.get<FutureTradeRecord[]>(`${base}/trades?limit=500`)).data,
     enabled,
     refetchInterval: 5000,
     refetchIntervalInBackground: false,
@@ -996,7 +996,7 @@ export function useFutureTradeBot(workspaceId?: string) {
 
   const logs = useQuery({
     queryKey: ["future-trade", workspaceId, "logs"],
-    queryFn: async () => (await api.get<FutureTradeLog[]>(`${base}/logs?all=1`)).data,
+    queryFn: async () => (await api.get<FutureTradeLog[]>(`${base}/logs?limit=300`)).data,
     enabled,
     refetchInterval: 5000,
     refetchIntervalInBackground: false,
