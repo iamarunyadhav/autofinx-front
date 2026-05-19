@@ -1424,6 +1424,19 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
   const recoveryMode = Boolean(status?.dailyLossLocked);
   const applyRecoveryPreset = () => setSettings({ ...settings, ...LOSS_LOCK_RECOVERY_PRESET });
   const applyStrictPreset = () => setSettings({ ...settings, ...STRICT_BTC_ETH_FULLY_DYNAMIC_PRESET });
+  const applyEthPrimeSafePreset = () => setSettings({
+    ...settings,
+    symbols: ["ETHUSDT"],
+    tradeAmountUsdt: 10,
+    stopLossPercent: 0.25,
+    takeProfitPercent: 0.5,
+    trailingTakeProfitPercent: 0.18,
+    rollbackLossPercent: 0.15,
+    maxTradesPerDay: 2,
+    maxDailyLossPercent: 0.3,
+    maxLeverage: 2,
+    cooldownSeconds: 180,
+  });
   const applyClassicSimpleMode = () => setSettings({
     ...settings,
     classicSimpleMode: true,
@@ -1661,6 +1674,28 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
                 <Field label="Cooldown bars"><Input type="number" value={Number(settings.cooldownBars ?? 3)} onChange={(e) => update("cooldownBars", Number(e.target.value))} /></Field>
                 <Field label="Opposite exit score"><Input type="number" value={Number(settings.oppositeExitScore ?? 78)} onChange={(e) => update("oppositeExitScore", Number(e.target.value))} /></Field>
                 <Field label="Webhook fallback timeout sec"><Input type="number" value={Number(settings.pineWebhookFallbackTimeoutSeconds ?? 1200)} onChange={(e) => update("pineWebhookFallbackTimeoutSeconds", Number(e.target.value))} /></Field>
+              </div>
+              <div className="rounded-md border border-cyan-500/30 bg-cyan-500/5 p-3">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-medium">Prime Risk & Execution</div>
+                    <div className="text-xs text-muted-foreground">Use these for ETH-only live/testnet sizing and loss limits.</div>
+                  </div>
+                  <Button type="button" size="sm" variant="outline" onClick={applyEthPrimeSafePreset}>
+                    Apply ETH Safe Preset
+                  </Button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Trade size USDT"><Input type="number" step="1" value={Number(settings.tradeAmountUsdt ?? 10)} onChange={(e) => update("tradeAmountUsdt", Number(e.target.value))} /></Field>
+                  <Field label="Max leverage"><Input type="number" step="1" value={Number(settings.maxLeverage ?? 2)} onChange={(e) => update("maxLeverage", Number(e.target.value))} /></Field>
+                  <Field label="Stop loss %"><Input type="number" step="0.01" value={Number(settings.stopLossPercent ?? 0.25)} onChange={(e) => update("stopLossPercent", Number(e.target.value))} /></Field>
+                  <Field label="Rollback loss %"><Input type="number" step="0.01" value={Number(settings.rollbackLossPercent ?? 0.15)} onChange={(e) => update("rollbackLossPercent", Number(e.target.value))} /></Field>
+                  <Field label="Take profit %"><Input type="number" step="0.01" value={Number(settings.takeProfitPercent ?? 0.5)} onChange={(e) => update("takeProfitPercent", Number(e.target.value))} /></Field>
+                  <Field label="Trailing %"><Input type="number" step="0.01" value={Number(settings.trailingTakeProfitPercent ?? 0.18)} onChange={(e) => update("trailingTakeProfitPercent", Number(e.target.value))} /></Field>
+                  <Field label="Max trades/day"><Input type="number" step="1" value={Number(settings.maxTradesPerDay ?? 2)} onChange={(e) => update("maxTradesPerDay", Number(e.target.value))} /></Field>
+                  <Field label="Daily loss limit %"><Input type="number" step="0.1" value={Number(settings.maxDailyLossPercent ?? 0.3)} onChange={(e) => update("maxDailyLossPercent", Number(e.target.value))} /></Field>
+                  <Field label="Cooldown seconds"><Input type="number" step="30" value={Number(settings.cooldownSeconds ?? 180)} onChange={(e) => update("cooldownSeconds", Number(e.target.value))} /></Field>
+                </div>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 <Toggle label="VWAP filter" checked={Boolean(settings.useVWAP ?? true)} onChange={(value) => update("useVWAP", value)} />
