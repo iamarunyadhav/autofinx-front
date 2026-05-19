@@ -126,6 +126,11 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   signalProfile: "autofinx_prime_v6_1_7_crypto",
   signalProfileName: "AutoFinX Prime v6.1.7 Crypto Stable Default",
   marketProfile: "Crypto",
+  mode: "pine_mirror_or_webhook_executor",
+  secondaryAiWeighting: false,
+  legacyWeightedScoring: false,
+  primeMirrorLiveEnabled: true,
+  primeMirrorExecutionEnabled: true,
   validatedDefaultSymbols: ["ETHUSDT", "BTCUSDT", "SOLUSDT"],
   validationSymbols: ["ETHUSDT", "BTCUSDT", "SOLUSDT", "BNBUSDT"],
   symbols: ["ETHUSDT", "BTCUSDT", "SOLUSDT"],
@@ -143,6 +148,46 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   dynamicMinConfidenceCeiling: 0.62,
   dynamicReentryBuffer: 0.005,
   dynamicSuggestionEnabled: false,
+  tradeScoreThreshold: 72,
+  watchScoreThreshold: 58,
+  tradeDirection: "Both",
+  htf1: "60",
+  htf2: "240",
+  emaFast: 9,
+  emaSlow: 21,
+  emaTrend: 50,
+  emaMajor: 200,
+  donchianLength: 20,
+  useVWAP: true,
+  useDonchianScore: true,
+  useVolume: true,
+  useVolatilityFilter: true,
+  useChopFilter: true,
+  chopLength: 14,
+  cryptoChopMax: 61.8,
+  useMomentumBreakoutFilter: false,
+  rsiLength: 14,
+  longRsiMin: 48,
+  longRsiMax: 72,
+  shortRsiMin: 28,
+  shortRsiMax: 52,
+  adxLength: 14,
+  adxSmoothing: 14,
+  adxMin: 20,
+  volumeLength: 20,
+  cryptoRelVolMin: 1.0,
+  atrLength: 14,
+  atrRegimeLength: 50,
+  cryptoMinAtrPct: 0.06,
+  cryptoMaxAtrPct: 3.0,
+  slAtrMultiplier: 1.4,
+  tp1RR: 1.0,
+  tp2RR: 2.0,
+  useAtrTrailingSecondHalf: true,
+  trailAtrMultiplier: 1.0,
+  cooldownBars: 3,
+  exitOnStrongOppositeScore: true,
+  oppositeExitScore: 78,
   corePassRule: 3,
   classicSimpleMode: false,
   strictEntryGuards: false,
@@ -158,6 +203,8 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   cooldownSeconds: 900,
   scanIntervalSeconds: 3,
   autoExecutePaperSignals: true,
+  signalSource: "webhook_fallback" as "mirror" | "webhook" | "webhook_fallback",
+  pineWebhookFallbackTimeoutSeconds: 1200,
   avoidChoppyMarket: false,
   emergencyStop: false,
   tradingHoursEnabled: false,
@@ -1372,6 +1419,7 @@ function DynamicSuggestionPanel({ dynamic, onApplyRecommendation, onRestoreManua
 
 function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettings, notes, setNotes, availableSymbols, onSave, busy }: { envMode: FutureTradeEnvConfig["mode"]; status?: { dailyLossLocked?: boolean; manualRestartAllowed?: boolean; activeMinConfidence?: number | null } | null; debug?: FutureTradeDashboard["signalDebug"] | null; intelligence?: FutureTradeDashboard["indicatorIntelligence"] | null; settings: FutureTradeSettings; setSettings: (settings: FutureTradeSettings) => void; notes: string; setNotes: (value: string) => void; availableSymbols: string[]; onSave: () => void; busy: boolean }) {
   const update = <K extends keyof FutureTradeSettings>(key: K, value: FutureTradeSettings[K]) => setSettings({ ...settings, [key]: value });
+  const isPrimeProfile = settings.signalProfile === "autofinx_prime_v6_1_7_crypto" && String(settings.marketProfile ?? "Crypto").toLowerCase() === "crypto";
   const recoveryMode = Boolean(status?.dailyLossLocked);
   const applyRecoveryPreset = () => setSettings({ ...settings, ...LOSS_LOCK_RECOVERY_PRESET });
   const applyStrictPreset = () => setSettings({ ...settings, ...STRICT_BTC_ETH_FULLY_DYNAMIC_PRESET });
@@ -1554,6 +1602,81 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
           Execution mode is controlled from `My Config`.
           Current mode: <span className="font-medium text-foreground">{envMode === "live" ? "Live" : envMode === "testnet" ? "Testnet" : "Paper"}</span>.
         </div>
+        {isPrimeProfile ? (
+          <Card className="border-cyan-500/40 bg-cyan-500/5">
+            <CardHeader>
+              <CardTitle className="text-base">Prime v6.1.7 Pine Mirror</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-2 text-xs sm:grid-cols-2">
+                <Row label="Active Signal Brain" value="AutoFinX Prime v6.1.7 Pine" />
+                <Row label="Prime Signal Source" value={(settings.signalSource ?? "webhook_fallback") === "mirror" ? "Backend Mirror Scanner" : (settings.signalSource === "webhook" ? "TradingView Webhook" : "Webhook + Binance Fallback")} />
+                <Row label="Backend Mirror" value={(settings.signalSource ?? "webhook_fallback") === "mirror" ? "Signal + Execution Enabled" : (settings.signalSource === "webhook" ? "Validation Only" : "Fallback Execution Enabled")} />
+                <Row label="Secondary AI Weighting" value="Disabled" />
+                <Row label="Legacy Weighted Scoring" value="Bypassed" />
+                <Row label="Default timeframe" value="15m locked" />
+              </div>
+              <div className={cn("flex items-center justify-between rounded-md border p-3", (settings.signalSource ?? "webhook_fallback") !== "webhook" ? "border-amber-500/50 bg-amber-500/10" : "border-cyan-500/30 bg-cyan-500/5")}>
+                <div>
+                  <div className="text-sm font-medium">Binance Mirror Fallback</div>
+                  <div className="text-xs text-muted-foreground">
+                    {(settings.signalSource ?? "webhook_fallback") === "webhook"
+                      ? "OFF: webhook-only mode; backend scanner stays read-only for diagnostics and CSV validation."
+                      : (settings.signalSource === "mirror"
+                        ? "Mirror ON: backend scanner uses Binance futures data and executes Prime signals."
+                        : "Fallback ON: TradingView webhook is primary; Binance mirror executes only when webhook is stale.")}
+                  </div>
+                </div>
+                <Switch
+                  checked={(settings.signalSource ?? "webhook_fallback") !== "webhook"}
+                  onCheckedChange={(value) => setSettings({
+                    ...settings,
+                    signalSource: value ? "webhook_fallback" : "webhook",
+                    primeMirrorLiveEnabled: value,
+                    primeMirrorExecutionEnabled: value,
+                  })}
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Profile"><Input value={settings.signalProfileName || "AutoFinX Prime v6.1.7 Crypto Stable Default"} readOnly /></Field>
+                <Field label="Timeframe"><Input value="15m" readOnly /></Field>
+                <Field label="Trade direction">
+                  <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={settings.tradeDirection || "Both"} onChange={(e) => update("tradeDirection", e.target.value)}>
+                    <option>Both</option>
+                    <option>Long Only</option>
+                    <option>Short Only</option>
+                  </select>
+                </Field>
+                <Field label="Trade score threshold"><Input type="number" value={Number(settings.tradeScoreThreshold ?? 72)} onChange={(e) => update("tradeScoreThreshold", Number(e.target.value))} /></Field>
+                <Field label="Watch score threshold"><Input type="number" value={Number(settings.watchScoreThreshold ?? 58)} onChange={(e) => update("watchScoreThreshold", Number(e.target.value))} /></Field>
+                <Field label="HTF1 / HTF2"><Input value={`${settings.htf1 ?? "60"} / ${settings.htf2 ?? "240"}`} readOnly /></Field>
+                <Field label="EMA fast / slow / trend / major"><Input value={`${settings.emaFast ?? 9} / ${settings.emaSlow ?? 21} / ${settings.emaTrend ?? 50} / ${settings.emaMajor ?? 200}`} readOnly /></Field>
+                <Field label="Donchian length"><Input type="number" value={Number(settings.donchianLength ?? 20)} onChange={(e) => update("donchianLength", Number(e.target.value))} /></Field>
+                <Field label="Crypto max choppiness"><Input type="number" step="0.1" value={Number(settings.cryptoChopMax ?? 61.8)} onChange={(e) => update("cryptoChopMax", Number(e.target.value))} /></Field>
+                <Field label="ADX min"><Input type="number" value={Number(settings.adxMin ?? 20)} onChange={(e) => update("adxMin", Number(e.target.value))} /></Field>
+                <Field label="ATR SL multiplier"><Input type="number" step="0.1" value={Number(settings.slAtrMultiplier ?? 1.4)} onChange={(e) => update("slAtrMultiplier", Number(e.target.value))} /></Field>
+                <Field label="TP1 / TP2 RR"><Input value={`${settings.tp1RR ?? 1.0} / ${settings.tp2RR ?? 2.0}`} readOnly /></Field>
+                <Field label="Trail ATR multiplier"><Input type="number" step="0.1" value={Number(settings.trailAtrMultiplier ?? 1.0)} onChange={(e) => update("trailAtrMultiplier", Number(e.target.value))} /></Field>
+                <Field label="Cooldown bars"><Input type="number" value={Number(settings.cooldownBars ?? 3)} onChange={(e) => update("cooldownBars", Number(e.target.value))} /></Field>
+                <Field label="Opposite exit score"><Input type="number" value={Number(settings.oppositeExitScore ?? 78)} onChange={(e) => update("oppositeExitScore", Number(e.target.value))} /></Field>
+                <Field label="Webhook fallback timeout sec"><Input type="number" value={Number(settings.pineWebhookFallbackTimeoutSeconds ?? 1200)} onChange={(e) => update("pineWebhookFallbackTimeoutSeconds", Number(e.target.value))} /></Field>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Toggle label="VWAP filter" checked={Boolean(settings.useVWAP ?? true)} onChange={(value) => update("useVWAP", value)} />
+                <Toggle label="Relative volume filter" checked={Boolean(settings.useVolume ?? true)} onChange={(value) => update("useVolume", value)} />
+                <Toggle label="ATR volatility filter" checked={Boolean(settings.useVolatilityFilter ?? true)} onChange={(value) => update("useVolatilityFilter", value)} />
+                <Toggle label="Choppiness filter" checked={Boolean(settings.useChopFilter ?? true)} onChange={(value) => update("useChopFilter", value)} />
+                <Toggle label="ATR trailing second half" checked={Boolean(settings.useAtrTrailingSecondHalf ?? true)} onChange={(value) => update("useAtrTrailingSecondHalf", value)} />
+                <Toggle label="Exit on opposite score" checked={Boolean(settings.exitOnStrongOppositeScore ?? true)} onChange={(value) => update("exitOnStrongOppositeScore", value)} />
+              </div>
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
+                Old MACD/RSI weighted scoring, symbol-performance penalty, aggressive AI modes, dynamic confidence overrides, UT Bot defaults, and indicator influence sliders are hidden and ignored for this profile.
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+        {!isPrimeProfile ? (
+          <>
         <div className="grid gap-2 sm:grid-cols-2">
           <Button type="button" variant="outline" onClick={applyStrictPreset}>
             Apply BTC+ETH Safe Preset
@@ -1752,6 +1875,92 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
             </div>
           </CardContent>
         </Card>
+          </>
+        ) : null}
+        {/* Signal source: Mirror (backend) vs Webhook (TradingView). No conflicts:
+            exactly ONE path is active at any moment. */}
+        <div className="rounded-md border p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium">Signal Source</div>
+              <div className="text-xs text-muted-foreground">
+                Mirror = Binance-backed scanner executes. Webhook = only TradingView Pine alerts execute.
+                Fallback = webhook is primary, but Binance mirror executes when webhook is stale.
+              </div>
+            </div>
+            <div className="flex shrink-0 gap-1 rounded-md border bg-muted/30 p-1">
+              <button
+                type="button"
+                className={cn(
+                  "rounded px-3 py-1 text-xs",
+                  (settings.signalSource ?? "webhook_fallback") === "mirror"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted",
+                )}
+                onClick={() => setSettings({
+                  ...settings,
+                  signalSource: "mirror",
+                  primeMirrorLiveEnabled: true,
+                  primeMirrorExecutionEnabled: true,
+                })}
+              >
+                Mirror
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "rounded px-3 py-1 text-xs",
+                  (settings.signalSource ?? "webhook_fallback") === "webhook_fallback"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted",
+                )}
+                onClick={() => setSettings({
+                  ...settings,
+                  signalSource: "webhook_fallback",
+                  primeMirrorLiveEnabled: true,
+                  primeMirrorExecutionEnabled: true,
+                })}
+              >
+                Fallback
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "rounded px-3 py-1 text-xs",
+                  settings.signalSource === "webhook"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted",
+                )}
+                onClick={() => setSettings({
+                  ...settings,
+                  signalSource: "webhook",
+                  primeMirrorLiveEnabled: false,
+                  primeMirrorExecutionEnabled: false,
+                })}
+              >
+                Webhook
+              </button>
+            </div>
+          </div>
+          {settings.signalSource === "webhook" ? (
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs text-emerald-200">
+              Webhook mode active. Send TradingView alerts to <span className="font-mono">POST /api/v1/future-trade/pine-webhook/{`{workspace}`}</span>
+              with the Pine webhook token. Backend scanner runs read-only and will not open positions.
+            </div>
+          ) : settings.signalSource === "webhook_fallback" || !settings.signalSource ? (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-200">
+              Fallback mode active. TradingView webhook is accepted when available; if no webhook arrives within
+              <span className="font-mono"> {Number(settings.pineWebhookFallbackTimeoutSeconds ?? 1200)}s</span>,
+              Binance futures mirror signals can execute.
+            </div>
+          ) : (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-200">
+              Mirror mode active. Backend scanner generates and executes entries on its own.
+              Incoming TradingView webhooks will be rejected with <span className="font-mono">webhook_disabled_in_mirror_mode</span>.
+            </div>
+          )}
+        </div>
+
         <div className="grid gap-2 sm:grid-cols-2">
           <Toggle label="Auto paper execute" checked={settings.autoExecutePaperSignals} onChange={(value) => update("autoExecutePaperSignals", value)} />
           <Toggle label="Avoid choppy market" checked={settings.avoidChoppyMarket} onChange={(value) => update("avoidChoppyMarket", value)} />
@@ -2329,6 +2538,10 @@ function flattenTradeForExport(trade: FutureTradeRecord) {
     reason: trade.reason ?? "",
     mode: trade.mode,
     status: trade.status,
+    signal_profile: trade.meta?.signal_profile ?? "",
+    signal_profile_name: trade.meta?.signal_profile_name ?? "",
+    market_profile: trade.meta?.market_profile ?? "",
+    runtime_timeframe: trade.meta?.timeframe ?? signal?.timeframe ?? "",
     algorithm_flag: algorithmFlag(dynamic?.mode || trade.meta?.algorithm_mode),
     algorithm_mode: trade.meta?.algorithm_mode ?? "",
     dynamic_mode: dynamic?.mode ?? "",
@@ -2732,12 +2945,14 @@ function TradeHistory({ trades, liveTrading }: { trades: FutureTradeRecord[]; li
 }
 
 function algorithmFlag(mode?: string | null) {
+  if (mode === "pine_mirror") return "PINE";
   if (mode === "fully_dynamic") return "AUTO";
   if (mode === "semi_dynamic") return "SEMI";
   return "NORMAL";
 }
 
 function algorithmVariant(flag?: string | null) {
+  if (flag === "PINE") return "default";
   if (flag === "AUTO") return "default";
   if (flag === "SEMI") return "secondary";
   return "outline";
@@ -3081,7 +3296,11 @@ function LiveFeedDaemonCard({
 }) {
   const running = Boolean(liveFeed?.running);
   const fresh = Boolean(liveFeed?.isFresh);
-  const badgeVariant = running && fresh ? "default" : running ? "secondary" : "outline";
+  const startSupported = liveFeed?.startSupported !== false;
+  const manualRequired = Boolean(liveFeed?.manualRequired) || !startSupported;
+  const displayCommand = liveFeed?.manualCommand || liveFeed?.command;
+  const badgeVariant = manualRequired ? "destructive" : running && fresh ? "default" : running ? "secondary" : "outline";
+  const modeLabel = manualRequired ? "MANUAL REQUIRED" : (liveFeed?.mode ?? "UNKNOWN");
 
   return (
     <Card>
@@ -3095,9 +3314,13 @@ function LiveFeedDaemonCard({
         <div className="flex items-center justify-between gap-3 rounded-md border p-3">
           <div>
             <div className="text-sm font-medium">Feed mode</div>
-            <div className="text-xs text-muted-foreground">{liveFeed?.message ?? "Loading daemon status..."}</div>
+            <div className="text-xs text-muted-foreground">
+              {manualRequired
+                ? "Server shell_exec is disabled, so this panel cannot start or stop the daemon. Start it from cPanel cron or terminal."
+                : (liveFeed?.message ?? "Loading daemon status...")}
+            </div>
           </div>
-          <Badge variant={badgeVariant}>{liveFeed?.mode ?? "UNKNOWN"}</Badge>
+          <Badge variant={badgeVariant}>{modeLabel}</Badge>
         </div>
 
         <div className="grid gap-2 text-xs">
@@ -3110,30 +3333,32 @@ function LiveFeedDaemonCard({
           <Row label="Symbols" value={liveFeed?.desiredSymbols?.join(", ") || "-"} />
         </div>
 
-        {liveFeed?.command ? (
+        {displayCommand ? (
           <div className="rounded-md border bg-muted/20 p-3 text-[11px] text-muted-foreground">
-            <div className="font-medium text-foreground">Daemon command</div>
-            <div className="mt-1 break-all font-mono">{liveFeed.command}</div>
+            <div className="font-medium text-foreground">{manualRequired ? "Manual daemon command" : "Daemon command"}</div>
+            <div className="mt-1 break-all font-mono">{displayCommand}</div>
           </div>
         ) : null}
 
         <div className="grid grid-cols-3 gap-2">
-          <Button disabled={busy || running} onClick={onStart}>
+          <Button disabled={busy || running || !startSupported} onClick={onStart}>
             <Power className="mr-2 h-4 w-4" />
             Start
           </Button>
-          <Button disabled={busy || !running} variant="outline" onClick={onRestart}>
+          <Button disabled={busy || !running || !startSupported} variant="outline" onClick={onRestart}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Restart
           </Button>
-          <Button disabled={busy || !running} variant="secondary" onClick={onStop}>
+          <Button disabled={busy || !running || !startSupported} variant="secondary" onClick={onStop}>
             <Square className="mr-2 h-4 w-4" />
             Stop
           </Button>
         </div>
 
         <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
-          Best mode: keep this daemon running for shared websocket ticks and kline cache. If it is offline, Future Trade falls back to REST polling.
+          {manualRequired
+            ? "Best mode: keep the manual daemon or cPanel cron running for shared websocket ticks and kline cache. If it is offline, Future Trade falls back to REST polling."
+            : "Best mode: keep this daemon running for shared websocket ticks and kline cache. If it is offline, Future Trade falls back to REST polling."}
         </div>
       </CardContent>
     </Card>
