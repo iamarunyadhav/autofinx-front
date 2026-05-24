@@ -129,8 +129,8 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   mode: "pine_mirror_or_webhook_executor",
   secondaryAiWeighting: false,
   legacyWeightedScoring: false,
-  primeMirrorLiveEnabled: true,
-  primeMirrorExecutionEnabled: true,
+  primeMirrorLiveEnabled: false,
+  primeMirrorExecutionEnabled: false,
   validatedDefaultSymbols: ["ETHUSDT", "BTCUSDT", "SOLUSDT"],
   validationSymbols: ["ETHUSDT", "BTCUSDT", "SOLUSDT", "BNBUSDT"],
   symbols: ["ETHUSDT", "BTCUSDT", "SOLUSDT"],
@@ -204,7 +204,7 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   cooldownSeconds: 900,
   scanIntervalSeconds: 3,
   autoExecutePaperSignals: true,
-  signalSource: "webhook_fallback" as "mirror" | "webhook" | "webhook_fallback",
+  signalSource: "webhook" as "mirror" | "webhook" | "webhook_fallback",
   pineWebhookFallbackTimeoutSeconds: 1200,
   avoidChoppyMarket: true,
   emergencyStop: false,
@@ -1634,17 +1634,17 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
             <CardContent className="space-y-4">
               <div className="grid gap-2 text-xs sm:grid-cols-2">
                 <Row label="Active Signal Brain" value="AutoFinX Prime v6.1.7 Pine" />
-                <Row label="Prime Signal Source" value={(settings.signalSource ?? "webhook_fallback") === "mirror" ? "Backend Mirror Scanner" : (settings.signalSource === "webhook" ? "TradingView Webhook" : "Webhook + Binance Fallback")} />
-                <Row label="Backend Mirror" value={(settings.signalSource ?? "webhook_fallback") === "mirror" ? "Signal + Execution Enabled" : (settings.signalSource === "webhook" ? "Validation Only" : "Fallback Execution Enabled")} />
+                <Row label="Prime Signal Source" value={(settings.signalSource ?? "webhook") === "mirror" ? "Backend Mirror Scanner" : (settings.signalSource === "webhook" || !settings.signalSource ? "TradingView Webhook" : "Webhook + Binance Fallback")} />
+                <Row label="Backend Mirror" value={(settings.signalSource ?? "webhook") === "mirror" ? "Signal + Execution Enabled" : (settings.signalSource === "webhook" || !settings.signalSource ? "Validation Only" : "Fallback Execution Enabled")} />
                 <Row label="Secondary AI Weighting" value="Disabled" />
                 <Row label="Legacy Weighted Scoring" value="Bypassed" />
                 <Row label="Default timeframe" value="15m locked" />
               </div>
-              <div className={cn("flex items-center justify-between rounded-md border p-3", (settings.signalSource ?? "webhook_fallback") !== "webhook" ? "border-amber-500/50 bg-amber-500/10" : "border-cyan-500/30 bg-cyan-500/5")}>
+              <div className={cn("flex items-center justify-between rounded-md border p-3", (settings.signalSource ?? "webhook") !== "webhook" ? "border-amber-500/50 bg-amber-500/10" : "border-cyan-500/30 bg-cyan-500/5")}>
                 <div>
                   <div className="text-sm font-medium">Binance Mirror Fallback</div>
                   <div className="text-xs text-muted-foreground">
-                    {(settings.signalSource ?? "webhook_fallback") === "webhook"
+                    {(settings.signalSource ?? "webhook") === "webhook"
                       ? "OFF: webhook-only mode; backend scanner stays read-only for diagnostics and CSV validation."
                       : (settings.signalSource === "mirror"
                         ? "Mirror ON: backend scanner uses Binance futures data and executes Prime signals."
@@ -1652,7 +1652,7 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
                   </div>
                 </div>
                 <Switch
-                  checked={(settings.signalSource ?? "webhook_fallback") !== "webhook"}
+                  checked={(settings.signalSource ?? "webhook") !== "webhook"}
                   onCheckedChange={(value) => setSettings({
                     ...settings,
                     signalSource: value ? "webhook_fallback" : "webhook",
@@ -1942,7 +1942,7 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
                 type="button"
                 className={cn(
                   "rounded px-3 py-1 text-xs",
-                  (settings.signalSource ?? "webhook_fallback") === "mirror"
+                  (settings.signalSource ?? "webhook") === "mirror"
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-muted",
                 )}
@@ -1959,7 +1959,7 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
                 type="button"
                 className={cn(
                   "rounded px-3 py-1 text-xs",
-                  (settings.signalSource ?? "webhook_fallback") === "webhook_fallback"
+                  (settings.signalSource ?? "webhook") === "webhook_fallback"
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-muted",
                 )}
@@ -1996,7 +1996,7 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
               Webhook mode active. Send TradingView alerts to <span className="font-mono">POST /api/v1/future-trade/pine-webhook/{`{workspace}`}</span>
               with the Pine webhook token. Backend scanner runs read-only and will not open positions.
             </div>
-          ) : settings.signalSource === "webhook_fallback" || !settings.signalSource ? (
+          ) : settings.signalSource === "webhook_fallback" ? (
             <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-200">
               Fallback mode active. TradingView webhook is accepted when available; if no webhook arrives within
               <span className="font-mono"> {Number(settings.pineWebhookFallbackTimeoutSeconds ?? 1200)}s</span>,
@@ -2559,6 +2559,11 @@ const TRACKER_EVENTS = new Set([
   "LIVE_STOP_LOSS_HIT",
   "LIVE_TRAILING_PROFIT_HIT",
   "LIVE_LOSS_ROLLBACK_TRIGGERED",
+  "SCAN_STATUS",
+  "PINE_WEBHOOK_WAIT",
+  "PINE_WEBHOOK_SIGNAL",
+  "PINE_WEBHOOK_CLOSE",
+  "MARKET_SNAPSHOT_FAILED",
   "TRADE_BLOCKED",
   "SIGNAL_SKIPPED",
   "EMERGENCY_STOP",
@@ -3354,6 +3359,7 @@ function LiveFeedDaemonCard({
   const startSupported = liveFeed?.startSupported !== false;
   const manualRequired = Boolean(liveFeed?.manualRequired) || !startSupported;
   const displayCommand = liveFeed?.manualCommand || liveFeed?.command;
+  const runtimeScheduled = Boolean(liveFeed?.runtimeScheduled);
   const badgeVariant = manualRequired ? "destructive" : running && fresh ? "default" : running ? "secondary" : "outline";
   const modeLabel = manualRequired ? "MANUAL REQUIRED" : (liveFeed?.mode ?? "UNKNOWN");
 
@@ -3385,6 +3391,7 @@ function LiveFeedDaemonCard({
           <Row label="Last feed tick" value={liveFeed?.lastTickAt ? new Date(liveFeed.lastTickAt).toLocaleTimeString() : "-"} />
           <Row label="Feed freshness" value={liveFeed?.ageSeconds != null ? `${liveFeed.ageSeconds}s` : "-"} />
           <Row label="Symbol sync" value={liveFeed?.symbolSetInSync ? "In sync" : "Restart recommended"} />
+          <Row label="Runtime scheduler" value={runtimeScheduled ? "Enabled" : "Manual cron required"} />
           <Row label="Symbols" value={liveFeed?.desiredSymbols?.join(", ") || "-"} />
         </div>
 
@@ -3392,6 +3399,14 @@ function LiveFeedDaemonCard({
           <div className="rounded-md border bg-muted/20 p-3 text-[11px] text-muted-foreground">
             <div className="font-medium text-foreground">{manualRequired ? "Manual daemon command" : "Daemon command"}</div>
             <div className="mt-1 break-all font-mono">{displayCommand}</div>
+          </div>
+        ) : null}
+
+        {!runtimeScheduled ? (
+          <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-[11px] text-muted-foreground">
+            <div className="font-medium text-foreground">Required scanner cron</div>
+            <div className="mt-1 break-all font-mono">{liveFeed?.schedulerCommand || liveFeed?.tickCommand || "-"}</div>
+            <div className="mt-2">Without this minute cron, the page can refresh but confidence, runtime rows, and trade execution will not keep moving.</div>
           </div>
         ) : null}
 

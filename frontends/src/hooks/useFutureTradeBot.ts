@@ -831,6 +831,9 @@ export interface FutureTradeLiveFeedStatus {
   shellExecAvailable?: boolean;
   manualRequired?: boolean;
   manualCommand?: string | null;
+  runtimeScheduled?: boolean;
+  schedulerCommand?: string | null;
+  tickCommand?: string | null;
   startedAt?: string | null;
   command?: string | null;
   logPath?: string | null;
