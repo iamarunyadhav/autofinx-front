@@ -166,6 +166,7 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   chopLength: 14,
   cryptoChopMax: 61.8,
   useMomentumBreakoutFilter: false,
+  minBodyRatio: 0.55,
   rsiLength: 14,
   longRsiMin: 48,
   longRsiMax: 72,
@@ -190,7 +191,7 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   oppositeExitScore: 78,
   corePassRule: 3,
   classicSimpleMode: false,
-  strictEntryGuards: false,
+  strictEntryGuards: true,
   takeProfitPercent: 1.2,
   stopLossPercent: 0.4,
   trailingTakeProfitPercent: 0.3,
@@ -205,7 +206,7 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   autoExecutePaperSignals: true,
   signalSource: "webhook_fallback" as "mirror" | "webhook" | "webhook_fallback",
   pineWebhookFallbackTimeoutSeconds: 1200,
-  avoidChoppyMarket: false,
+  avoidChoppyMarket: true,
   emergencyStop: false,
   tradingHoursEnabled: false,
   tradingHoursStartUtc: "00:00",
@@ -1428,6 +1429,8 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
     ...settings,
     symbols: ["ETHUSDT"],
     tradeAmountUsdt: 10,
+    tradeScoreThreshold: 72,
+    watchScoreThreshold: 58,
     stopLossPercent: 0.25,
     takeProfitPercent: 0.5,
     trailingTakeProfitPercent: 0.18,
@@ -1436,6 +1439,13 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
     maxDailyLossPercent: 0.3,
     maxLeverage: 2,
     cooldownSeconds: 180,
+    avoidChoppyMarket: true,
+    strictEntryGuards: true,
+    useChopFilter: true,
+    useVolume: true,
+    useMomentumBreakoutFilter: true,
+    minBodyRatio: 0.6,
+    cryptoRelVolMin: 1.05,
   });
   const applyClassicSimpleMode = () => setSettings({
     ...settings,
@@ -1667,6 +1677,8 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
                 <Field label="EMA fast / slow / trend / major"><Input value={`${settings.emaFast ?? 9} / ${settings.emaSlow ?? 21} / ${settings.emaTrend ?? 50} / ${settings.emaMajor ?? 200}`} readOnly /></Field>
                 <Field label="Donchian length"><Input type="number" value={Number(settings.donchianLength ?? 20)} onChange={(e) => update("donchianLength", Number(e.target.value))} /></Field>
                 <Field label="Crypto max choppiness"><Input type="number" step="0.1" value={Number(settings.cryptoChopMax ?? 61.8)} onChange={(e) => update("cryptoChopMax", Number(e.target.value))} /></Field>
+                <Field label="Relative volume min"><Input type="number" step="0.01" value={Number(settings.cryptoRelVolMin ?? 1.0)} onChange={(e) => update("cryptoRelVolMin", Number(e.target.value))} /></Field>
+                <Field label="Min candle body ratio"><Input type="number" step="0.01" value={Number(settings.minBodyRatio ?? 0.55)} onChange={(e) => update("minBodyRatio", Number(e.target.value))} /></Field>
                 <Field label="ADX min"><Input type="number" value={Number(settings.adxMin ?? 20)} onChange={(e) => update("adxMin", Number(e.target.value))} /></Field>
                 <Field label="ATR SL multiplier"><Input type="number" step="0.1" value={Number(settings.slAtrMultiplier ?? 1.4)} onChange={(e) => update("slAtrMultiplier", Number(e.target.value))} /></Field>
                 <Field label="TP1 / TP2 RR"><Input value={`${settings.tp1RR ?? 1.0} / ${settings.tp2RR ?? 2.0}`} readOnly /></Field>
@@ -1702,6 +1714,7 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
                 <Toggle label="Relative volume filter" checked={Boolean(settings.useVolume ?? true)} onChange={(value) => update("useVolume", value)} />
                 <Toggle label="ATR volatility filter" checked={Boolean(settings.useVolatilityFilter ?? true)} onChange={(value) => update("useVolatilityFilter", value)} />
                 <Toggle label="Choppiness filter" checked={Boolean(settings.useChopFilter ?? true)} onChange={(value) => update("useChopFilter", value)} />
+                <Toggle label="Momentum breakout filter" checked={Boolean(settings.useMomentumBreakoutFilter ?? false)} onChange={(value) => update("useMomentumBreakoutFilter", value)} />
                 <Toggle label="ATR trailing second half" checked={Boolean(settings.useAtrTrailingSecondHalf ?? true)} onChange={(value) => update("useAtrTrailingSecondHalf", value)} />
                 <Toggle label="Exit on opposite score" checked={Boolean(settings.exitOnStrongOppositeScore ?? true)} onChange={(value) => update("exitOnStrongOppositeScore", value)} />
               </div>

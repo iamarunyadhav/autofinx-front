@@ -47,6 +47,7 @@ export interface FutureTradeSettings {
   chopLength?: number;
   cryptoChopMax?: number;
   useMomentumBreakoutFilter?: boolean;
+  minBodyRatio?: number;
   rsiLength?: number;
   longRsiMin?: number;
   longRsiMax?: number;
