@@ -1154,11 +1154,44 @@ function RuntimeDiagnosticsPanel({ diagnostics }: { diagnostics?: FutureTradeDia
             lines={[
               diagnostics.webhook?.summary ?? "No TradingView webhook received yet.",
               `Latest ${diagnostics.webhook?.latestEvent ?? "-"} ${diagnostics.webhook?.signal ?? ""}`.trim(),
+              diagnostics.webhook?.reason ? `Reason ${diagnostics.webhook.reason}` : "Reason -",
               `Signal latency ${diagnostics.webhook?.signalLatencyMs != null ? `${n(diagnostics.webhook.signalLatencyMs, 0)} ms` : "-"}`,
               `Transport ${diagnostics.webhook?.transportLatencyMs != null ? `${n(diagnostics.webhook.transportLatencyMs, 0)} ms` : "-"}`,
             ]}
           />
         </div>
+
+        {diagnostics.tradeEligibility ? (
+          <div className="rounded-md border bg-muted/10 p-3">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="text-sm font-medium">Trade eligibility</div>
+                <div className="mt-1 text-xs text-muted-foreground">{diagnostics.tradeEligibility.summary}</div>
+              </div>
+              <Badge variant={diagnostics.tradeEligibility.decision === "eligible" ? "outline" : diagnostics.tradeEligibility.decision === "blocked" ? "destructive" : "secondary"}>
+                {humanizeCode(diagnostics.tradeEligibility.decision ?? "waiting")}
+              </Badge>
+            </div>
+            <div className="mt-3 grid gap-2 text-xs md:grid-cols-2 xl:grid-cols-4">
+              <div>Source <span className="font-mono text-foreground">{humanizeCode(diagnostics.tradeEligibility.signalSource ?? "-")}</span></div>
+              <div>Webhook <span className="font-mono text-foreground">{diagnostics.tradeEligibility.latestWebhookEvent ?? "-"}</span></div>
+              <div>Signal <span className="font-mono text-foreground">{diagnostics.tradeEligibility.latestWebhookSignal ?? diagnostics.tradeEligibility.bestSignal ?? "-"}</span></div>
+              <div>Confidence <span className="font-mono text-foreground">{n((diagnostics.tradeEligibility.bestConfidence ?? 0) * 100, 1)}% / min {n((diagnostics.tradeEligibility.activeMinimum ?? 0) * 100, 1)}%</span></div>
+            </div>
+            {(diagnostics.tradeEligibility.blockers ?? []).length > 0 ? (
+              <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
+                <span className="font-medium text-destructive">Blockers: </span>
+                {(diagnostics.tradeEligibility.blockers ?? []).map(humanizeCode).join(", ")}
+              </div>
+            ) : null}
+            {(diagnostics.tradeEligibility.warnings ?? []).length > 0 ? (
+              <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
+                <span className="font-medium text-amber-300">Warnings: </span>
+                {(diagnostics.tradeEligibility.warnings ?? []).map(humanizeCode).join(", ")}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {queueBacklog >= queueBlock || queueState === "blocked" ? (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">

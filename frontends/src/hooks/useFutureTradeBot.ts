@@ -576,6 +576,23 @@ export interface FutureTradeDiagnostics {
     transportLatencyMs?: number | null;
     candleCloseAt?: string | null;
   } | null;
+  tradeEligibility?: {
+    decision?: string;
+    summary?: string;
+    canOpenNow?: boolean;
+    signalSource?: string;
+    webhookAuthority?: boolean;
+    latestWebhookEvent?: string | null;
+    latestWebhookSignal?: string | null;
+    latestWebhookReason?: string | null;
+    bestSignal?: string;
+    bestConfidence?: number;
+    activeMinimum?: number;
+    runtimeBlockers?: string[];
+    blockers?: string[];
+    warnings?: string[];
+    checks?: FutureTradeDiagnosticsCheck[];
+  } | null;
   latestAlert?: FutureTradeDiagnosticsAlert | null;
   recentSchedulerRuns?: FutureTradeDiagnosticsRun[];
 }
