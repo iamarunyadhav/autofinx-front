@@ -67,6 +67,8 @@ export interface FutureTradeSettings {
   tp2RR?: number;
   useAtrTrailingSecondHalf?: boolean;
   trailAtrMultiplier?: number;
+  useAtrRiskTargets?: boolean;
+  useWebhookRiskOverrides?: boolean;
   cooldownBars?: number;
   exitOnStrongOppositeScore?: boolean;
   oppositeExitScore?: number;
@@ -561,6 +563,19 @@ export interface FutureTradeDiagnostics {
     rest?: Record<string, unknown> | null;
     streams?: Record<string, unknown> | null;
   };
+  webhook?: {
+    state?: string;
+    summary?: string;
+    latestEvent?: string | null;
+    symbol?: string | null;
+    signal?: string | null;
+    reason?: string | null;
+    occurredAt?: string | null;
+    ageSeconds?: number | null;
+    signalLatencyMs?: number | null;
+    transportLatencyMs?: number | null;
+    candleCloseAt?: string | null;
+  } | null;
   latestAlert?: FutureTradeDiagnosticsAlert | null;
   recentSchedulerRuns?: FutureTradeDiagnosticsRun[];
 }
@@ -679,6 +694,20 @@ export interface FutureTradeDashboard {
   risk: { lossPrevention: string; paperTrading: boolean; liveTradingBlocked: boolean };
   dynamic?: FutureTradeDynamicDecision;
   diagnostics?: FutureTradeDiagnostics;
+  performanceFeedback?: {
+    sampleSize: number;
+    wins?: number;
+    losses?: number;
+    winRate?: number;
+    netPnl?: number;
+    avgNetPnl?: number;
+    summary?: string;
+    exitReasons?: Record<string, { count: number; wins: number; winRate: number; netPnl: number }>;
+    sides?: Record<string, { count: number; wins: number; winRate: number; netPnl: number }>;
+    latency?: { avgSignalLatencyMs?: number; samples?: number } | null;
+    avgFavorableMoveBeforeLossPercent?: number | null;
+    suggestions?: string[];
+  } | null;
   realized?: {
     closedCount?: number;
     logicalClosedCount?: number;
@@ -708,6 +737,7 @@ export interface FutureTradeDashboard {
       lastEventAt?: string | null;
       lastKeepAliveAt?: string | null;
     } | null;
+    webhook?: FutureTradeDiagnostics["webhook"];
     activeBlockers?: string[];
     healthy?: boolean;
   } | null;
@@ -849,6 +879,13 @@ export interface FutureTradeLiveFeedStatus {
   message?: string | null;
 }
 
+export interface FutureTradeRuntimeRecoverResult {
+  recovered: boolean;
+  message: string;
+  feed?: FutureTradeLiveFeedStatus;
+  tickExitCode?: number;
+}
+
 export interface FutureTradeConnectionTest {
   connected: boolean;
   mode?: string;
@@ -931,6 +968,7 @@ export interface FutureTradeLog {
     softPenalties?: string[] | null;
     hardBlocker?: string | null;
     hardBlockers?: string[] | null;
+    decisionReason?: string | null;
     positiveFactors?: string[] | null;
     negativeFactors?: string[] | null;
     componentScores?: Record<string, number> | null;
@@ -1053,6 +1091,11 @@ export function useFutureTradeBot(workspaceId?: string) {
     onSuccess: invalidate,
   });
 
+  const recoverRuntime = useMutation({
+    mutationFn: async () => (await api.post<FutureTradeRuntimeRecoverResult>(`${base}/runtime/recover`, {})).data,
+    onSuccess: invalidate,
+  });
+
   const importScript = useMutation({
     mutationFn: async (payload: FutureTradeScriptImportPayload) => (await api.post<FutureTradeResearchLab>(`${base}/import-script`, payload)).data,
     onSuccess: invalidate,
@@ -1083,6 +1126,7 @@ export function useFutureTradeBot(workspaceId?: string) {
     startLiveFeed: liveFeedAction("start"),
     stopLiveFeed: liveFeedAction("stop"),
     restartLiveFeed: liveFeedAction("restart"),
+    recoverRuntime,
     start: useAction("start"),
     stop: useAction("stop"),
     emergencyStop: useAction("emergency-stop"),

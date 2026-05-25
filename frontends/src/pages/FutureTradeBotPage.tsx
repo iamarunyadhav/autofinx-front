@@ -138,7 +138,7 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   paperTrading: true,
   liveTrading: false,
   forceTestnet: true,
-  leverage: 3,
+  leverage: 2,
   marginMode: "isolated",
   tradeAmountUsdt: 25,
   minConfidence: 0.72,
@@ -182,26 +182,28 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   cryptoMinAtrPct: 0.06,
   cryptoMaxAtrPct: 3.0,
   slAtrMultiplier: 1.4,
-  tp1RR: 1.0,
+  tp1RR: 2.0,
   tp2RR: 2.0,
   useAtrTrailingSecondHalf: true,
-  trailAtrMultiplier: 1.0,
+  trailAtrMultiplier: 0.8,
+  useAtrRiskTargets: false,
+  useWebhookRiskOverrides: false,
   cooldownBars: 3,
   exitOnStrongOppositeScore: true,
   oppositeExitScore: 78,
   corePassRule: 3,
   classicSimpleMode: false,
   strictEntryGuards: true,
-  takeProfitPercent: 1.2,
-  stopLossPercent: 0.4,
-  trailingTakeProfitPercent: 0.3,
-  rollbackLossPercent: 0.25,
-  maxDailyLossPercent: 2,
+  takeProfitPercent: 0.5,
+  stopLossPercent: 0.25,
+  trailingTakeProfitPercent: 0.22,
+  rollbackLossPercent: 0.15,
+  maxDailyLossPercent: 0.3,
   maxOpenPositions: 1,
-  maxTradesPerDay: 25,
-  maxLeverage: 5,
+  maxTradesPerDay: 3,
+  maxLeverage: 2,
   maxSpreadPercent: 0.12,
-  cooldownSeconds: 900,
+  cooldownSeconds: 180,
   scanIntervalSeconds: 3,
   autoExecutePaperSignals: true,
   signalSource: "webhook" as "mirror" | "webhook" | "webhook_fallback",
@@ -514,7 +516,7 @@ export default function FutureTradeBotPage() {
   const diagnostics = dashboard?.diagnostics;
   const savedSettings = useMemo(() => ({ ...DEFAULT_SETTINGS, ...(bot.config.data?.settings ?? {}) }), [bot.config.data?.settings]);
   const busy = bot.start.isPending || bot.stop.isPending || bot.emergencyStop.isPending || bot.resetPaper.isPending || bot.resetDailyLoss.isPending || bot.updateConfig.isPending || bot.recover.isPending || bot.clearHistory.isPending;
-  const liveFeedBusy = bot.startLiveFeed.isPending || bot.stopLiveFeed.isPending || bot.restartLiveFeed.isPending;
+  const liveFeedBusy = bot.startLiveFeed.isPending || bot.stopLiveFeed.isPending || bot.restartLiveFeed.isPending || bot.recoverRuntime.isPending;
   const researchBusy = bot.importScript.isPending || bot.importTrades.isPending;
   const envBusy = bot.updateEnvConfig.isPending || bot.envConfig.isFetching;
   const runtimeChart = useMemo(() => dashboard?.chart ?? [], [dashboard?.chart]);
@@ -824,6 +826,7 @@ export default function FutureTradeBotPage() {
             <TradeHistory trades={bot.trades.data ?? []} liveTrading={status?.liveTrading ?? false} />
             <DynamicRuntimeTracker logs={bot.logs.data ?? []} />
             <RuntimeDiagnosticsPanel diagnostics={diagnostics} />
+            <PerformanceFeedbackPanel feedback={dashboard?.performanceFeedback} />
             <IndicatorIntelligencePanel intelligence={dashboard?.indicatorIntelligence} />
             <ResearchLabPanel researchLab={dashboard?.researchLab} />
             <TuningPlanPanel
@@ -867,6 +870,7 @@ export default function FutureTradeBotPage() {
               onStart={() => bot.startLiveFeed.mutate(undefined, { onError: err(toast) })}
               onStop={() => bot.stopLiveFeed.mutate(undefined, { onError: err(toast) })}
               onRestart={() => bot.restartLiveFeed.mutate(undefined, { onError: err(toast) })}
+              onRecoverRuntime={() => bot.recoverRuntime.mutate(undefined, { onError: err(toast) })}
             />
 
             <RiskPanel settings={settings} dynamic={dashboard?.dynamic ?? status?.dynamic} />
@@ -1109,6 +1113,7 @@ function RuntimeDiagnosticsPanel({ diagnostics }: { diagnostics?: FutureTradeDia
   const queueWarn = Number(diagnostics.server.queue?.warning_threshold ?? 0);
   const queueBlock = Number(diagnostics.server.queue?.block_threshold ?? 0);
   const queueState = String(diagnostics.server.queue?.state ?? "unknown");
+  const webhookState = String(diagnostics.webhook?.state ?? "waiting");
   const actionBusy = pruneStale.isPending || restartWorkers.isPending;
   const autoPruneThreshold = 300;
 
@@ -1118,7 +1123,7 @@ function RuntimeDiagnosticsPanel({ diagnostics }: { diagnostics?: FutureTradeDia
       <CardContent className="space-y-4">
         <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">{diagnostics.summary}</div>
 
-        <div className="grid gap-3 lg:grid-cols-3">
+        <div className="grid gap-3 lg:grid-cols-4">
           <DiagnosticBox
             title="Bot blockers"
             tone={diagnostics.botBlockers.length > 0 ? "danger" : diagnostics.botWarnings.length > 0 ? "warning" : "ok"}
@@ -1141,6 +1146,16 @@ function RuntimeDiagnosticsPanel({ diagnostics }: { diagnostics?: FutureTradeDia
               `Scheduler ${humanizeCode(String(diagnostics.server.scheduler?.state ?? "unknown"))}`,
               `Queue ${humanizeCode(queueState)}`,
               `Backlog ${n(queueBacklog, 0)} | warn ${n(queueWarn, 0)} | block ${n(queueBlock, 0)} | failed ${n(queueFailed, 0)}`,
+            ]}
+          />
+          <DiagnosticBox
+            title="Webhook latency"
+            tone={webhookState === "healthy" ? "ok" : webhookState === "stale" || webhookState === "warning" ? "warning" : "ok"}
+            lines={[
+              diagnostics.webhook?.summary ?? "No TradingView webhook received yet.",
+              `Latest ${diagnostics.webhook?.latestEvent ?? "-"} ${diagnostics.webhook?.signal ?? ""}`.trim(),
+              `Signal latency ${diagnostics.webhook?.signalLatencyMs != null ? `${n(diagnostics.webhook.signalLatencyMs, 0)} ms` : "-"}`,
+              `Transport ${diagnostics.webhook?.transportLatencyMs != null ? `${n(diagnostics.webhook.transportLatencyMs, 0)} ms` : "-"}`,
             ]}
           />
         </div>
@@ -1231,6 +1246,67 @@ function RuntimeDiagnosticsPanel({ diagnostics }: { diagnostics?: FutureTradeDia
             </div>
           </div>
         ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PerformanceFeedbackPanel({ feedback }: { feedback?: FutureTradeDashboard["performanceFeedback"] | null }) {
+  if (!feedback) return null;
+
+  const exitRows = Object.entries(feedback.exitReasons ?? {}).slice(0, 6);
+  const sideRows = Object.entries(feedback.sides ?? {});
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Performance Feedback</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-4">
+          <Metric title="Closed sample" value={n(feedback.sampleSize, 0)} sub="Last 50 closed trades" />
+          <Metric title="Win rate" value={feedback.winRate != null ? `${n(feedback.winRate, 1)}%` : "-"} sub={`${n(feedback.wins ?? 0, 0)} wins | ${n(feedback.losses ?? 0, 0)} losses`} />
+          <Metric title="Net PnL" value={feedback.netPnl != null ? `${n(feedback.netPnl, 4)} USDT` : "-"} sub={`Avg ${n(feedback.avgNetPnl ?? 0, 4)}`} />
+          <Metric title="Avg signal latency" value={feedback.latency?.avgSignalLatencyMs != null ? `${n(feedback.latency.avgSignalLatencyMs, 0)} ms` : "-"} sub={`${n(feedback.latency?.samples ?? 0, 0)} samples`} />
+        </div>
+
+        <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+          {feedback.summary ?? "Closed trade feedback is waiting for data."}
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Exit quality</div>
+            {exitRows.length === 0 ? (
+              <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">No exit stats yet.</div>
+            ) : exitRows.map(([reason, row]) => (
+              <div key={reason} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                <span>{humanizeCode(reason)}</span>
+                <span className="text-muted-foreground">{n(row.count, 0)} trades | {n(row.winRate, 1)}% | {n(row.netPnl, 4)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Side quality</div>
+            {sideRows.length === 0 ? (
+              <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">No side stats yet.</div>
+            ) : sideRows.map(([side, row]) => (
+              <div key={side} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                <span>{side}</span>
+                <span className="text-muted-foreground">{n(row.count, 0)} trades | {n(row.winRate, 1)}% | {n(row.netPnl, 4)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-sm font-medium">Auto tuning notes</div>
+          <div className="space-y-2">
+            {(feedback.suggestions ?? ["No suggestions yet."]).map((item, index) => (
+              <div key={`${item}-${index}`} className="rounded-md border px-3 py-2 text-xs text-muted-foreground">{item}</div>
+            ))}
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
@@ -1439,6 +1515,8 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
     maxDailyLossPercent: 0.3,
     maxLeverage: 2,
     cooldownSeconds: 180,
+    useAtrRiskTargets: false,
+    useWebhookRiskOverrides: false,
     avoidChoppyMarket: true,
     strictEntryGuards: true,
     useChopFilter: true,
@@ -1703,7 +1781,7 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
                   <Field label="Stop loss %"><Input type="number" step="0.01" value={Number(settings.stopLossPercent ?? 0.25)} onChange={(e) => update("stopLossPercent", Number(e.target.value))} /></Field>
                   <Field label="Rollback loss %"><Input type="number" step="0.01" value={Number(settings.rollbackLossPercent ?? 0.15)} onChange={(e) => update("rollbackLossPercent", Number(e.target.value))} /></Field>
                   <Field label="Take profit %"><Input type="number" step="0.01" value={Number(settings.takeProfitPercent ?? 0.5)} onChange={(e) => update("takeProfitPercent", Number(e.target.value))} /></Field>
-                  <Field label="Trailing %"><Input type="number" step="0.01" value={Number(settings.trailingTakeProfitPercent ?? 0.18)} onChange={(e) => update("trailingTakeProfitPercent", Number(e.target.value))} /></Field>
+                  <Field label="Trailing %"><Input type="number" step="0.01" value={Number(settings.trailingTakeProfitPercent ?? 0.22)} onChange={(e) => update("trailingTakeProfitPercent", Number(e.target.value))} /></Field>
                   <Field label="Max trades/day"><Input type="number" step="1" value={Number(settings.maxTradesPerDay ?? 2)} onChange={(e) => update("maxTradesPerDay", Number(e.target.value))} /></Field>
                   <Field label="Daily loss limit %"><Input type="number" step="0.1" value={Number(settings.maxDailyLossPercent ?? 0.3)} onChange={(e) => update("maxDailyLossPercent", Number(e.target.value))} /></Field>
                   <Field label="Cooldown seconds"><Input type="number" step="30" value={Number(settings.cooldownSeconds ?? 180)} onChange={(e) => update("cooldownSeconds", Number(e.target.value))} /></Field>
@@ -1717,6 +1795,8 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
                 <Toggle label="Momentum breakout filter" checked={Boolean(settings.useMomentumBreakoutFilter ?? false)} onChange={(value) => update("useMomentumBreakoutFilter", value)} />
                 <Toggle label="ATR trailing second half" checked={Boolean(settings.useAtrTrailingSecondHalf ?? true)} onChange={(value) => update("useAtrTrailingSecondHalf", value)} />
                 <Toggle label="Exit on opposite score" checked={Boolean(settings.exitOnStrongOppositeScore ?? true)} onChange={(value) => update("exitOnStrongOppositeScore", value)} />
+                <Toggle label="ATR dynamic risk targets" checked={Boolean(settings.useAtrRiskTargets ?? false)} onChange={(value) => update("useAtrRiskTargets", value)} />
+                <Toggle label="Webhook risk overrides" checked={Boolean(settings.useWebhookRiskOverrides ?? false)} onChange={(value) => update("useWebhookRiskOverrides", value)} />
               </div>
               <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
                 Old MACD/RSI weighted scoring, symbol-performance penalty, aggressive AI modes, dynamic confidence overrides, UT Bot defaults, and indicator influence sliders are hidden and ignored for this profile.
@@ -2665,6 +2745,7 @@ function flattenTrackerRowForExport(log: FutureTradeLog) {
     htf_aligned: booleanExportValue(log.context?.htfAligned),
     soft_penalty_count: log.context?.softPenaltyCount ?? softPenalties.length,
     soft_penalties: softPenalties.join(" | "),
+    decision_reason: log.context?.decisionReason ?? "",
     hard_blocker: log.context?.hardBlocker ?? "",
     hard_blockers: hardBlockers.join(" | "),
     positive_factors: positiveFactors.join(" | "),
@@ -2810,7 +2891,7 @@ function DynamicRuntimeTracker({ logs }: { logs: FutureTradeLog[] }) {
               <TableHead>Volume</TableHead>
               <TableHead>HTF</TableHead>
               <TableHead>Soft</TableHead>
-              <TableHead>Hard blocker</TableHead>
+              <TableHead>Blocker</TableHead>
               <TableHead>More</TableHead>
             </TableRow>
           </TableHeader>
@@ -2843,7 +2924,7 @@ function DynamicRuntimeTracker({ logs }: { logs: FutureTradeLog[] }) {
                 <TableCell>{row.context?.volumeRatio != null ? `${boolBadge(row.context?.volumeAligned)} (${n(row.context.volumeRatio, 2)})` : boolBadge(row.context?.volumeAligned)}</TableCell>
                 <TableCell>{boolBadge(row.context?.htfAligned)}</TableCell>
                 <TableCell>{row.context?.softPenaltyCount ?? normalizeList(row.context?.softPenalties).length}</TableCell>
-                <TableCell>{row.context?.hardBlocker ?? normalizeList(row.context?.hardBlockers)[0] ?? "-"}</TableCell>
+                <TableCell>{trackerHardBlocker(row)}</TableCell>
                 <TableCell>
                   <Button variant="outline" size="sm" onClick={() => setSelectedRow(row)}>More</Button>
                 </TableCell>
@@ -2884,7 +2965,8 @@ function DynamicRuntimeTracker({ logs }: { logs: FutureTradeLog[] }) {
                 <Row label="Volume" value={selectedRow.context?.volumeRatio != null ? `${boolBadge(selectedRow.context?.volumeAligned)} (${n(selectedRow.context.volumeRatio, 2)})` : boolBadge(selectedRow.context?.volumeAligned)} />
                 <Row label="HTF" value={boolBadge(selectedRow.context?.htfAligned)} />
                 <Row label="Soft penalty count" value={String(selectedRow.context?.softPenaltyCount ?? normalizeList(selectedRow.context?.softPenalties).length)} />
-                <Row label="Hard blocker" value={selectedRow.context?.hardBlocker ?? normalizeList(selectedRow.context?.hardBlockers)[0] ?? "-"} />
+                <Row label="Decision note" value={trackerDecisionNote(selectedRow)} />
+                <Row label="Blocker" value={trackerHardBlocker(selectedRow)} />
               </div>
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="rounded-md border p-3">
@@ -2892,7 +2974,7 @@ function DynamicRuntimeTracker({ logs }: { logs: FutureTradeLog[] }) {
                   <div className="text-muted-foreground">{normalizeList(selectedRow.context?.softPenalties).join(" | ") || "-"}</div>
                 </div>
                 <div className="rounded-md border p-3">
-                  <div className="mb-2 font-medium">Hard blockers</div>
+                  <div className="mb-2 font-medium">Blockers</div>
                   <div className="text-muted-foreground">{normalizeList(selectedRow.context?.hardBlockers, selectedRow.context?.hardBlocker).join(" | ") || "-"}</div>
                 </div>
                 <div className="rounded-md border p-3">
@@ -3019,6 +3101,15 @@ function trackerStatusLabel(log: FutureTradeLog) {
     .replace(/_EXECUTED$/, "_OPEN")
     .replace(/_/g, " ")
     .trim();
+}
+
+function trackerHardBlocker(log: FutureTradeLog) {
+  const blockers = normalizeList(log.context?.hardBlockers, log.context?.hardBlocker);
+  return blockers.join(" | ") || "-";
+}
+
+function trackerDecisionNote(log: FutureTradeLog) {
+  return String(log.context?.decisionReason || log.reason || "-");
 }
 
 function humanizeCode(value?: string | null) {
@@ -3347,12 +3438,14 @@ function LiveFeedDaemonCard({
   onStart,
   onStop,
   onRestart,
+  onRecoverRuntime,
 }: {
   liveFeed?: FutureTradeLiveFeedStatus;
   busy: boolean;
   onStart: () => void;
   onStop: () => void;
   onRestart: () => void;
+  onRecoverRuntime: () => void;
 }) {
   const running = Boolean(liveFeed?.running);
   const fresh = Boolean(liveFeed?.isFresh);
@@ -3360,6 +3453,7 @@ function LiveFeedDaemonCard({
   const manualRequired = Boolean(liveFeed?.manualRequired) || !startSupported;
   const displayCommand = liveFeed?.manualCommand || liveFeed?.command;
   const runtimeScheduled = Boolean(liveFeed?.runtimeScheduled);
+  const staleOrStopped = !fresh || !running || !runtimeScheduled || Boolean(liveFeed?.restartRecommended);
   const badgeVariant = manualRequired ? "destructive" : running && fresh ? "default" : running ? "secondary" : "outline";
   const modeLabel = manualRequired ? "MANUAL REQUIRED" : (liveFeed?.mode ?? "UNKNOWN");
 
@@ -3410,14 +3504,27 @@ function LiveFeedDaemonCard({
           </div>
         ) : null}
 
-        <div className="grid grid-cols-3 gap-2">
+        {staleOrStopped ? (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-[11px] text-muted-foreground">
+            <div className="font-medium text-foreground">Runtime recovery available</div>
+            <div className="mt-1">
+              Use Recover Runtime when graph, realtime price, signal scanner, or runtime rows stop updating. It restarts the live-feed daemon when supported and runs one immediate scanner tick.
+            </div>
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
           <Button disabled={busy || running || !startSupported} onClick={onStart}>
             <Power className="mr-2 h-4 w-4" />
             Start
           </Button>
-          <Button disabled={busy || !running || !startSupported} variant="outline" onClick={onRestart}>
+          <Button disabled={busy || (!running && !staleOrStopped) || !startSupported} variant="outline" onClick={onRestart}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Restart
+          </Button>
+          <Button disabled={busy} variant={staleOrStopped ? "default" : "outline"} onClick={onRecoverRuntime}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Recover Runtime
           </Button>
           <Button disabled={busy || !running || !startSupported} variant="secondary" onClick={onStop}>
             <Square className="mr-2 h-4 w-4" />
