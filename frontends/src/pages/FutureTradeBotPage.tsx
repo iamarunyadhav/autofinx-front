@@ -16,7 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { usePruneStalePendingJobs, useRestartWorkers } from "@/hooks/useJobs";
-import { useFutureTradeBot, type FutureTradeConfig, type FutureTradeDashboard, type FutureTradeDiagnostics, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeIndicatorSuite, type FutureTradeLiveFeedStatus, type FutureTradeLog, type FutureTradeRecord, type FutureTradeRecoveryResult, type FutureTradeResearchLab, type FutureTradeSettings, type FutureTradeTuningPlanPreview } from "@/hooks/useFutureTradeBot";
+import { useFutureTradeBot, type FutureTradeBinanceHealth, type FutureTradeConfig, type FutureTradeDashboard, type FutureTradeDiagnostics, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeIndicatorSuite, type FutureTradeLastWebhook, type FutureTradeLiveFeedStatus, type FutureTradeLog, type FutureTradeRecord, type FutureTradeRecoveryResult, type FutureTradeResearchLab, type FutureTradeRuntimeHealth, type FutureTradeSettings, type FutureTradeTuningPlanPreview } from "@/hooks/useFutureTradeBot";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { cn } from "@/lib/utils";
 
@@ -524,12 +524,23 @@ export default function FutureTradeBotPage() {
   const liveModeBlocked = Boolean(settings.liveTrading && !status?.liveTradingEnvEnabled);
   const latestRuntimeAlert = diagnostics?.latestAlert;
   const tuningBusy = bot.generateTuningPlan.isPending;
-  const displaySignal = fastBestSignal?.signal && fastBestSignal.signal !== "WAIT"
-    ? fastBestSignal.signal
-    : (status?.currentSignal || "WAIT");
-  const displaySignalSymbol = fastBestSignal?.symbol ?? status?.currentSymbol ?? null;
-  const displaySignalConfidence = fastBestSignal?.confidence ?? status?.confidence ?? 0;
-  const displaySignalMinimum = fastBestSignal?.effectiveMinConfidence ?? status?.activeMinConfidence ?? settings.minConfidence;
+  const webhookAuthority = Boolean(diagnostics?.tradeEligibility?.webhookAuthority);
+  const latestWebhookSignal = diagnostics?.tradeEligibility?.latestWebhookSignal;
+  const executableWebhookSignal = latestWebhookSignal && ["BUY", "SELL"].includes(latestWebhookSignal)
+    ? latestWebhookSignal
+    : null;
+  const displaySignal = webhookAuthority
+    ? (executableWebhookSignal ?? status?.currentSignal ?? "WAIT")
+    : (fastBestSignal?.signal && fastBestSignal.signal !== "WAIT" ? fastBestSignal.signal : (status?.currentSignal || "WAIT"));
+  const displaySignalSymbol = webhookAuthority
+    ? (diagnostics?.webhook?.symbol ?? status?.currentSymbol ?? fastBestSignal?.symbol ?? null)
+    : (fastBestSignal?.symbol ?? status?.currentSymbol ?? null);
+  const displaySignalConfidence = webhookAuthority
+    ? (status?.confidence ?? diagnostics?.tradeEligibility?.bestConfidence ?? 0)
+    : (fastBestSignal?.confidence ?? status?.confidence ?? 0);
+  const displaySignalMinimum = webhookAuthority
+    ? (status?.activeMinConfidence ?? diagnostics?.tradeEligibility?.activeMinimum ?? settings.minConfidence)
+    : (fastBestSignal?.effectiveMinConfidence ?? status?.activeMinConfidence ?? settings.minConfidence);
 
   const runRecovery = (action: "auto" | "sync_state" | "cancel_reduce_only") => {
     bot.recover.mutate(action, {
@@ -759,6 +770,15 @@ export default function FutureTradeBotPage() {
             </CardContent>
           </Card>
         ) : null}
+
+        <WebhookCommandCenter
+          settings={settings}
+          diagnostics={dashboard?.diagnostics}
+          binanceHealth={bot.binanceHealth.data}
+          runtimeHealth={bot.runtimeHealth.data}
+          lastWebhook={bot.lastWebhook.data}
+          runtimeHealthFromDashboard={dashboard?.runtimeHealth}
+        />
 
         <SafetyRuntimePanel
           runtimeHealth={dashboard?.runtimeHealth}
@@ -2105,9 +2125,18 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
             </div>
           </div>
           {settings.signalSource === "webhook" ? (
-            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs text-emerald-200">
-              Webhook mode active. Send TradingView alerts to <span className="font-mono">POST /api/v1/future-trade/pine-webhook/{`{workspace}`}</span>
-              with the Pine webhook token. Backend scanner runs read-only and will not open positions.
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs text-emerald-200 space-y-1">
+              <div>
+                <span className="font-semibold">Webhook mode active.</span>{" "}
+                TradingView Pine webhook signals will open/close live positions
+                after risk and Binance safety checks pass. Backend scanner is
+                read-only and will not independently open positions.
+              </div>
+              <div className="text-emerald-300/80">
+                Send TradingView alerts to{" "}
+                <span className="font-mono">POST /api/v1/future-trade/pine-webhook/{`{workspace}`}</span>{" "}
+                with the Pine webhook token.
+              </div>
             </div>
           ) : settings.signalSource === "webhook_fallback" ? (
             <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-200">
@@ -3305,6 +3334,350 @@ function SafetyRuntimePanel({
               ))}
             </div>
             <div className="mt-2 text-[11px] opacity-80">Live execution stays paused while any blocker is active. Raw signal shown for reference only.</div>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Webhook Command Center — the one panel that answers
+ *   "can this Pine webhook open a trade right now, and if not, why?"
+ *
+ * Three side-by-side cards (Signal Source, Binance State, Execution
+ * Eligibility) + a Last TradingView Webhook Payload preview + warnings /
+ * blockers that are clearly separated. Reads only from existing backend
+ * endpoints — does not initiate trades or recovery.
+ */
+function WebhookCommandCenter({
+  settings,
+  diagnostics,
+  binanceHealth,
+  runtimeHealth,
+  lastWebhook,
+  runtimeHealthFromDashboard,
+}: {
+  settings: FutureTradeSettings;
+  diagnostics?: FutureTradeDiagnostics;
+  binanceHealth?: FutureTradeBinanceHealth;
+  runtimeHealth?: FutureTradeRuntimeHealth;
+  lastWebhook?: FutureTradeLastWebhook;
+  runtimeHealthFromDashboard?: FutureTradeDashboard["runtimeHealth"];
+}) {
+  // Show the panel whenever webhook is the active signal source — even
+  // before any data has loaded — so operators see the surface immediately.
+  if (settings.signalSource !== "webhook" && settings.signalSource !== "webhook_fallback") {
+    return null;
+  }
+
+  const eligibility = diagnostics?.tradeEligibility ?? null;
+  const decision = (eligibility?.decision ?? "waiting").toLowerCase();
+  const isEligible = decision === "eligible";
+  const isBlocked = decision === "blocked";
+
+  const rawBlockers = (eligibility?.blockers ?? []) as string[];
+  const rawWarnings = (eligibility?.warnings ?? []) as string[];
+
+  // §18 — only real blockers go in the destructive bucket. AI-disabled and
+  // external-context-disabled are NOT blockers in webhook mode — TradingView
+  // is the brain, so those internal AI features are expected to be off.
+  const softCodes = new Set([
+    "ai_trading_disabled",
+    "external_context_disabled",
+    "backend_scanner_read_only_webhook_mode",
+    "user_stream_not_configured_rest_fallback_active",
+    "user_stream_stale_rest_fallback_active",
+  ]);
+  const blockers = rawBlockers.filter((code) => !softCodes.has(code));
+  const warnings = [
+    ...rawWarnings,
+    ...rawBlockers.filter((code) => softCodes.has(code)),
+  ];
+
+  // §17 — Binance state card values
+  const userStream = runtimeHealthFromDashboard?.userStream;
+  const userStreamFresh = Boolean(userStream?.fresh);
+  const userStreamConfigured = Boolean(userStream && userStream.status && userStream.status !== "NOT_CONFIGURED");
+  const restFresh = Boolean(binanceHealth?.fresh);
+  const restAge = binanceHealth?.cached_balance_age_seconds ?? null;
+  const restOk = Boolean(binanceHealth?.rest_ok);
+  const dnsOk = Boolean(binanceHealth?.dns_ok);
+
+  const mirrorFallback = settings.signalSource === "webhook_fallback";
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>Webhook Command Center</CardTitle>
+          <div className="text-xs text-muted-foreground mt-1">
+            TradingView Pine webhook = signal source. Backend scanner read-only. Binance = execution + safety state.
+          </div>
+        </div>
+        <Badge variant={isEligible ? "default" : isBlocked ? "destructive" : "secondary"}>
+          {isEligible ? "Eligible" : isBlocked ? "Blocked" : "Waiting"}
+        </Badge>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        {/* §17 Three cards: Signal Source / Binance State / Execution Eligibility */}
+        <div className="grid gap-4 md:grid-cols-3">
+          {/* Signal Source */}
+          <div className="rounded-md border bg-muted/30 p-3">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Signal Source</div>
+            <div className="mt-2 space-y-1 text-xs">
+              <div>Active source: <span className="font-mono text-foreground">TradingView Webhook</span></div>
+              <div>Webhook live: <span className={settings.signalSource ? "text-emerald-400" : "text-rose-400"}>ON</span></div>
+              <div>Backend scanner: <span className="text-emerald-400">Read-only</span></div>
+              <div>
+                Mirror fallback:{" "}
+                <span className={mirrorFallback ? "text-amber-400" : "text-emerald-400"}>
+                  {mirrorFallback ? "ON (risky)" : "OFF"}
+                </span>
+              </div>
+              <div>Live executor: <span className="font-mono text-foreground">Pine Webhook Only</span></div>
+            </div>
+          </div>
+
+          {/* Binance State */}
+          <div className="rounded-md border bg-muted/30 p-3">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Binance State</div>
+            <div className="mt-2 space-y-1 text-xs">
+              <div>
+                Wallet:{" "}
+                <span className={restFresh ? "text-emerald-400" : "text-amber-400"}>
+                  {restFresh ? "Fresh" : "Stale"}
+                </span>
+                {" "}({restAge != null ? `${restAge}s ago` : "no sync yet"})
+              </div>
+              <div>
+                Position:{" "}
+                <span className={restFresh ? "text-emerald-400" : "text-amber-400"}>
+                  {restFresh ? "Fresh" : "Stale"}
+                </span>
+              </div>
+              <div>
+                User Stream:{" "}
+                {userStreamConfigured ? (
+                  <span className={userStreamFresh ? "text-emerald-400" : "text-amber-400"}>
+                    {userStreamFresh ? "Connected" : "REST fallback"}
+                  </span>
+                ) : (
+                  <span className="text-amber-400">REST fallback</span>
+                )}
+              </div>
+              <div>
+                REST health:{" "}
+                <span className={restOk && dnsOk ? "text-emerald-400" : "text-rose-400"}>
+                  {restOk && dnsOk ? "OK" : "Degraded"}
+                </span>
+              </div>
+              <div>
+                Last sync:{" "}
+                <span className="font-mono">
+                  {binanceHealth?.last_success_at
+                    ? new Date(binanceHealth.last_success_at).toLocaleTimeString()
+                    : "-"}
+                </span>
+              </div>
+              {binanceHealth?.failure_reason ? (
+                <div className="text-rose-400">Failure: <span className="font-mono">{humanizeCode(binanceHealth.failure_reason)}</span></div>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Execution Eligibility */}
+          <div className="rounded-md border bg-muted/30 p-3">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Execution Eligibility</div>
+            <div className="mt-2 space-y-1 text-xs">
+              <div>
+                Decision:{" "}
+                <Badge variant={isEligible ? "outline" : isBlocked ? "destructive" : "secondary"} className="ml-1">
+                  {humanizeCode(decision)}
+                </Badge>
+              </div>
+              <div>Source: <span className="font-mono text-foreground">{humanizeCode(eligibility?.signalSource ?? "pine_webhook")}</span></div>
+              <div>Signal: <span className="font-mono text-foreground">{eligibility?.latestWebhookSignal ?? eligibility?.bestSignal ?? "-"}</span></div>
+              <div>
+                Confidence:{" "}
+                <span className="font-mono text-foreground">
+                  {n((eligibility?.bestConfidence ?? 0) * 100, 1)}%
+                </span>{" "}
+                / min{" "}
+                <span className="font-mono">
+                  {n((eligibility?.activeMinimum ?? 0) * 100, 1)}%
+                </span>
+              </div>
+              <div>
+                Executable:{" "}
+                <span className={isEligible ? "text-emerald-400" : "text-amber-400"}>
+                  {isEligible ? "yes" : "no"}
+                </span>
+              </div>
+              {!isEligible && eligibility?.summary ? (
+                <div className="text-muted-foreground italic">{eligibility.summary}</div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        {/* Latency strip + daily-loss tier — only shows when data is available */}
+        {(lastWebhook?.latency || lastWebhook?.dailyLossTier) ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            {lastWebhook?.latency ? (() => {
+              const total = lastWebhook.latency?.totalMs ?? null;
+              const validated = lastWebhook.latency?.validatedMs ?? null;
+              const state = lastWebhook.latency?.stateSyncedMs ?? null;
+              const order = lastWebhook.latency?.orderPlacedMs ?? null;
+              const tone = total == null
+                ? "border-muted"
+                : total < 400
+                  ? "border-emerald-500/30 bg-emerald-500/5"
+                  : total < 800
+                    ? "border-amber-500/30 bg-amber-500/5"
+                    : "border-rose-500/30 bg-rose-500/5";
+              return (
+                <div className={cn("rounded-md border p-3", tone)}>
+                  <div className="flex items-center justify-between text-xs uppercase tracking-wide text-muted-foreground">
+                    <span>Last Webhook Latency</span>
+                    <span className="font-mono text-foreground">{total != null ? `${total} ms` : "-"}</span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
+                    <div>Validate <div className="font-mono text-foreground">{validated != null ? `${validated} ms` : "-"}</div></div>
+                    <div>State <div className="font-mono text-foreground">{state != null ? `${state} ms` : "-"}</div></div>
+                    <div>Order <div className="font-mono text-foreground">{order != null ? `${order} ms` : "-"}</div></div>
+                  </div>
+                </div>
+              );
+            })() : null}
+
+            {lastWebhook?.dailyLossTier ? (() => {
+              const tier = lastWebhook.dailyLossTier;
+              const pct = lastWebhook.dailyLossPercent ?? 0;
+              const t = lastWebhook.dailyLossThresholds;
+              const tone = tier === "ok"
+                ? "border-emerald-500/30 bg-emerald-500/5"
+                : tier === "warn"
+                  ? "border-amber-500/30 bg-amber-500/5"
+                  : "border-rose-500/30 bg-rose-500/5";
+              const label = tier === "ok"
+                ? "Healthy"
+                : tier === "warn"
+                  ? "Soft warn — trades still allowed"
+                  : tier === "block_entries"
+                    ? "Block entries — exits allowed"
+                    : "Hard block — manual review required";
+              return (
+                <div className={cn("rounded-md border p-3", tone)}>
+                  <div className="flex items-center justify-between text-xs uppercase tracking-wide text-muted-foreground">
+                    <span>Daily Loss Guard</span>
+                    <span className="font-mono text-foreground">{n(pct, 2)}%</span>
+                  </div>
+                  <div className="mt-2 text-[11px] text-foreground">{label}</div>
+                  {t ? (
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      Soft {n(t.softWarnPercent, 2)}% · Block entries {n(t.blockEntriesPercent, 2)}% · Hard {n(t.hardBlockPercent, 2)}%
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })() : null}
+          </div>
+        ) : null}
+
+        {/* §11.B Last TradingView Webhook Payload */}
+        <div className="rounded-md border bg-muted/30 p-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Last TradingView Webhook Payload</div>
+            {lastWebhook?.received ? (
+              <Badge variant={lastWebhook.tokenValid && lastWebhook.parsedJsonValid ? "outline" : "destructive"}>
+                {lastWebhook.tokenValid && lastWebhook.parsedJsonValid ? "Valid" : "Issue"}
+              </Badge>
+            ) : (
+              <Badge variant="secondary">No payload yet</Badge>
+            )}
+          </div>
+          {!lastWebhook?.received ? (
+            <div className="mt-2 text-xs text-muted-foreground">
+              {lastWebhook?.summary ?? "No TradingView webhook payload has reached this workspace yet."}
+            </div>
+          ) : (
+            <>
+              <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
+                <div>Received: <span className="font-mono text-foreground">{lastWebhook.ageSeconds != null ? `${lastWebhook.ageSeconds}s ago` : "-"}</span></div>
+                <div>Symbol: <span className="font-mono text-foreground">{lastWebhook.symbol ?? "-"}</span></div>
+                <div>Signal: <span className="font-mono text-foreground">{lastWebhook.signal ?? "-"}</span></div>
+                <div>Confidence: <span className="font-mono text-foreground">{n((lastWebhook.confidence ?? 0) * 100, 1)}%</span></div>
+                <div>Timeframe: <span className="font-mono text-foreground">{lastWebhook.timeframe ?? "-"}</span></div>
+                <div>Bar confirmed: <span className="font-mono text-foreground">{lastWebhook.barConfirmed == null ? "-" : lastWebhook.barConfirmed ? "yes" : "no"}</span></div>
+                <div>Token valid: <span className={lastWebhook.tokenValid ? "text-emerald-400" : "text-rose-400"}>{lastWebhook.tokenValid ? "yes" : "no"}</span></div>
+                <div>JSON valid: <span className={lastWebhook.parsedJsonValid ? "text-emerald-400" : "text-rose-400"}>{lastWebhook.parsedJsonValid ? "yes" : "no"}</span></div>
+                <div>Executable: <span className={lastWebhook.executable ? "text-emerald-400" : "text-amber-400"}>{lastWebhook.executable ? "yes" : "no"}</span></div>
+                <div>Duplicate: <span className={lastWebhook.duplicate ? "text-amber-400" : "text-emerald-400"}>{lastWebhook.duplicate ? "yes" : "no"}</span></div>
+                <div>Decision event: <span className="font-mono text-foreground">{lastWebhook.decisionEvent ?? "-"}</span></div>
+                <div>Remote IP: <span className="font-mono text-foreground">{lastWebhook.remoteIp ?? "-"}</span></div>
+              </div>
+              {lastWebhook.rejectedReason ? (
+                <div className="mt-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs">
+                  <span className="font-medium text-rose-300">Rejected reason: </span>
+                  <span className="font-mono">{humanizeCode(lastWebhook.rejectedReason)}</span>
+                </div>
+              ) : null}
+              {lastWebhook.rawBodyPreview ? (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">Raw body preview</summary>
+                  <pre className="mt-2 max-h-48 overflow-auto rounded bg-muted/50 p-2 text-[11px] font-mono">{lastWebhook.rawBodyPreview}</pre>
+                </details>
+              ) : null}
+            </>
+          )}
+        </div>
+
+        {/* §18 Warnings (amber, non-blocking) and Blockers (red) clearly split */}
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+            <div className="text-xs uppercase tracking-wide text-amber-300 mb-1">Warnings (non-blocking)</div>
+            {warnings.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No active warnings.</div>
+            ) : (
+              <ul className="space-y-1 text-xs">
+                {warnings.map((code) => (
+                  <li key={`w-${code}`}>
+                    <span className="font-mono text-amber-200">{humanizeCode(code)}</span>
+                    {code === "ai_trading_disabled" || code === "external_context_disabled" ? (
+                      <span className="text-muted-foreground ml-2">— OK for TradingView webhook mode</span>
+                    ) : null}
+                    {code === "backend_scanner_read_only_webhook_mode" ? (
+                      <span className="text-muted-foreground ml-2">— intentional: webhook is the brain</span>
+                    ) : null}
+                    {(code === "user_stream_not_configured_rest_fallback_active"
+                      || code === "user_stream_stale_rest_fallback_active") ? (
+                      <span className="text-muted-foreground ml-2">— REST polling fallback active</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+            <div className="text-xs uppercase tracking-wide text-destructive mb-1">Blockers (live execution paused)</div>
+            {blockers.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No active blockers. Webhook trades can execute.</div>
+            ) : (
+              <ul className="space-y-1 text-xs">
+                {blockers.map((code) => (
+                  <li key={`b-${code}`}>
+                    <span className="font-mono text-rose-300">{humanizeCode(code)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+
+        {runtimeHealth?.duplicate_workers_detected ? (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-200">
+            Duplicate queue workers detected. Consider running Recover Runtime to clean up.
           </div>
         ) : null}
       </CardContent>

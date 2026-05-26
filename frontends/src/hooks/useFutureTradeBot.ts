@@ -995,6 +995,72 @@ export interface FutureTradeLog {
   occurred_at: string;
 }
 
+export interface FutureTradeBinanceHealth {
+  dns_ok: boolean;
+  rest_ok: boolean;
+  account_ok: boolean;
+  server_time_ok: boolean;
+  last_success_at?: string | null;
+  last_failure_at?: string | null;
+  failure_reason?: string | null;
+  cached_balance_age_seconds?: number | null;
+  cached_position_age_seconds?: number | null;
+  balance_source?: string | null;
+  fresh: boolean;
+}
+
+export interface FutureTradeRuntimeHealth {
+  scheduler: string;
+  queue: string;
+  last_schedule_tick?: string | null;
+  last_queue_job?: string | null;
+  duplicate_workers_detected: boolean;
+  failed_jobs: number;
+  binance_rest: string;
+  webhook_recent: boolean;
+  runtime?: Record<string, unknown> | null;
+}
+
+export interface FutureTradeLastWebhook {
+  received: boolean;
+  summary?: string;
+  receivedAt?: string | null;
+  ageSeconds?: number | null;
+  symbol?: string | null;
+  signal?: string | null;
+  confidence?: number | null;
+  profile?: string | null;
+  timeframe?: string | null;
+  rawBodyPreview?: string | null;
+  parsedJson?: Record<string, unknown>;
+  parseStatus?: string | null;
+  tokenStatus?: string | null;
+  barConfirmed?: boolean | null;
+  remoteIp?: string | null;
+  headersSummary?: Record<string, string>;
+  decisionEvent?: string | null;
+  executable?: boolean;
+  duplicate?: boolean;
+  tokenValid?: boolean;
+  parsedJsonValid?: boolean;
+  rejectedReason?: string | null;
+  finalReason?: string | null;
+  latency?: {
+    t0_received_at?: string | null;
+    validatedMs?: number | null;
+    stateSyncedMs?: number | null;
+    orderPlacedMs?: number | null;
+    totalMs?: number | null;
+  } | null;
+  dailyLossTier?: "ok" | "warn" | "block_entries" | "hard_block" | null;
+  dailyLossPercent?: number;
+  dailyLossThresholds?: {
+    softWarnPercent: number;
+    blockEntriesPercent: number;
+    hardBlockPercent: number;
+  };
+}
+
 export function useFutureTradeBot(workspaceId?: string) {
   const queryClient = useQueryClient();
   const enabled = !!workspaceId;
@@ -1075,6 +1141,30 @@ export function useFutureTradeBot(workspaceId?: string) {
     refetchIntervalInBackground: false,
   });
 
+  const binanceHealth = useQuery({
+    queryKey: ["future-trade", workspaceId, "binance-health"],
+    queryFn: async () => (await api.get<FutureTradeBinanceHealth>(`${base}/binance-health`)).data,
+    enabled,
+    refetchInterval: 10000,
+    refetchIntervalInBackground: false,
+  });
+
+  const runtimeHealth = useQuery({
+    queryKey: ["future-trade", workspaceId, "runtime-health"],
+    queryFn: async () => (await api.get<FutureTradeRuntimeHealth>(`${base}/runtime-health`)).data,
+    enabled,
+    refetchInterval: 10000,
+    refetchIntervalInBackground: false,
+  });
+
+  const lastWebhook = useQuery({
+    queryKey: ["future-trade", workspaceId, "last-webhook"],
+    queryFn: async () => (await api.get<FutureTradeLastWebhook>(`${base}/webhook/last`)).data,
+    enabled,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
+  });
+
   const useAction = (name: string) => useMutation({
     mutationFn: async () => (await api.post(`${base}/${name}`, {})).data,
     onSuccess: invalidate,
@@ -1133,6 +1223,9 @@ export function useFutureTradeBot(workspaceId?: string) {
     logs,
     envConfig,
     liveFeed,
+    binanceHealth,
+    runtimeHealth,
+    lastWebhook,
     updateConfig,
     updateEnvConfig,
     generateTuningPlan,
