@@ -338,6 +338,8 @@ export interface FutureTradeDynamicDecision {
     trailingTakeProfitPercent: number;
     cooldownSeconds: number;
     tradeAmountUsdt: number;
+    leverage?: number;
+    maxLeverage?: number;
   };
   analysis: {
     lookbackMinutes: number;
@@ -1193,8 +1195,18 @@ export function useFutureTradeBot(workspaceId?: string) {
     onSuccess: invalidate,
   });
 
-  const liveFeedAction = (name: "start" | "stop" | "restart") => useMutation({
-    mutationFn: async () => (await api.post<FutureTradeLiveFeedStatus>(`${base}/live-feed/${name}`, {})).data,
+  const startLiveFeed = useMutation({
+    mutationFn: async () => (await api.post<FutureTradeLiveFeedStatus>(`${base}/live-feed/start`, {})).data,
+    onSuccess: invalidate,
+  });
+
+  const stopLiveFeed = useMutation({
+    mutationFn: async () => (await api.post<FutureTradeLiveFeedStatus>(`${base}/live-feed/stop`, {})).data,
+    onSuccess: invalidate,
+  });
+
+  const restartLiveFeed = useMutation({
+    mutationFn: async () => (await api.post<FutureTradeLiveFeedStatus>(`${base}/live-feed/restart`, {})).data,
     onSuccess: invalidate,
   });
 
@@ -1233,9 +1245,9 @@ export function useFutureTradeBot(workspaceId?: string) {
     recover,
     importScript,
     importTrades,
-    startLiveFeed: liveFeedAction("start"),
-    stopLiveFeed: liveFeedAction("stop"),
-    restartLiveFeed: liveFeedAction("restart"),
+    startLiveFeed,
+    stopLiveFeed,
+    restartLiveFeed,
     recoverRuntime,
     start: useAction("start"),
     stop: useAction("stop"),

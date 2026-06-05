@@ -118,7 +118,7 @@ export function useFuturesAnomalies(workspaceId: string | undefined) {
   });
 }
 
-function createWorkspaceMutation(
+function useWorkspaceMutation(
   workspaceId: string | undefined,
   suffix: string,
   successTitle: string,
@@ -146,13 +146,13 @@ function createWorkspaceMutation(
 }
 
 export function useEvaluateFutures(workspaceId: string | undefined) {
-  return createWorkspaceMutation(workspaceId, 'evaluate', 'Futures evaluation complete', 'Futures evaluation failed');
+  return useWorkspaceMutation(workspaceId, 'evaluate', 'Futures evaluation complete', 'Futures evaluation failed');
 }
 
 export function usePlaceFuturesOrder(workspaceId: string | undefined) {
-  return createWorkspaceMutation(workspaceId, 'orders', 'Testnet futures order submitted', 'Futures order failed');
+  return useWorkspaceMutation(workspaceId, 'orders', 'Testnet futures order submitted', 'Futures order failed');
 }
 
 export function useSyncFutures(workspaceId: string | undefined) {
-  return createWorkspaceMutation(workspaceId, 'sync', 'Futures sync complete', 'Futures sync failed');
+  return useWorkspaceMutation(workspaceId, 'sync', 'Futures sync complete', 'Futures sync failed');
 }

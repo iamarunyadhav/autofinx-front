@@ -1124,10 +1124,11 @@ function LatestRuntimeAlert({
 }
 
 function RuntimeDiagnosticsPanel({ diagnostics }: { diagnostics?: FutureTradeDiagnostics }) {
-  if (!diagnostics) return null;
-
   const pruneStale = usePruneStalePendingJobs();
   const restartWorkers = useRestartWorkers();
+
+  if (!diagnostics) return null;
+
   const queueBacklog = Number(diagnostics.server.queue?.queue_backlog ?? 0);
   const queueFailed = Number(diagnostics.server.queue?.failed_jobs ?? 0);
   const queueWarn = Number(diagnostics.server.queue?.warning_threshold ?? 0);
@@ -1483,6 +1484,7 @@ function RiskPanel({ settings, dynamic }: { settings: FutureTradeSettings; dynam
         <Row label="Daily loss limit" value={`${settings.maxDailyLossPercent}%`} />
         <Row label="Active cooldown" value={`${n(active?.cooldownSeconds ?? settings.cooldownSeconds, 0)}s`} />
         <Row label="Active trade size" value={`${n(active?.tradeAmountUsdt ?? settings.tradeAmountUsdt, 2)} USDT`} />
+        <Row label="Active leverage" value={`${n(active?.leverage ?? settings.leverage, 0)}x`} />
         <Row label="Max leverage" value={`${settings.maxLeverage}x`} />
       </CardContent>
     </Card>
@@ -1549,6 +1551,11 @@ function DynamicSuggestionPanel({ dynamic, onApplyRecommendation, onRestoreManua
 
 function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettings, notes, setNotes, availableSymbols, onSave, busy }: { envMode: FutureTradeEnvConfig["mode"]; status?: { dailyLossLocked?: boolean; manualRestartAllowed?: boolean; activeMinConfidence?: number | null } | null; debug?: FutureTradeDashboard["signalDebug"] | null; intelligence?: FutureTradeDashboard["indicatorIntelligence"] | null; settings: FutureTradeSettings; setSettings: (settings: FutureTradeSettings) => void; notes: string; setNotes: (value: string) => void; availableSymbols: string[]; onSave: () => void; busy: boolean }) {
   const update = <K extends keyof FutureTradeSettings>(key: K, value: FutureTradeSettings[K]) => setSettings({ ...settings, [key]: value });
+  const updateLeverage = (value: number) => setSettings({
+    ...settings,
+    leverage: value,
+    maxLeverage: Math.max(Number(settings.maxLeverage ?? 1), value),
+  });
   const isPrimeProfile = settings.signalProfile === "autofinx_prime_v6_1_7_crypto" && String(settings.marketProfile ?? "Crypto").toLowerCase() === "crypto";
   const selectedSymbols = normalizeList(settings.symbols, DEFAULT_SETTINGS.symbols);
   const recoveryMode = Boolean(status?.dailyLossLocked);
@@ -1829,8 +1836,9 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
                   </Button>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Leverage"><Input type="number" min={1} max={125} step="1" value={Number(settings.leverage ?? 2)} onChange={(e) => updateLeverage(Number(e.target.value))} /></Field>
                   <Field label="Trade size USDT"><Input type="number" step="1" value={Number(settings.tradeAmountUsdt ?? 10)} onChange={(e) => update("tradeAmountUsdt", Number(e.target.value))} /></Field>
-                  <Field label="Max leverage"><Input type="number" step="1" value={Number(settings.maxLeverage ?? 2)} onChange={(e) => update("maxLeverage", Number(e.target.value))} /></Field>
+                  <Field label="Max leverage"><Input type="number" min={1} max={125} step="1" value={Number(settings.maxLeverage ?? 2)} onChange={(e) => update("maxLeverage", Math.max(Number(e.target.value), Number(settings.leverage ?? 1)))} /></Field>
                   <Field label="Stop loss %"><Input type="number" step="0.01" value={Number(settings.stopLossPercent ?? 0.25)} onChange={(e) => update("stopLossPercent", Number(e.target.value))} /></Field>
                   <Field label="Rollback loss %"><Input type="number" step="0.01" value={Number(settings.rollbackLossPercent ?? 0.15)} onChange={(e) => update("rollbackLossPercent", Number(e.target.value))} /></Field>
                   <Field label="Take profit %"><Input type="number" step="0.01" value={Number(settings.takeProfitPercent ?? 0.5)} onChange={(e) => update("takeProfitPercent", Number(e.target.value))} /></Field>

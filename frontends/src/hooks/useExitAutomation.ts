@@ -115,7 +115,7 @@ export function useExitEvents(workspaceId: string | undefined) {
   });
 }
 
-function createPositionMutation(
+function usePositionMutation(
   workspaceId: string | undefined,
   pathBuilder: (positionId: string) => string,
   successTitle: string,
@@ -141,21 +141,21 @@ function createPositionMutation(
 }
 
 export function useArmManagedPosition(workspaceId: string | undefined) {
-  return createPositionMutation(workspaceId, (positionId) => `/live/positions/${positionId}/exit/arm`, 'Exit automation armed', 'Failed to arm exit automation');
+  return usePositionMutation(workspaceId, (positionId) => `/live/positions/${positionId}/exit/arm`, 'Exit automation armed', 'Failed to arm exit automation');
 }
 
 export function usePauseManagedPosition(workspaceId: string | undefined) {
-  return createPositionMutation(workspaceId, (positionId) => `/live/positions/${positionId}/exit/pause`, 'Exit automation paused', 'Failed to pause exit automation');
+  return usePositionMutation(workspaceId, (positionId) => `/live/positions/${positionId}/exit/pause`, 'Exit automation paused', 'Failed to pause exit automation');
 }
 
 export function useResumeManagedPosition(workspaceId: string | undefined) {
-  return createPositionMutation(workspaceId, (positionId) => `/live/positions/${positionId}/exit/resume`, 'Exit automation resumed', 'Failed to resume exit automation');
+  return usePositionMutation(workspaceId, (positionId) => `/live/positions/${positionId}/exit/resume`, 'Exit automation resumed', 'Failed to resume exit automation');
 }
 
 export function useEvaluateManagedPosition(workspaceId: string | undefined) {
-  return createPositionMutation(workspaceId, (positionId) => `/live/positions/${positionId}/exit/evaluate`, 'Exit evaluation completed', 'Exit evaluation failed');
+  return usePositionMutation(workspaceId, (positionId) => `/live/positions/${positionId}/exit/evaluate`, 'Exit evaluation completed', 'Exit evaluation failed');
 }
 
 export function useFlattenManagedPosition(workspaceId: string | undefined) {
-  return createPositionMutation(workspaceId, (positionId) => `/live/positions/${positionId}/exit/flatten`, 'Protective flatten submitted', 'Failed to flatten position');
+  return usePositionMutation(workspaceId, (positionId) => `/live/positions/${positionId}/exit/flatten`, 'Protective flatten submitted', 'Failed to flatten position');
 }

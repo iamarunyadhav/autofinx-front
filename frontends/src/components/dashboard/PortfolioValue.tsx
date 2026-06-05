@@ -70,8 +70,8 @@ export function PortfolioValue() {
       const useStable = currency === 'USD' || currency === 'USDT';
       const manualFallback = fallbackPrices[currency];
 
-      let priceUsed = useStable ? 1 : realtimePrice || manualFallback || 0;
-      let source: 'live' | 'fallback' | 'manual' = realtimePrice ? 'live' : manualFallback ? 'manual' : 'fallback';
+      const priceUsed = useStable ? 1 : realtimePrice || manualFallback || 0;
+      const source: 'live' | 'fallback' | 'manual' = realtimePrice ? 'live' : manualFallback ? 'manual' : 'fallback';
 
       const usdValue = (Number(balance.balance) || 0) * priceUsed;
       const change24h = symbol ? prices[symbol]?.change24hPercent || 0 : 0;
