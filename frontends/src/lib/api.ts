@@ -2,10 +2,24 @@ import { authHeaders } from './auth';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
 
-export async function authorizedFetch(path: string, method: string = 'GET', body?: unknown) {
+type RequestOptions = {
+  params?: Record<string, unknown>;
+};
+
+function buildUrl(path: string, options?: RequestOptions) {
+  const url = new URL(`${API_BASE}${path}`);
+  Object.entries(options?.params || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    url.searchParams.set(key, String(value));
+  });
+
+  return url.toString();
+}
+
+export async function authorizedFetch(path: string, method: string = 'GET', body?: unknown, options?: RequestOptions) {
   const headers: Record<string, string> = await authHeaders();
 
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(buildUrl(path, options), {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -28,14 +42,14 @@ function normalizePath(path: string) {
   return path.startsWith('/') ? path : `/${path}`;
 }
 
-async function apiRequest<T>(path: string, method: string, body?: unknown): Promise<ApiResponse<T>> {
-  const data = await authorizedFetch(normalizePath(path), method, body);
+async function apiRequest<T>(path: string, method: string, body?: unknown, options?: RequestOptions): Promise<ApiResponse<T>> {
+  const data = await authorizedFetch(normalizePath(path), method, body, options);
   return { data: data as T };
 }
 
 export const api = {
-  get<T>(path: string) {
-    return apiRequest<T>(path, 'GET');
+  get<T>(path: string, options?: RequestOptions) {
+    return apiRequest<T>(path, 'GET', undefined, options);
   },
   post<T>(path: string, body?: any) {
     return apiRequest<T>(path, 'POST', body);
