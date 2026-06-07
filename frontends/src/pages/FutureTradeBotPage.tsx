@@ -536,10 +536,10 @@ export default function FutureTradeBotPage() {
     ? (diagnostics?.webhook?.symbol ?? status?.currentSymbol ?? fastBestSignal?.symbol ?? null)
     : (fastBestSignal?.symbol ?? status?.currentSymbol ?? null);
   const displaySignalConfidence = webhookAuthority
-    ? (status?.confidence ?? diagnostics?.tradeEligibility?.bestConfidence ?? 0)
+    ? (diagnostics?.tradeEligibility?.bestConfidence ?? fastBestSignal?.confidence ?? status?.confidence ?? 0)
     : (fastBestSignal?.confidence ?? status?.confidence ?? 0);
   const displaySignalMinimum = webhookAuthority
-    ? (status?.activeMinConfidence ?? diagnostics?.tradeEligibility?.activeMinimum ?? settings.minConfidence)
+    ? (diagnostics?.tradeEligibility?.activeMinimum ?? fastBestSignal?.effectiveMinConfidence ?? status?.activeMinConfidence ?? settings.minConfidence)
     : (fastBestSignal?.effectiveMinConfidence ?? status?.activeMinConfidence ?? settings.minConfidence);
 
   const runRecovery = (action: "auto" | "sync_state" | "cancel_reduce_only") => {
