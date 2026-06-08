@@ -1068,10 +1068,11 @@ export function useFutureTradeBot(workspaceId?: string) {
   const enabled = !!workspaceId;
   const base = `/workspaces/${workspaceId}/future-trade`;
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["future-trade", workspaceId] });
+  const liveParams = () => ({ _live: Date.now() });
 
   const dashboard = useQuery({
     queryKey: ["future-trade", workspaceId, "dashboard"],
-    queryFn: async () => (await api.get<FutureTradeDashboard>(`${base}/dashboard`)).data,
+    queryFn: async () => (await api.get<FutureTradeDashboard>(`${base}/dashboard`, { params: liveParams() })).data,
     enabled,
     refetchInterval: FUTURE_TRADE_LIVE_REFRESH_MS,
     refetchIntervalInBackground: false,
@@ -1080,7 +1081,7 @@ export function useFutureTradeBot(workspaceId?: string) {
 
   const liveStatus = useQuery({
     queryKey: ["future-trade", workspaceId, "live-status"],
-    queryFn: async () => (await api.get<FutureTradeLiveStatusLight>(`${base}/live-status`)).data,
+    queryFn: async () => (await api.get<FutureTradeLiveStatusLight>(`${base}/live-status`, { params: liveParams() })).data,
     enabled,
     refetchInterval: FUTURE_TRADE_LIVE_REFRESH_MS,
     refetchIntervalInBackground: false,
@@ -1088,7 +1089,7 @@ export function useFutureTradeBot(workspaceId?: string) {
 
   const scannerSnapshot = useQuery({
     queryKey: ["future-trade", workspaceId, "scanner-snapshot"],
-    queryFn: async () => (await api.get<FutureTradeScannerSnapshot>(`${base}/scanner-snapshot`)).data,
+    queryFn: async () => (await api.get<FutureTradeScannerSnapshot>(`${base}/scanner-snapshot`, { params: liveParams() })).data,
     enabled,
     refetchInterval: FUTURE_TRADE_LIVE_REFRESH_MS,
     refetchIntervalInBackground: false,
@@ -1098,6 +1099,7 @@ export function useFutureTradeBot(workspaceId?: string) {
     queryKey: ["future-trade", workspaceId, "chart", dashboard.data?.marketChart?.symbol, dashboard.data?.marketChart?.timeframe],
     queryFn: async () => (await api.get<FutureTradeMarketChart>(`${base}/chart`, {
       params: {
+        ...liveParams(),
         symbol: dashboard.data?.marketChart?.symbol,
         timeframe: dashboard.data?.marketChart?.timeframe,
       },

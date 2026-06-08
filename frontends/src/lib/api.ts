@@ -23,6 +23,7 @@ export async function authorizedFetch(path: string, method: string = 'GET', body
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
+    cache: method === 'GET' ? 'no-store' : 'default',
   });
 
   const raw = await response.text();
