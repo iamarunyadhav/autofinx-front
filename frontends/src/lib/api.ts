@@ -1,13 +1,22 @@
 import { authHeaders } from './auth';
+import { getApiBaseUrl } from './api-base';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+const DEFAULT_API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
 
 type RequestOptions = {
   params?: Record<string, unknown>;
 };
 
+function stripTrailingSlash(value: string) {
+  return value.replace(/\/+$/, '');
+}
+
+function apiBase() {
+  return stripTrailingSlash(getApiBaseUrl() || DEFAULT_API_BASE);
+}
+
 function buildUrl(path: string, options?: RequestOptions) {
-  const url = new URL(`${API_BASE}${path}`);
+  const url = new URL(`${apiBase()}${path}`);
   Object.entries(options?.params || {}).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
     url.searchParams.set(key, String(value));
@@ -18,12 +27,18 @@ function buildUrl(path: string, options?: RequestOptions) {
 
 export async function authorizedFetch(path: string, method: string = 'GET', body?: unknown, options?: RequestOptions) {
   const headers: Record<string, string> = await authHeaders();
+  const isGet = method.toUpperCase() === 'GET';
+
+  if (isGet) {
+    headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+    headers.Pragma = 'no-cache';
+  }
 
   const response = await fetch(buildUrl(path, options), {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
-    cache: method === 'GET' ? 'no-store' : 'default',
+    cache: isGet ? 'no-store' : 'default',
   });
 
   const raw = await response.text();
