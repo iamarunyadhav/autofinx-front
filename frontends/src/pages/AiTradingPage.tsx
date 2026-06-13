@@ -511,50 +511,65 @@ export default function AiTradingPage() {
                         <TableHead>Status</TableHead>
                         <TableHead>Provider</TableHead>
                         <TableHead>Confidence</TableHead>
+                        <TableHead>Min / Gap</TableHead>
                         <TableHead>Created</TableHead>
                         <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {decisions.map((decision) => (
-                        <TableRow key={decision.id} className="cursor-pointer" onClick={() => setSelectedDecisionId(decision.id)}>
-                          <TableCell>{decision.symbol}</TableCell>
-                          <TableCell>{decision.action || '-'}</TableCell>
-                          <TableCell><StatusBadge status={decision.final_status} /></TableCell>
-                          <TableCell>{decision.provider_name || '-'}</TableCell>
-                          <TableCell>{decision.confidence ?? '-'}</TableCell>
-                          <TableCell>{decision.created_at}</TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                disabled={decision.final_status !== 'pending_approval' || approveDecision.isPending}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  approveDecision.mutate({ decisionId: decision.id, executeNow });
-                                }}
-                              >
-                                Approve
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                disabled={decision.final_status !== 'pending_approval' || rejectDecision.isPending}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  rejectDecision.mutate({
-                                    decisionId: decision.id,
-                                    reason: approvalNotes[decision.id] || 'operator_rejected',
-                                  });
-                                }}
-                              >
-                                Reject
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {decisions.map((decision) => {
+                        const confidence = numericOrNull(decision.confidence);
+                        const activeMin = decisionMinConfidence(decision, config?.min_confidence);
+                        const gap = confidence !== null && activeMin !== null ? confidence - activeMin : null;
+
+                        return (
+                          <TableRow key={decision.id} className="cursor-pointer" onClick={() => setSelectedDecisionId(decision.id)}>
+                            <TableCell>{decision.symbol}</TableCell>
+                            <TableCell>{decision.action || '-'}</TableCell>
+                            <TableCell><StatusBadge status={decision.final_status} /></TableCell>
+                            <TableCell>{decision.provider_name || '-'}</TableCell>
+                            <TableCell>{formatPercent(confidence)}</TableCell>
+                            <TableCell>
+                              <div className="font-mono text-xs">
+                                <div>{formatPercent(activeMin)}</div>
+                                <div className={gap !== null && gap < 0 ? 'text-destructive' : 'text-muted-foreground'}>
+                                  {gap === null ? '-' : `${gap >= 0 ? '+' : ''}${formatPercent(gap)}`}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>{decision.created_at}</TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled={decision.final_status !== 'pending_approval' || approveDecision.isPending}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    approveDecision.mutate({ decisionId: decision.id, executeNow });
+                                  }}
+                                >
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  disabled={decision.final_status !== 'pending_approval' || rejectDecision.isPending}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    rejectDecision.mutate({
+                                      decisionId: decision.id,
+                                      reason: approvalNotes[decision.id] || 'operator_rejected',
+                                    });
+                                  }}
+                                >
+                                  Reject
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 )}
@@ -693,6 +708,24 @@ function splitCsv(value: string): string[] {
 function numberOrNull(value: string): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function numericOrNull(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function decisionMinConfidence(decision: { policy_result_json?: Record<string, any> | null }, fallback?: number | null): number | null {
+  return numericOrNull(
+    decision.policy_result_json?.min_confidence
+      ?? decision.policy_result_json?.active_min_confidence
+      ?? fallback
+  );
+}
+
+function formatPercent(value: number | null): string {
+  if (value === null) return '-';
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 function intOrZero(value: string): number {

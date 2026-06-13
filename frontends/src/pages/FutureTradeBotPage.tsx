@@ -1293,7 +1293,7 @@ function RuntimeDiagnosticsPanel({ diagnostics }: { diagnostics?: FutureTradeDia
 
         {(diagnostics.server.blockers.length > 0 || diagnostics.server.warnings.length > 0) ? (
           <div className="space-y-2">
-            <div className="text-sm font-medium">Server blockers and warnings</div>
+            <div className="text-sm font-medium">Server safety signals</div>
             <div className="flex flex-wrap gap-2">
               {diagnostics.server.blockers.map((item) => <Badge key={`b-${item}`} variant="destructive">{humanizeCode(item)}</Badge>)}
               {diagnostics.server.warnings.map((item) => <Badge key={`w-${item}`} variant="secondary">{humanizeCode(item)}</Badge>)}
