@@ -206,6 +206,29 @@ export default function RobotTradingPage() {
     });
   };
 
+  // Testnet vs Live both run in live mode; they differ only by which exchange
+  // integration (environment) is selected. Resolve each from the connected
+  // integrations so the 3-way switch points the wallet at the right credentials.
+  const integrationsForProvider = (tradingState?.active_integrations ?? []).filter(
+    (integration) => integration.provider_key === selectedProvider
+  );
+  const testnetIntegration = integrationsForProvider.find((i) => (i.environment ?? "live") === "testnet");
+  const liveIntegration = integrationsForProvider.find((i) => (i.environment ?? "live") === "live");
+  const currentEnv: "paper" | "testnet" | "live" =
+    activeMode !== "live" ? "paper" : (tradingState?.exchange_environment ?? "live") === "testnet" ? "testnet" : "live";
+
+  const setTradeEnv = (env: "paper" | "testnet" | "live") => {
+    if (env === "paper") {
+      updateMode("paper");
+      return;
+    }
+    const integration = env === "testnet" ? testnetIntegration : liveIntegration;
+    if (!integration) return; // button is disabled when missing
+    setSelectedProvider(selectedProvider);
+    setSelectedIntegrationId(integration.id);
+    updateMode("live", selectedProvider, integration.id);
+  };
+
   const createRobot = async () => {
     if (!workspaceId) return;
 
@@ -264,7 +287,7 @@ export default function RobotTradingPage() {
               <div>
                 <div className="text-sm uppercase tracking-[0.28em] text-slate-500">Robot trading</div>
                 <div className="mt-2 text-3xl font-semibold">
-                  {activeMode === "live" ? "Live wallet" : "Paper balance"} {selectedBalance?.currency ?? "USD"} {balance.toFixed(2)}
+                  {currentEnv === "live" ? "Live wallet" : currentEnv === "testnet" ? "Testnet wallet" : "Paper balance"} {selectedBalance?.currency ?? "USD"} {balance.toFixed(2)}
                 </div>
                 <div className="mt-2 text-sm text-slate-400">
                   {activeMode === "live"
@@ -278,8 +301,8 @@ export default function RobotTradingPage() {
                   PnL {sessionPnl >= 0 ? "+" : ""}
                   {sessionPnl.toFixed(2)}
                 </Badge>
-                <Badge className={activeMode === "live" ? "bg-emerald-500/10 text-emerald-300" : "bg-slate-500/10 text-slate-300"}>
-                  {activeMode.toUpperCase()}
+                <Badge className={currentEnv === "live" ? "bg-emerald-500/10 text-emerald-300" : currentEnv === "testnet" ? "bg-amber-500/10 text-amber-300" : "bg-slate-500/10 text-slate-300"}>
+                  {currentEnv.toUpperCase()}
                 </Badge>
                 <Badge className="bg-blue-500/10 text-blue-300">{selectedProvider.toUpperCase()}</Badge>
               </div>
@@ -288,24 +311,39 @@ export default function RobotTradingPage() {
             <div className="mt-4 grid gap-3 md:grid-cols-3">
               <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">
                 <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Mode</div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <Button
                     variant="ghost"
-                    className={activeMode === "paper" ? "bg-slate-100 text-slate-950 hover:bg-slate-200" : "bg-slate-950 text-slate-300"}
+                    className={currentEnv === "paper" ? "bg-slate-100 text-slate-950 hover:bg-slate-200" : "bg-slate-950 text-slate-300"}
                     disabled={updateTradingSettings.isPending}
-                    onClick={() => updateMode("paper")}
+                    onClick={() => setTradeEnv("paper")}
                   >
                     Paper
                   </Button>
                   <Button
                     variant="ghost"
-                    className={activeMode === "live" ? "bg-emerald-500 text-slate-950 hover:bg-emerald-400" : "bg-slate-950 text-slate-300"}
-                    disabled={updateTradingSettings.isPending}
-                    onClick={() => updateMode("live")}
+                    title={testnetIntegration ? "" : "Connect a Binance testnet key in Connections first"}
+                    className={currentEnv === "testnet" ? "bg-amber-400 text-slate-950 hover:bg-amber-300" : "bg-slate-950 text-slate-300"}
+                    disabled={updateTradingSettings.isPending || !testnetIntegration}
+                    onClick={() => setTradeEnv("testnet")}
+                  >
+                    Testnet
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    title={liveIntegration ? "" : "Connect a Binance live key in Connections first"}
+                    className={currentEnv === "live" ? "bg-emerald-500 text-slate-950 hover:bg-emerald-400" : "bg-slate-950 text-slate-300"}
+                    disabled={updateTradingSettings.isPending || !liveIntegration}
+                    onClick={() => setTradeEnv("live")}
                   >
                     Live
                   </Button>
                 </div>
+                {currentEnv !== "paper" && (
+                  <div className="mt-2 text-[11px] text-slate-500">
+                    {currentEnv === "testnet" ? "Binance testnet — practice funds." : "Binance live — real funds."}
+                  </div>
+                )}
               </div>
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">

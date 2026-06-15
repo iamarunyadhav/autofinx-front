@@ -59,6 +59,7 @@ export interface QuickTradeMetadata {
     preferred_integration_id?: string | null;
     preferred_integration_label?: string | null;
     venue_environment?: string | null;
+    exchange_environment?: string | null;
     live_ready: boolean;
     live_ready_reason?: string | null;
     active_integrations: Array<{
@@ -67,6 +68,7 @@ export interface QuickTradeMetadata {
       display_name: string;
       status: string;
       last_health_status?: string | null;
+      environment?: string | null;
       config_json?: Record<string, unknown>;
     }>;
     provider_catalog: Record<

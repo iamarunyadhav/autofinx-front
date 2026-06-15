@@ -252,7 +252,8 @@ export function AddConnectionModal({
                   <div className="space-y-0.5">
                     <FormLabel>Testnet Mode</FormLabel>
                     <FormDescription className="text-xs">
-                      Use testnet/sandbox environment for paper trading
+                      ON = Binance testnet (practice). OFF = live (real funds). Live and testnet
+                      are saved as separate connections — add one of each to switch in Robot Trade.
                     </FormDescription>
                   </div>
                   <FormControl>
