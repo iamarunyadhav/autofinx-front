@@ -154,11 +154,19 @@ export default function RobotTradingPage() {
   const liveStats = liveStatsQuery.data ?? null;
   const livePosition = liveStats?.position ?? null;
 
+  // The chart follows a selected candle session when there is one; otherwise it
+  // shows a live preview of the symbol/timeframe currently being configured so a
+  // graph is always visible while setting up a candle-direction bot.
+  const formPreviewActive = !isCandleBot && botMode === "candle_direction" && Boolean(symbol);
+  const chartEnabled = isCandleBot || formPreviewActive;
+  const chartSymbol = isCandleBot ? (selectedSession?.symbol ?? "") : symbol;
+  const chartTimeframe = isCandleBot ? (selectedSession?.timeframe ?? "1m") : timeframe;
+
   const feed = useRobotCandleFeed(
-    selectedSession?.symbol ?? "",
-    selectedSession?.timeframe ?? "1m",
-    Boolean(selectedSession) && isCandleBot,
-    selectedSessionId,
+    chartSymbol,
+    chartTimeframe,
+    chartEnabled,
+    isCandleBot ? selectedSessionId : undefined,
   );
 
   const takeProfitPrice = useMemo(() => {
@@ -610,14 +618,15 @@ export default function RobotTradingPage() {
             </Card>
 
             <div className="space-y-6">
-              {selectedSession && isCandleBot && (
+              {chartEnabled && (
                 <Card className="border-slate-800 bg-slate-950 text-slate-50">
                   <CardHeader>
                     <CardTitle className="flex items-center justify-between">
                       <span>
-                        {selectedSession.symbol.replaceAll("_", " ")} · {selectedSession.timeframe}
+                        {chartSymbol.replaceAll("_", " ")} · {chartTimeframe}
                       </span>
                       <div className="flex items-center gap-2">
+                        {!isCandleBot && <Badge className="bg-slate-700/40 text-slate-300">PREVIEW</Badge>}
                         <Badge className={feed.connected ? "bg-emerald-500/10 text-emerald-300" : "bg-slate-500/10 text-slate-300"}>
                           {feed.connected ? `LIVE · ${feed.latencyMs}ms` : "CONNECTING"}
                         </Badge>
