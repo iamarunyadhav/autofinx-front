@@ -114,6 +114,42 @@ export function useRobotCandleFeed(
       reconnectTimer = setTimeout(connect, delay);
     };
 
+    // Seed the chart with recent history so it isn't blank until the live WS
+    // ticks in. The kline WS only streams the currently-forming candle; without
+    // a history snapshot the chart shows nothing.
+    const seedBinanceHistory = async () => {
+      try {
+        const interval = toBinanceInterval(timeframe);
+        const resp = await fetch(
+          `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol.toUpperCase()}&interval=${interval}&limit=200`,
+        );
+        if (!resp.ok) return;
+        const rows: any[] = await resp.json();
+        const seeded: CandleData[] = rows.map((r) => ({
+          time: Math.floor(Number(r[0]) / 1000),
+          open: Number(r[1]),
+          high: Number(r[2]),
+          low: Number(r[3]),
+          close: Number(r[4]),
+          volume: Number(r[5]),
+          isClosed: true,
+        }));
+        if (!stopped && seeded.length) {
+          // Keep any live candles that may have already arrived.
+          seeded.forEach((c) => {
+            candlesRef.current = upsertCandle(candlesRef.current, c);
+          });
+          setState((s) => ({
+            ...s,
+            candles: candlesRef.current,
+            currentCandle: candlesRef.current[candlesRef.current.length - 1] ?? null,
+          }));
+        }
+      } catch {
+        /* history is best-effort; live WS still drives updates */
+      }
+    };
+
     // ---- Binance direct WebSocket (crypto) ----
     const connectBinance = () => {
       if (stopped) return;
@@ -125,6 +161,7 @@ export function useRobotCandleFeed(
       ws.onopen = () => {
         attempt = 0;
         setState((s) => ({ ...s, connected: true, source: "binance" }));
+        void seedBinanceHistory();
       };
       ws.onmessage = (event) => {
         try {
