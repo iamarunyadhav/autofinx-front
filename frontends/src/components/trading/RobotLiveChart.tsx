@@ -8,10 +8,17 @@ import {
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
+  type SeriesMarker,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
 import type { CandleData } from "@/hooks/useRobotCandleFeed";
+
+export interface ChartMarker {
+  time: number; // unix seconds
+  side: "BUY" | "SELL";
+  text?: string;
+}
 
 interface RobotLiveChartProps {
   candles: CandleData[];
@@ -19,6 +26,9 @@ interface RobotLiveChartProps {
   stopPrice?: number | null;
   takeProfitPrice?: number | null;
   side?: "BUY" | "SELL" | null;
+  markers?: ChartMarker[];
+  /** Live unrealized PnL overlay shown on top of the chart. */
+  pnl?: { side: "BUY" | "SELL"; pct: number; value: number } | null;
   height?: number;
 }
 
@@ -40,6 +50,8 @@ export function RobotLiveChart({
   stopPrice,
   takeProfitPrice,
   side,
+  markers,
+  pnl,
   height = 360,
 }: RobotLiveChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -138,5 +150,36 @@ export function RobotLiveChart({
     sync("tp", takeProfitPrice, "#22c55e", "Take profit");
   }, [entryPrice, stopPrice, takeProfitPrice, side]);
 
-  return <div ref={containerRef} className="w-full" style={{ height }} />;
+  // Buy / sell entry markers.
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+    const mapped: SeriesMarker<Time>[] = (markers ?? []).map((m) => ({
+      time: m.time as UTCTimestamp,
+      position: m.side === "BUY" ? "belowBar" : "aboveBar",
+      color: m.side === "BUY" ? "#10b981" : "#f43f5e",
+      shape: m.side === "BUY" ? "arrowUp" : "arrowDown",
+      text: m.text ?? m.side,
+    }));
+    series.setMarkers(mapped);
+  }, [markers]);
+
+  const pnlUp = (pnl?.pct ?? 0) >= 0;
+
+  return (
+    <div className="relative w-full" style={{ height }}>
+      <div ref={containerRef} className="h-full w-full" />
+      {pnl && (
+        <div
+          className={`pointer-events-none absolute left-3 top-3 rounded-lg px-3 py-1.5 text-sm font-semibold backdrop-blur ${
+            pnlUp ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300"
+          }`}
+        >
+          {pnl.side === "BUY" ? "LONG" : "SHORT"} {pnlUp ? "+" : ""}
+          {pnl.pct.toFixed(2)}% ({pnlUp ? "+" : ""}
+          {pnl.value.toFixed(2)})
+        </div>
+      )}
+    </div>
+  );
 }

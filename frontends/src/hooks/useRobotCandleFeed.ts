@@ -92,6 +92,7 @@ export function useRobotCandleFeed(
 
     let stopped = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
     let attempt = 0;
     let activeWs: WebSocket | null = null;
     let activeController: AbortController | null = null;
@@ -260,8 +261,42 @@ export function useRobotCandleFeed(
       })();
     };
 
+    // REST poll fallback (crypto): keeps the chart moving every few seconds even
+    // when the Binance WebSocket is blocked/flaky. WS still drives sub-second
+    // updates when available; this guarantees real-time-ish movement regardless.
+    const pollBinance = async () => {
+      if (stopped) return;
+      try {
+        const interval = toBinanceInterval(timeframe);
+        const resp = await fetch(
+          `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol.toUpperCase()}&interval=${interval}&limit=2`,
+        );
+        if (!resp.ok) return;
+        const rows: any[] = await resp.json();
+        rows.forEach((r, i) =>
+          apply(
+            {
+              time: Math.floor(Number(r[0]) / 1000),
+              open: Number(r[1]),
+              high: Number(r[2]),
+              low: Number(r[3]),
+              close: Number(r[4]),
+              volume: Number(r[5]),
+              isClosed: i < rows.length - 1,
+            },
+            0,
+          ),
+        );
+        setState((s) => ({ ...s, connected: true, source: s.source ?? "binance" }));
+      } catch {
+        /* ignore — WS or next poll will refresh */
+      }
+    };
+
     if (isCryptoSymbol(symbol)) {
       connectBinance();
+      void seedBinanceHistory();
+      pollTimer = setInterval(pollBinance, 3000);
     } else {
       connectSse();
     }
@@ -269,6 +304,7 @@ export function useRobotCandleFeed(
     return () => {
       stopped = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (pollTimer) clearInterval(pollTimer);
       activeWs?.close();
       activeController?.abort();
     };

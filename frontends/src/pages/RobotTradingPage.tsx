@@ -178,6 +178,19 @@ export default function RobotTradingPage() {
       : livePosition.entry_price * (1 + pct);
   }, [livePosition, selectedSession?.take_profit_pct]);
 
+  // Entry marker (snapped to the nearest candle) + live PnL overlay for the chart.
+  const chartMarkers = useMemo(() => {
+    if (!livePosition?.active_since) return [];
+    const entrySec = Math.floor(new Date(livePosition.active_since).getTime() / 1000);
+    const earlier = feed.candles.filter((c) => c.time <= entrySec).map((c) => c.time);
+    const markerTime = earlier.length ? earlier[earlier.length - 1] : entrySec;
+    return [{ time: markerTime, side: livePosition.side, text: `${livePosition.side} @ ${livePosition.entry_price}` }];
+  }, [livePosition, feed.candles]);
+
+  const chartPnl = livePosition
+    ? { side: livePosition.side, pct: livePosition.unrealized_pct, value: livePosition.unrealized_pnl }
+    : null;
+
   const recentTrades = sessionStatus.data?.recent_trades ?? [];
   const strategyProfiles = metadata?.robot_trade.strategy_profiles ?? [];
   const runtimeBadgeTone =
@@ -701,6 +714,8 @@ export default function RobotTradingPage() {
                       entryPrice={livePosition?.entry_price ?? null}
                       stopPrice={livePosition?.stop_price ?? null}
                       takeProfitPrice={takeProfitPrice}
+                      markers={chartMarkers}
+                      pnl={chartPnl}
                     />
 
                     {livePosition ? (
