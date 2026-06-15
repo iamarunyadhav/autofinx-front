@@ -17,12 +17,16 @@ import { useQuickTradeMetadata, useSettleQuickTrades } from "@/hooks/useQuickTra
 import {
   useCreateRobotSession,
   useEvaluateRobotSession,
+  useForceCloseSession,
   usePauseRobotSession,
+  useRobotLiveStats,
   useRobotSessions,
   useRobotSessionStatus,
   useStartRobotSession,
   useStopRobotSession,
 } from "@/hooks/useRobotTrading";
+import { useRobotCandleFeed } from "@/hooks/useRobotCandleFeed";
+import { RobotLiveChart } from "@/components/trading/RobotLiveChart";
 
 export default function RobotTradingPage() {
   const { currentWorkspace } = useWorkspace();
@@ -59,6 +63,13 @@ export default function RobotTradingPage() {
   const [indicatorSet, setIndicatorSet] = useState<string[]>(["RSI", "MACD"]);
   const [selectedProvider, setSelectedProvider] = useState("binance");
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("auto");
+  const [botMode, setBotMode] = useState<"candle_direction" | "timed_expiry">("candle_direction");
+  const [stopLossPct, setStopLossPct] = useState(20);
+  const [takeProfitPct, setTakeProfitPct] = useState<number | "">("");
+  const [multiSymbol, setMultiSymbol] = useState(false);
+  const [selectedSymbols, setSelectedSymbols] = useState<string[]>([]);
+
+  const forceClose = useForceCloseSession();
 
   const tradingState = metadata?.trading_state;
   const activeMode = tradingState?.mode ?? "paper";
@@ -137,6 +148,27 @@ export default function RobotTradingPage() {
   }, [activeMode, balances, selectedIntegrationId, selectedProvider]);
   const balance = Number(selectedBalance?.available ?? selectedBalance?.balance ?? 0);
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
+  const isCandleBot = (selectedSession?.bot_mode ?? "timed_expiry") === "candle_direction";
+
+  const liveStatsQuery = useRobotLiveStats(selectedSessionId, isCandleBot);
+  const liveStats = liveStatsQuery.data ?? null;
+  const livePosition = liveStats?.position ?? null;
+
+  const feed = useRobotCandleFeed(
+    selectedSession?.symbol ?? "",
+    selectedSession?.timeframe ?? "1m",
+    Boolean(selectedSession) && isCandleBot,
+    selectedSessionId,
+  );
+
+  const takeProfitPrice = useMemo(() => {
+    if (!livePosition || !selectedSession?.take_profit_pct) return null;
+    const pct = Number(selectedSession.take_profit_pct) / 100;
+    return livePosition.side === "SELL"
+      ? livePosition.entry_price * (1 - pct)
+      : livePosition.entry_price * (1 + pct);
+  }, [livePosition, selectedSession?.take_profit_pct]);
+
   const recentTrades = sessionStatus.data?.recent_trades ?? [];
   const strategyProfiles = metadata?.robot_trade.strategy_profiles ?? [];
   const runtimeBadgeTone =
@@ -166,12 +198,10 @@ export default function RobotTradingPage() {
     });
   };
 
-  const createRobot = () => {
+  const createRobot = async () => {
     if (!workspaceId) return;
 
-    createSession.mutate({
-      name,
-      symbol,
+    const basePayload = {
       timeframe,
       expiry_seconds: expirySeconds,
       indicator_set: indicatorSet,
@@ -185,7 +215,28 @@ export default function RobotTradingPage() {
       risk_profile_id: riskProfileId === "none" ? undefined : riskProfileId,
       provider: selectedProvider,
       integration_id: selectedIntegrationId === "auto" ? undefined : selectedIntegrationId,
-    });
+      bot_mode: botMode,
+      stop_loss_pct: stopLossPct,
+      take_profit_pct: takeProfitPct === "" ? null : Number(takeProfitPct),
+    };
+
+    // Multi-symbol candle bots fan out to one independent session per symbol.
+    const fanOut = botMode === "candle_direction" && multiSymbol && selectedSymbols.length > 0;
+    if (fanOut) {
+      const display = (sym: string) => metadata?.symbols.find((o) => o.symbol === sym)?.display ?? sym;
+      for (const sym of selectedSymbols) {
+        await createSession.mutateAsync({
+          ...basePayload,
+          name: `${display(sym)} candle bot`,
+          symbol: sym,
+          multi_symbol: true,
+          symbol_list: selectedSymbols,
+        });
+      }
+      return;
+    }
+
+    createSession.mutate({ ...basePayload, name, symbol, multi_symbol: false });
   };
 
   const toggleIndicator = (key: string, checked: boolean) => {
@@ -316,6 +367,89 @@ export default function RobotTradingPage() {
                   <Label>Name</Label>
                   <Input value={name} onChange={(event) => setName(event.target.value)} className="border-slate-800 bg-slate-900 text-slate-100" />
                 </div>
+
+                <div className="space-y-2">
+                  <Label>Bot mode</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className={botMode === "candle_direction" ? "bg-blue-500 text-slate-950 hover:bg-blue-400" : "bg-slate-900 text-slate-300"}
+                      onClick={() => setBotMode("candle_direction")}
+                    >
+                      Candle direction
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className={botMode === "timed_expiry" ? "bg-blue-500 text-slate-950 hover:bg-blue-400" : "bg-slate-900 text-slate-300"}
+                      onClick={() => setBotMode("timed_expiry")}
+                    >
+                      Timed expiry
+                    </Button>
+                  </div>
+                </div>
+
+                {botMode === "candle_direction" && (
+                  <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Trailing stop loss (%)</Label>
+                        <Input type="number" min={0.1} max={100} step={0.5} value={stopLossPct} onChange={(event) => setStopLossPct(Number(event.target.value || 0))} className="border-slate-800 bg-slate-900 text-slate-100" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Take profit (% — optional)</Label>
+                        <Input type="number" min={0.1} step={0.5} placeholder="Off" value={takeProfitPct} onChange={(event) => setTakeProfitPct(event.target.value === "" ? "" : Number(event.target.value))} className="border-slate-800 bg-slate-900 text-slate-100" />
+                      </div>
+                    </div>
+                    <label className="flex cursor-pointer items-center gap-3 text-sm text-slate-300">
+                      <Checkbox
+                        checked={multiSymbol}
+                        onCheckedChange={(value) => {
+                          const on = Boolean(value);
+                          setMultiSymbol(on);
+                          if (on && selectedSymbols.length === 0 && symbol) setSelectedSymbols([symbol]);
+                        }}
+                      />
+                      Allow multiple symbols (each runs independently)
+                    </label>
+
+                    {multiSymbol && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label>Symbols ({selectedSymbols.length} selected — one bot each)</Label>
+                          {selectedSymbols.length > 0 && (
+                            <button type="button" className="text-xs text-slate-400 hover:text-slate-200" onClick={() => setSelectedSymbols([])}>
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid max-h-48 grid-cols-2 gap-2 overflow-y-auto rounded-xl border border-slate-800 bg-slate-900/60 p-2">
+                          {(metadata?.symbols ?? []).map((option) => {
+                            const checked = selectedSymbols.includes(option.symbol);
+                            return (
+                              <label key={option.symbol} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-200 hover:bg-slate-800/60">
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={(value) =>
+                                    setSelectedSymbols((current) =>
+                                      value ? Array.from(new Set([...current, option.symbol])) : current.filter((s) => s !== option.symbol)
+                                    )
+                                  }
+                                />
+                                {option.display}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-100">
+                      Trailing stop keeps {stopLossPct}% of peak profit. If you reach +$10 profit, the bot closes when profit
+                      drops to +${(10 * (1 - stopLossPct / 100)).toFixed(2)}.
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
@@ -454,13 +588,127 @@ export default function RobotTradingPage() {
                     : "Paper mode uses indicator consensus and deterministic heuristics. It does not promise returns."}
                 </div>
 
-                <Button className="h-14 w-full rounded-3xl bg-blue-500 text-lg font-semibold hover:bg-blue-400" onClick={createRobot} disabled={createSession.isPending || updateTradingSettings.isPending || actionDisabled}>
-                  {createSession.isPending ? "Saving..." : "Save robot session"}
-                </Button>
+                {(() => {
+                  const fanOut = botMode === "candle_direction" && multiSymbol;
+                  const fanOutBlocked = fanOut && selectedSymbols.length === 0;
+                  const label = createSession.isPending
+                    ? "Saving..."
+                    : fanOut
+                      ? `Save ${selectedSymbols.length || ""} robot session${selectedSymbols.length === 1 ? "" : "s"}`.replace("  ", " ")
+                      : "Save robot session";
+                  return (
+                    <Button
+                      className="h-14 w-full rounded-3xl bg-blue-500 text-lg font-semibold hover:bg-blue-400"
+                      onClick={createRobot}
+                      disabled={createSession.isPending || updateTradingSettings.isPending || actionDisabled || fanOutBlocked}
+                    >
+                      {label}
+                    </Button>
+                  );
+                })()}
               </CardContent>
             </Card>
 
             <div className="space-y-6">
+              {selectedSession && isCandleBot && (
+                <Card className="border-slate-800 bg-slate-950 text-slate-50">
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span>
+                        {selectedSession.symbol.replaceAll("_", " ")} · {selectedSession.timeframe}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Badge className={feed.connected ? "bg-emerald-500/10 text-emerald-300" : "bg-slate-500/10 text-slate-300"}>
+                          {feed.connected ? `LIVE · ${feed.latencyMs}ms` : "CONNECTING"}
+                        </Badge>
+                        {feed.source && <Badge className="bg-blue-500/10 text-blue-300">{feed.source.toUpperCase()}</Badge>}
+                      </div>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <RobotLiveChart
+                      candles={feed.candles}
+                      side={livePosition?.side ?? null}
+                      entryPrice={livePosition?.entry_price ?? null}
+                      stopPrice={livePosition?.stop_price ?? null}
+                      takeProfitPrice={takeProfitPrice}
+                    />
+
+                    {livePosition ? (
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <Badge className={livePosition.side === "BUY" ? "bg-emerald-500/10 text-emerald-300" : "bg-rose-500/10 text-rose-300"}>
+                              {livePosition.side === "BUY" ? "LONG" : "SHORT"}
+                            </Badge>
+                            <span className="text-sm text-slate-400">
+                              Entry {livePosition.entry_price} · Now {livePosition.current_price}
+                            </span>
+                          </div>
+                          <Button
+                            size="sm"
+                            className="rounded-xl bg-rose-500 text-white hover:bg-rose-400"
+                            onClick={() => forceClose.mutate(selectedSession.id)}
+                            disabled={forceClose.isPending}
+                          >
+                            Force close
+                          </Button>
+                        </div>
+                        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+                          <div>
+                            <div className="text-xs uppercase tracking-wide text-slate-500">PnL</div>
+                            <div className={`text-lg font-semibold ${livePosition.unrealized_pnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                              {livePosition.unrealized_pnl >= 0 ? "+" : ""}
+                              {livePosition.unrealized_pnl.toFixed(2)} ({livePosition.unrealized_pct.toFixed(2)}%)
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs uppercase tracking-wide text-slate-500">Peak</div>
+                            <div className="text-lg font-semibold text-slate-200">+{livePosition.peak_pct.toFixed(2)}%</div>
+                          </div>
+                          <div>
+                            <div className="text-xs uppercase tracking-wide text-slate-500">Stop at</div>
+                            <div className="text-lg font-semibold text-rose-300">{livePosition.stop_price}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs uppercase tracking-wide text-slate-500">In trade</div>
+                            <div className="text-lg font-semibold text-slate-200">
+                              {Math.floor(livePosition.seconds_in_trade / 60)}m {livePosition.seconds_in_trade % 60}s
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-slate-800 p-4 text-sm text-slate-500">
+                        No open position. {liveStats?.last_decision?.reason ?? "Waiting for a candle-direction signal."}
+                      </div>
+                    )}
+
+                    {liveStats && (
+                      <div className="grid grid-cols-3 gap-3 text-center">
+                        <div className="rounded-xl bg-slate-900 p-3">
+                          <div className="text-xs text-slate-500">Session PnL</div>
+                          <div className={`font-semibold ${liveStats.performance.total_pnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                            {liveStats.performance.total_pnl >= 0 ? "+" : ""}
+                            {liveStats.performance.total_pnl.toFixed(2)}
+                          </div>
+                        </div>
+                        <div className="rounded-xl bg-slate-900 p-3">
+                          <div className="text-xs text-slate-500">W / L</div>
+                          <div className="font-semibold text-slate-200">
+                            {liveStats.performance.win_count} / {liveStats.performance.loss_count}
+                          </div>
+                        </div>
+                        <div className="rounded-xl bg-slate-900 p-3">
+                          <div className="text-xs text-slate-500">Win rate</div>
+                          <div className="font-semibold text-slate-200">{liveStats.performance.win_rate.toFixed(0)}%</div>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
               <Card className="border-slate-800 bg-slate-950 text-slate-50">
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
