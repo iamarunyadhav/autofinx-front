@@ -17,6 +17,7 @@ import { useQuickTradeMetadata, useSettleQuickTrades } from "@/hooks/useQuickTra
 import {
   useCreateRobotSession,
   useEvaluateRobotSession,
+  useExchangeBalance,
   useForceCloseSession,
   usePauseRobotSession,
   useRobotLiveStats,
@@ -229,6 +230,17 @@ export default function RobotTradingPage() {
     updateMode("live", selectedProvider, integration.id);
   };
 
+  // In live/testnet mode, show the REAL balance pulled live from the exchange
+  // (not the internal/seeded wallet ledger).
+  const exchangeBalanceQuery = useExchangeBalance(workspaceId, currentEnv !== "paper");
+  const exchangeBalance = exchangeBalanceQuery.data ?? null;
+  const realBalance =
+    currentEnv !== "paper" && exchangeBalance?.source === "exchange" && exchangeBalance.available != null
+      ? Number(exchangeBalance.available)
+      : null;
+  const displayBalance = realBalance ?? balance;
+  const balanceIsLive = realBalance != null;
+
   const createRobot = async () => {
     if (!workspaceId) return;
 
@@ -287,8 +299,18 @@ export default function RobotTradingPage() {
               <div>
                 <div className="text-sm uppercase tracking-[0.28em] text-slate-500">Robot trading</div>
                 <div className="mt-2 text-3xl font-semibold">
-                  {currentEnv === "live" ? "Live wallet" : currentEnv === "testnet" ? "Testnet wallet" : "Paper balance"} {selectedBalance?.currency ?? "USD"} {balance.toFixed(2)}
+                  {currentEnv === "live" ? "Live wallet" : currentEnv === "testnet" ? "Testnet wallet" : "Paper balance"}{" "}
+                  {balanceIsLive ? (exchangeBalance?.asset ?? "USDT") : (selectedBalance?.currency ?? "USD")} {displayBalance.toFixed(2)}
                 </div>
+                {currentEnv !== "paper" && (
+                  <div className="mt-1 text-xs text-slate-500">
+                    {balanceIsLive
+                      ? `Live from ${(exchangeBalance?.provider ?? "binance").toUpperCase()} ${exchangeBalance?.environment ?? ""} account`
+                      : exchangeBalance?.error
+                        ? `Exchange balance unavailable: ${exchangeBalance.error}`
+                        : "Fetching live exchange balance…"}
+                  </div>
+                )}
                 <div className="mt-2 text-sm text-slate-400">
                   {activeMode === "live"
                     ? "Live robots open Binance timed futures positions and auto-close them on the configured duration."

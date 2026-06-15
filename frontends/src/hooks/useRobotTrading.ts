@@ -130,6 +130,29 @@ export function useRobotSessionStatus(sessionId?: string) {
   });
 }
 
+export interface ExchangeBalance {
+  source: "exchange" | "internal";
+  mode: string;
+  environment?: string | null;
+  provider?: string;
+  asset?: string;
+  balance?: number;
+  available?: number | null;
+  error?: string;
+}
+
+export function useExchangeBalance(workspaceId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ["exchange-balance", workspaceId],
+    queryFn: async () => {
+      if (!workspaceId) return null;
+      return authorizedFetch(`/workspaces/${workspaceId}/wallet/exchange-balance`) as Promise<ExchangeBalance>;
+    },
+    enabled: !!workspaceId && enabled,
+    refetchInterval: 5000,
+  });
+}
+
 export function useRobotLiveStats(sessionId?: string, enabled = true) {
   return useQuery({
     queryKey: ["robot-session-live-stats", sessionId],
