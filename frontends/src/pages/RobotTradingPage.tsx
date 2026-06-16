@@ -17,6 +17,7 @@ import { useQuickTradeMetadata, useSettleQuickTrades } from "@/hooks/useQuickTra
 import {
   useCreateRobotSession,
   useDeleteRobotSession,
+  useUpdateRobotSession,
   useEvaluateRobotSession,
   useExchangeBalance,
   useForceCloseSession,
@@ -48,6 +49,8 @@ export default function RobotTradingPage() {
   const pauseSession = usePauseRobotSession();
   const stopSession = useStopRobotSession();
   const deleteSession = useDeleteRobotSession();
+  const updateSession = useUpdateRobotSession(workspaceId);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const evaluateSession = useEvaluateRobotSession();
   const settleTrades = useSettleQuickTrades();
 
@@ -278,6 +281,16 @@ export default function RobotTradingPage() {
       take_profit_pct: takeProfitPct === "" ? null : Number(takeProfitPct),
     };
 
+    // Editing an existing session — PATCH it in place.
+    if (editingSessionId) {
+      await updateSession.mutateAsync({
+        id: editingSessionId,
+        payload: { ...basePayload, name, symbol, multi_symbol: multiSymbol, symbol_list: multiSymbol ? selectedSymbols : undefined },
+      });
+      setEditingSessionId(null);
+      return;
+    }
+
     // Multi-symbol candle bots fan out to one independent session per symbol.
     const fanOut = botMode === "candle_direction" && multiSymbol && selectedSymbols.length > 0;
     if (fanOut) {
@@ -302,6 +315,31 @@ export default function RobotTradingPage() {
       checked ? Array.from(new Set([...current, key])) : current.filter((entry) => entry !== key)
     );
   };
+
+  const loadSessionIntoForm = (s: (typeof sessions)[number]) => {
+    setEditingSessionId(s.id);
+    setName(s.name);
+    setSymbol(s.symbol);
+    setTimeframe(s.timeframe);
+    setExpirySeconds(s.expiry_seconds);
+    setBaseStake(Number(s.base_stake));
+    setBotMode((s.bot_mode ?? "timed_expiry") as "candle_direction" | "timed_expiry");
+    setStopLossPct(Number(s.stop_loss_pct ?? 20));
+    setTakeProfitPct(s.take_profit_pct == null ? "" : Number(s.take_profit_pct));
+    setMultiSymbol(Boolean(s.multi_symbol));
+    setSelectedSymbols(s.symbol_list ?? []);
+    setConfidenceThreshold(s.confidence_threshold ?? 60);
+    setMaxActiveTrades(s.max_active_trades ?? 2);
+    setProfitTarget(Number(s.profit_target ?? 0));
+    setLossLimit(Number(s.loss_limit ?? 0));
+    setMaxConsecutiveLosses(s.max_consecutive_losses ?? 3);
+    setStrategyProfile(s.strategy_profile ?? "balanced");
+    setRiskProfileId(s.risk_profile_id ?? "none");
+    if (Array.isArray(s.indicator_set) && s.indicator_set.length) setIndicatorSet(s.indicator_set);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const cancelEdit = () => setEditingSessionId(null);
 
   const actionDisabled = activeMode === "live" && !liveReady;
 
@@ -443,7 +481,14 @@ export default function RobotTradingPage() {
           <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
             <Card className="border-slate-800 bg-slate-950 text-slate-50">
               <CardHeader>
-                <CardTitle>New robot session</CardTitle>
+                <CardTitle className="flex items-center justify-between">
+                  <span>{editingSessionId ? "Edit robot session" : "New robot session"}</span>
+                  {editingSessionId && (
+                    <button type="button" className="text-xs text-slate-400 hover:text-slate-200" onClick={cancelEdit}>
+                      Cancel edit
+                    </button>
+                  )}
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
@@ -672,18 +717,22 @@ export default function RobotTradingPage() {
                 </div>
 
                 {(() => {
-                  const fanOut = botMode === "candle_direction" && multiSymbol;
+                  const isEditing = Boolean(editingSessionId);
+                  const fanOut = !isEditing && botMode === "candle_direction" && multiSymbol;
                   const fanOutBlocked = fanOut && selectedSymbols.length === 0;
-                  const label = createSession.isPending
+                  const busy = createSession.isPending || updateSession.isPending;
+                  const label = busy
                     ? "Saving..."
-                    : fanOut
-                      ? `Save ${selectedSymbols.length || ""} robot session${selectedSymbols.length === 1 ? "" : "s"}`.replace("  ", " ")
-                      : "Save robot session";
+                    : isEditing
+                      ? "Update robot session"
+                      : fanOut
+                        ? `Save ${selectedSymbols.length || ""} robot session${selectedSymbols.length === 1 ? "" : "s"}`.replace("  ", " ")
+                        : "Save robot session";
                   return (
                     <Button
                       className="h-14 w-full rounded-3xl bg-blue-500 text-lg font-semibold hover:bg-blue-400"
                       onClick={createRobot}
-                      disabled={createSession.isPending || updateTradingSettings.isPending || actionDisabled || fanOutBlocked}
+                      disabled={busy || updateTradingSettings.isPending || actionDisabled || fanOutBlocked}
                     >
                       {label}
                     </Button>
@@ -841,6 +890,14 @@ export default function RobotTradingPage() {
                         </Button>
                         <Button size="sm" className="rounded-xl bg-rose-500 text-white hover:bg-rose-400" onClick={() => stopSession.mutate(session.id)}>
                           Stop
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="rounded-xl border-blue-500/40 bg-transparent text-blue-300 hover:bg-blue-500/10"
+                          onClick={() => loadSessionIntoForm(session)}
+                        >
+                          Edit
                         </Button>
                         <Button
                           size="sm"

@@ -165,6 +165,24 @@ export function useRobotLiveStats(sessionId?: string, enabled = true) {
   });
 }
 
+export function useUpdateRobotSession(workspaceId?: string) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: Partial<SessionPayload> }) =>
+      authorizedFetch(`/robot-sessions/${id}`, "PATCH", payload) as Promise<RobotSessionRecord>,
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["robot-sessions", workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["robot-session-status", id] });
+      toast({ title: "Robot session updated" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Update failed", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
 export function useDeleteRobotSession() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
