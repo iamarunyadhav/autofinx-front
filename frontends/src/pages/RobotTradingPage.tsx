@@ -16,6 +16,7 @@ import { useUpdateTradingSettings } from "@/hooks/useTradingMode";
 import { useQuickTradeMetadata, useSettleQuickTrades } from "@/hooks/useQuickTrade";
 import {
   useCreateRobotSession,
+  useDeleteRobotSession,
   useEvaluateRobotSession,
   useExchangeBalance,
   useForceCloseSession,
@@ -46,6 +47,7 @@ export default function RobotTradingPage() {
   const startSession = useStartRobotSession();
   const pauseSession = usePauseRobotSession();
   const stopSession = useStopRobotSession();
+  const deleteSession = useDeleteRobotSession();
   const evaluateSession = useEvaluateRobotSession();
   const settleTrades = useSettleQuickTrades();
 
@@ -839,6 +841,23 @@ export default function RobotTradingPage() {
                         </Button>
                         <Button size="sm" className="rounded-xl bg-rose-500 text-white hover:bg-rose-400" onClick={() => stopSession.mutate(session.id)}>
                           Stop
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="rounded-xl border-rose-500/40 bg-transparent text-rose-300 hover:bg-rose-500/10"
+                          disabled={deleteSession.isPending}
+                          onClick={() => {
+                            if (window.confirm(`Delete "${session.name}"? Any open position will be closed first.`)) {
+                              deleteSession.mutate(session.id, {
+                                onSuccess: () => {
+                                  if (selectedSessionId === session.id) setSelectedSessionId(undefined);
+                                },
+                              });
+                            }
+                          }}
+                        >
+                          Delete
                         </Button>
                       </div>
                     </div>

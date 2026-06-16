@@ -165,6 +165,23 @@ export function useRobotLiveStats(sessionId?: string, enabled = true) {
   });
 }
 
+export function useDeleteRobotSession() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (sessionId: string) =>
+      authorizedFetch(`/robot-sessions/${sessionId}`, "DELETE") as Promise<unknown>,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["robot-sessions"] });
+      toast({ title: "Robot session deleted" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
 export function useForceCloseSession() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
