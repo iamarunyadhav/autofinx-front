@@ -1197,6 +1197,11 @@ export function useFutureTradeBot(workspaceId?: string) {
     onSuccess: invalidate,
   });
 
+  const closePosition = useMutation({
+    mutationFn: async (payload: { symbol?: string }) => (await api.post(`${base}/close-position`, payload)).data,
+    onSuccess: invalidate,
+  });
+
   const startLiveFeed = useMutation({
     mutationFn: async () => (await api.post<FutureTradeLiveFeedStatus>(`${base}/live-feed/start`, {})).data,
     onSuccess: invalidate,
@@ -1245,6 +1250,7 @@ export function useFutureTradeBot(workspaceId?: string) {
     generateTuningPlan,
     testConnection,
     recover,
+    closePosition,
     importScript,
     importTrades,
     startLiveFeed,

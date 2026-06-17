@@ -555,6 +555,23 @@ export default function FutureTradeBotPage() {
     });
   };
 
+  const closeOpenTrade = (trade: FutureTradeRecord) => {
+    if (!window.confirm(`Close open ${trade.symbol} position now from AutoFinX? This sends a reduce-only market close in live/testnet mode.`)) {
+      return;
+    }
+
+    bot.closePosition.mutate({ symbol: trade.symbol }, {
+      onSuccess: (result: { closed?: boolean; submitted?: boolean; message?: string }) => {
+        toast({
+          title: result.closed || result.submitted ? "Close requested" : "Close not sent",
+          description: result.message || `${trade.symbol} close request completed.`,
+          variant: result.closed || result.submitted ? "default" : "destructive",
+        });
+      },
+      onError: err(toast),
+    });
+  };
+
   const save = () => {
     if (!window.confirm("Save Future Trade algorithm changes now? Unsaved slider changes will become active after this save.")) {
       return;
@@ -843,7 +860,12 @@ export default function FutureTradeBotPage() {
               </Button>
             </div>
 
-            <TradeHistory trades={bot.trades.data ?? []} liveTrading={status?.liveTrading ?? false} />
+            <TradeHistory
+              trades={bot.trades.data ?? []}
+              liveTrading={status?.liveTrading ?? false}
+              closeBusy={bot.closePosition.isPending}
+              onClose={closeOpenTrade}
+            />
             <DynamicRuntimeTracker logs={bot.logs.data ?? []} />
             <RuntimeDiagnosticsPanel diagnostics={diagnostics} />
             <PerformanceFeedbackPanel feedback={dashboard?.performanceFeedback} />
@@ -3068,7 +3090,17 @@ function DynamicRuntimeTracker({ logs }: { logs: FutureTradeLog[] }) {
   );
 }
 
-function TradeHistory({ trades, liveTrading }: { trades: FutureTradeRecord[]; liveTrading: boolean }) {
+function TradeHistory({
+  trades,
+  liveTrading,
+  closeBusy,
+  onClose,
+}: {
+  trades: FutureTradeRecord[];
+  liveTrading: boolean;
+  closeBusy: boolean;
+  onClose: (trade: FutureTradeRecord) => void;
+}) {
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(trades.length / TRADE_HISTORY_PAGE_SIZE));
 
@@ -3106,16 +3138,19 @@ function TradeHistory({ trades, liveTrading }: { trades: FutureTradeRecord[]; li
               <TableHead>SL</TableHead>
               <TableHead>Reason</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {paginatedTrades.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={12} className="text-center text-sm text-muted-foreground">No trades yet.</TableCell>
+                <TableCell colSpan={13} className="text-center text-sm text-muted-foreground">No trades yet.</TableCell>
               </TableRow>
             ) : paginatedTrades.map((trade) => {
               const dynamic = trade.meta?.dynamic;
               const flag = algorithmFlag(dynamic?.mode || trade.meta?.algorithm_mode);
+              const isOpenEntry = ["OPEN", "SUBMITTED"].includes(String(trade.status ?? "").toUpperCase())
+                && !String(trade.side ?? "").toUpperCase().includes("CLOSE");
               return (
                 <TableRow key={trade.id}>
                   <TableCell>{new Date(trade.created_at).toLocaleTimeString()}</TableCell>
@@ -3130,6 +3165,15 @@ function TradeHistory({ trades, liveTrading }: { trades: FutureTradeRecord[]; li
                   <TableCell>{dynamic ? `${n(dynamic.recommended.stopLossPercent, 3)}%` : "-"}</TableCell>
                   <TableCell>{trade.reason}</TableCell>
                   <TableCell>{trade.status}</TableCell>
+                  <TableCell>
+                    {isOpenEntry ? (
+                      <Button size="sm" variant="destructive" disabled={closeBusy} onClick={() => onClose(trade)}>
+                        Close Now
+                      </Button>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
+                  </TableCell>
                 </TableRow>
               );
             })}
