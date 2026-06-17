@@ -17,6 +17,7 @@ import { useQuickTradeMetadata, useSettleQuickTrades } from "@/hooks/useQuickTra
 import {
   useCreateRobotSession,
   useDeleteRobotSession,
+  useResetRobotSession,
   useUpdateRobotSession,
   useEvaluateRobotSession,
   useExchangeBalance,
@@ -50,6 +51,7 @@ export default function RobotTradingPage() {
   const stopSession = useStopRobotSession();
   const deleteSession = useDeleteRobotSession();
   const updateSession = useUpdateRobotSession(workspaceId);
+  const resetSession = useResetRobotSession();
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const evaluateSession = useEvaluateRobotSession();
   const settleTrades = useSettleQuickTrades();
@@ -916,7 +918,22 @@ export default function RobotTradingPage() {
                         >
                           Delete
                         </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="rounded-xl border-amber-500/40 bg-transparent text-amber-300 hover:bg-amber-500/10"
+                          disabled={resetSession.isPending}
+                          title="Clear loss-limit / errors and baseline stats so the bot can start again"
+                          onClick={() => resetSession.mutate(session.id)}
+                        >
+                          Reset
+                        </Button>
                       </div>
+                      {session.last_error && (
+                        <div className="mt-2 text-xs text-amber-300/90">
+                          ⚠ {session.last_error} — tap <span className="font-semibold">Reset</span> then Start.
+                        </div>
+                      )}
                     </div>
                   ))}
                 </CardContent>

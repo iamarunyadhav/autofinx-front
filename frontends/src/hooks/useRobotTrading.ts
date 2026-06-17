@@ -183,6 +183,25 @@ export function useUpdateRobotSession(workspaceId?: string) {
   });
 }
 
+export function useResetRobotSession() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (sessionId: string) =>
+      authorizedFetch(`/robot-sessions/${sessionId}/reset`, "POST") as Promise<unknown>,
+    onSuccess: (_, sessionId) => {
+      queryClient.invalidateQueries({ queryKey: ["robot-sessions"] });
+      queryClient.invalidateQueries({ queryKey: ["robot-session-status", sessionId] });
+      queryClient.invalidateQueries({ queryKey: ["robot-session-live-stats", sessionId] });
+      toast({ title: "Session reset", description: "Loss limit / errors cleared. You can start again." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Reset failed", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
 export function useDeleteRobotSession() {
   const queryClient = useQueryClient();
   const { toast } = useToast();

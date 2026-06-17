@@ -582,6 +582,10 @@ export interface FutureTradeDiagnostics {
     decision?: string;
     summary?: string;
     canOpenNow?: boolean;
+    firstBlocker?: string | null;
+    firstBlockerLabel?: string | null;
+    nextAction?: string | null;
+    recoveryActions?: Array<{ label: string; action: string }>;
     signalSource?: string;
     webhookAuthority?: boolean;
     latestWebhookEvent?: string | null;

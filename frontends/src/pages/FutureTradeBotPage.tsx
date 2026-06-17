@@ -867,7 +867,35 @@ export default function FutureTradeBotPage() {
               onClose={closeOpenTrade}
             />
             <DynamicRuntimeTracker logs={bot.logs.data ?? []} />
-            <RuntimeDiagnosticsPanel diagnostics={diagnostics} />
+            <RuntimeDiagnosticsPanel
+              diagnostics={diagnostics}
+              busy={busy}
+              onRecover={runRecovery}
+              onCloseOpenPosition={() => {
+                if (!window.confirm("Close the current open Future Trade position now? In live/testnet this sends a reduce-only market close.")) return;
+                bot.closePosition.mutate({}, {
+                  onSuccess: (result: { closed?: boolean; submitted?: boolean; message?: string }) => toast({
+                    title: result.closed || result.submitted ? "Close requested" : "Close not sent",
+                    description: result.message || "Close-position request completed.",
+                    variant: result.closed || result.submitted ? "default" : "destructive",
+                  }),
+                  onError: err(toast),
+                });
+              }}
+              onFreshReset={() => {
+                if (!confirm("Fresh Reset will clear Future Trade profit/loss summary, trades, logs, diagnostics, and stale app-side open state only if Binance is flat. Continue?")) return;
+                bot.clearHistory.mutate(undefined, {
+                  onSuccess: (data: any) => toast({
+                    title: data?.cleared ? "Fresh reset complete" : "Fresh reset blocked",
+                    description: data?.message || `${data?.cleared_trades ?? 0} trades, ${data?.cleared_logs ?? 0} logs deleted.`,
+                    variant: data?.blocked ? "destructive" : "default",
+                  }),
+                  onError: err(toast),
+                });
+              }}
+              onResetDailyLoss={() => bot.resetDailyLoss.mutate(undefined, { onError: err(toast) })}
+              onTestConnection={testEnvConnection}
+            />
             <PerformanceFeedbackPanel feedback={dashboard?.performanceFeedback} />
             <IndicatorIntelligencePanel intelligence={dashboard?.indicatorIntelligence} />
             <ResearchLabPanel researchLab={dashboard?.researchLab} />
@@ -887,21 +915,25 @@ export default function FutureTradeBotPage() {
                 <Button disabled={busy} onClick={() => bot.start.mutate(undefined, { onError: err(toast) })}><Power className="mr-2 h-4 w-4" />On</Button>
                 <Button disabled={busy} variant="outline" onClick={() => bot.stop.mutate(undefined, { onError: err(toast) })}><Square className="mr-2 h-4 w-4" />Off</Button>
                 <Button disabled={busy} variant="destructive" onClick={() => bot.emergencyStop.mutate(undefined, { onError: err(toast) })}><ShieldAlert className="mr-2 h-4 w-4" />Emergency</Button>
-                <Button disabled={busy} variant="secondary" onClick={() => bot.resetPaper.mutate(undefined, { onError: err(toast) })}><RefreshCw className="mr-2 h-4 w-4" />Reset</Button>
+                <Button disabled={busy} variant="secondary" onClick={() => bot.resetPaper.mutate(undefined, { onError: err(toast) })}><RefreshCw className="mr-2 h-4 w-4" />Reset Paper</Button>
                 <Button disabled={busy} variant="outline" className="col-span-2" onClick={() => bot.resetDailyLoss.mutate(undefined, { onError: err(toast) })}>Reset Day Loss</Button>
                 <Button
                   disabled={busy}
                   variant="outline"
                   className="col-span-2 border-orange-500 text-orange-600 hover:bg-orange-50"
                   onClick={() => {
-                    if (!confirm("Palaya trades + logs ellam delete aagum. Bot running ga irukkum. Continue?")) return;
+                    if (!confirm("Fresh Reset will clear Future Trade profit/loss summary, trades, logs, diagnostics, and stale app-side open state only if Binance is flat. Continue?")) return;
                     bot.clearHistory.mutate(undefined, {
-                      onSuccess: (data: any) => toast({ title: "History cleared", description: `${data?.cleared_trades ?? 0} trades, ${data?.cleared_logs ?? 0} logs deleted.` }),
+                      onSuccess: (data: any) => toast({
+                        title: data?.cleared ? "Fresh reset complete" : "Fresh reset blocked",
+                        description: data?.message || `${data?.cleared_trades ?? 0} trades, ${data?.cleared_logs ?? 0} logs deleted.`,
+                        variant: data?.blocked ? "destructive" : "default",
+                      }),
                       onError: err(toast),
                     });
                   }}
                 >
-                  <Trash2 className="mr-2 h-4 w-4" />Clear History
+                  <Trash2 className="mr-2 h-4 w-4" />Fresh Reset Summary
                 </Button>
               </CardContent>
             </Card>
@@ -1145,7 +1177,23 @@ function LatestRuntimeAlert({
   );
 }
 
-function RuntimeDiagnosticsPanel({ diagnostics }: { diagnostics?: FutureTradeDiagnostics }) {
+function RuntimeDiagnosticsPanel({
+  diagnostics,
+  busy,
+  onRecover,
+  onCloseOpenPosition,
+  onFreshReset,
+  onResetDailyLoss,
+  onTestConnection,
+}: {
+  diagnostics?: FutureTradeDiagnostics;
+  busy: boolean;
+  onRecover: (action: "auto" | "sync_state" | "cancel_reduce_only") => void;
+  onCloseOpenPosition: () => void;
+  onFreshReset: () => void;
+  onResetDailyLoss: () => void;
+  onTestConnection: () => void;
+}) {
   const pruneStale = usePruneStalePendingJobs();
   const restartWorkers = useRestartWorkers();
 
@@ -1157,8 +1205,17 @@ function RuntimeDiagnosticsPanel({ diagnostics }: { diagnostics?: FutureTradeDia
   const queueBlock = Number(diagnostics.server.queue?.block_threshold ?? 0);
   const queueState = String(diagnostics.server.queue?.state ?? "unknown");
   const webhookState = String(diagnostics.webhook?.state ?? "waiting");
-  const actionBusy = pruneStale.isPending || restartWorkers.isPending;
+  const actionBusy = busy || pruneStale.isPending || restartWorkers.isPending;
   const autoPruneThreshold = 300;
+  const eligibility = diagnostics.tradeEligibility;
+  const firstBlocker = eligibility?.firstBlockerLabel || (eligibility?.firstBlocker ? humanizeCode(eligibility.firstBlocker) : null);
+  const runSuggestedAction = (action: string) => {
+    if (action === "sync_state") onRecover("sync_state");
+    if (action === "close_position") onCloseOpenPosition();
+    if (action === "clear_history") onFreshReset();
+    if (action === "reset_daily_loss") onResetDailyLoss();
+    if (action === "test_connection") onTestConnection();
+  };
 
   return (
     <Card>
@@ -1214,6 +1271,33 @@ function RuntimeDiagnosticsPanel({ diagnostics }: { diagnostics?: FutureTradeDia
               <Badge variant={diagnostics.tradeEligibility.decision === "eligible" ? "outline" : diagnostics.tradeEligibility.decision === "blocked" ? "destructive" : "secondary"}>
                 {humanizeCode(diagnostics.tradeEligibility.decision ?? "waiting")}
               </Badge>
+            </div>
+            <div className={`mt-3 rounded-md border px-3 py-2 text-xs ${diagnostics.tradeEligibility.decision === "blocked" ? "border-destructive/40 bg-destructive/10" : "border-emerald-500/30 bg-emerald-500/5"}`}>
+              <div className="font-medium">
+                {diagnostics.tradeEligibility.decision === "blocked"
+                  ? `First blocker: ${firstBlocker || "Unknown blocker"}`
+                  : diagnostics.tradeEligibility.decision === "eligible"
+                    ? "Ready for next executable signal"
+                    : "No hard blocker"}
+              </div>
+              <div className="mt-1 text-muted-foreground">
+                {diagnostics.tradeEligibility.nextAction || "Waiting for the next valid TradingView signal."}
+              </div>
+              {(diagnostics.tradeEligibility.recoveryActions ?? []).length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {(diagnostics.tradeEligibility.recoveryActions ?? []).map((item) => (
+                    <Button
+                      key={`${item.action}-${item.label}`}
+                      size="sm"
+                      variant={item.action === "wait_webhook" ? "outline" : "secondary"}
+                      disabled={actionBusy || item.action === "wait_webhook"}
+                      onClick={() => runSuggestedAction(item.action)}
+                    >
+                      {item.label}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <div className="mt-3 grid gap-2 text-xs md:grid-cols-2 xl:grid-cols-4">
               <div>Source <span className="font-mono text-foreground">{humanizeCode(diagnostics.tradeEligibility.signalSource ?? "-")}</span></div>
@@ -3568,6 +3652,11 @@ function WebhookCommandCenter({
               </div>
               {!isEligible && eligibility?.summary ? (
                 <div className="text-muted-foreground italic">{eligibility.summary}</div>
+              ) : null}
+              {eligibility?.nextAction ? (
+                <div className="rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-100">
+                  Next: {eligibility.nextAction}
+                </div>
               ) : null}
             </div>
           </div>
