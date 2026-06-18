@@ -36,6 +36,8 @@ export interface RobotSessionRecord {
   bot_mode?: "candle_direction" | "timed_expiry";
   stop_loss_pct?: number;
   take_profit_pct?: number | null;
+  cooldown_seconds?: number;
+  daily_loss_limit?: number | null;
   multi_symbol?: boolean;
   symbol_list?: string[] | null;
   peak_profit?: number;
@@ -72,7 +74,10 @@ export interface RobotLiveStats {
     loss_count: number;
     win_rate: number;
   };
-  last_decision?: { action?: string; reason?: string; confidence?: number } | null;
+  last_decision?: { action?: string; reason?: string; confidence?: number; pattern?: string; trend_bias?: string; pattern_type?: string; momentum_score?: number; continuation_pct?: number | null } | null;
+  last_signal_analysis?: { pattern?: string; pattern_type?: string; trend_bias?: string; trend_streak?: number; momentum_score?: number; continuation_pct?: number | null; confidence?: number; side?: string } | null;
+  cooldown?: { active: boolean; seconds_left: number; until: string | null } | null;
+  daily_loss?: { today: number; limit: number | null; hit: boolean; pct: number | null } | null;
   as_of: string;
 }
 
@@ -102,6 +107,8 @@ type SessionPayload = {
   bot_mode?: "candle_direction" | "timed_expiry";
   stop_loss_pct?: number;
   take_profit_pct?: number | null;
+  cooldown_seconds?: number;
+  daily_loss_limit?: number | null;
   multi_symbol?: boolean;
   symbol_list?: string[];
 };
@@ -195,6 +202,24 @@ export function useResetRobotSession() {
       queryClient.invalidateQueries({ queryKey: ["robot-session-status", sessionId] });
       queryClient.invalidateQueries({ queryKey: ["robot-session-live-stats", sessionId] });
       toast({ title: "Session reset", description: "Loss limit / errors cleared. You can start again." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Reset failed", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useResetDailyLoss() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (sessionId: string) =>
+      authorizedFetch(`/robot-sessions/${sessionId}/reset-daily-loss`, "POST") as Promise<unknown>,
+    onSuccess: (_, sessionId) => {
+      queryClient.invalidateQueries({ queryKey: ["robot-session-live-stats", sessionId] });
+      queryClient.invalidateQueries({ queryKey: ["robot-sessions"] });
+      toast({ title: "Daily loss reset", description: "Trading resumes immediately." });
     },
     onError: (error: Error) => {
       toast({ title: "Reset failed", description: error.message, variant: "destructive" });

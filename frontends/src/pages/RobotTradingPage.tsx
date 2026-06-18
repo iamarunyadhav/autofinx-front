@@ -18,6 +18,7 @@ import {
   useCreateRobotSession,
   useDeleteRobotSession,
   useResetRobotSession,
+  useResetDailyLoss,
   useUpdateRobotSession,
   useEvaluateRobotSession,
   useExchangeBalance,
@@ -74,10 +75,13 @@ export default function RobotTradingPage() {
   const [botMode, setBotMode] = useState<"candle_direction" | "timed_expiry">("candle_direction");
   const [stopLossPct, setStopLossPct] = useState(20);
   const [takeProfitPct, setTakeProfitPct] = useState<number | "">("");
+  const [cooldownSeconds, setCooldownSeconds] = useState(300);
+  const [dailyLossLimit, setDailyLossLimit] = useState<number | "">("");
   const [multiSymbol, setMultiSymbol] = useState(false);
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>([]);
 
   const forceClose = useForceCloseSession();
+  const resetDailyLoss = useResetDailyLoss();
 
   const tradingState = metadata?.trading_state;
   const activeMode = tradingState?.mode ?? "paper";
@@ -281,6 +285,8 @@ export default function RobotTradingPage() {
       bot_mode: botMode,
       stop_loss_pct: stopLossPct,
       take_profit_pct: takeProfitPct === "" ? null : Number(takeProfitPct),
+      cooldown_seconds: cooldownSeconds,
+      daily_loss_limit: dailyLossLimit === "" ? null : Number(dailyLossLimit),
     };
 
     // Editing an existing session — PATCH it in place.
@@ -328,6 +334,8 @@ export default function RobotTradingPage() {
     setBotMode((s.bot_mode ?? "timed_expiry") as "candle_direction" | "timed_expiry");
     setStopLossPct(Number(s.stop_loss_pct ?? 20));
     setTakeProfitPct(s.take_profit_pct == null ? "" : Number(s.take_profit_pct));
+    setCooldownSeconds(Number(s.cooldown_seconds ?? 300));
+    setDailyLossLimit(s.daily_loss_limit == null ? "" : Number(s.daily_loss_limit));
     setMultiSymbol(Boolean(s.multi_symbol));
     setSelectedSymbols(s.symbol_list ?? []);
     setConfidenceThreshold(s.confidence_threshold ?? 60);
@@ -367,7 +375,9 @@ export default function RobotTradingPage() {
                   </div>
                 )}
                 <div className="mt-2 text-sm text-slate-400">
-                  {activeMode === "live"
+                  {botMode === "candle_direction"
+                    ? "Candle bot analyzes 20–100 past candles for pattern + momentum + trend. Exits on reverse candle, trailing stop, or take-profit — not by time."
+                    : activeMode === "live"
                     ? "Live robots open Binance timed futures positions and auto-close them on the configured duration."
                     : "Paper robots share the same expiry engine, wallet, and ledger as manual quick trades."}
                 </div>
@@ -532,6 +542,35 @@ export default function RobotTradingPage() {
                         <Input type="number" min={0.1} step={0.5} placeholder="Off" value={takeProfitPct} onChange={(event) => setTakeProfitPct(event.target.value === "" ? "" : Number(event.target.value))} className="border-slate-800 bg-slate-900 text-slate-100" />
                       </div>
                     </div>
+
+                    {botMode === "candle_direction" && (
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label>Cooldown after loss</Label>
+                          <Select value={String(cooldownSeconds)} onValueChange={(v) => setCooldownSeconds(Number(v))}>
+                            <SelectTrigger className="border-slate-800 bg-slate-900 text-slate-100">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="0">No cooldown</SelectItem>
+                              <SelectItem value="60">1 minute</SelectItem>
+                              <SelectItem value="180">3 minutes</SelectItem>
+                              <SelectItem value="300">5 minutes</SelectItem>
+                              <SelectItem value="600">10 minutes</SelectItem>
+                              <SelectItem value="900">15 minutes</SelectItem>
+                              <SelectItem value="1800">30 minutes</SelectItem>
+                              <SelectItem value="3600">1 hour</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-slate-500">Wait after a losing trade before next entry.</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Daily loss limit (optional)</Label>
+                          <Input type="number" min={0} step={1} placeholder="No limit" value={dailyLossLimit} onChange={(e) => setDailyLossLimit(e.target.value === "" ? "" : Number(e.target.value))} className="border-slate-800 bg-slate-900 text-slate-100" />
+                          <p className="text-xs text-slate-500">Stop trading for the day when total loss hits this amount. Resets at UTC midnight.</p>
+                        </div>
+                      </div>
+                    )}
                     <label className="flex cursor-pointer items-center gap-3 text-sm text-slate-300">
                       <Checkbox
                         checked={multiSymbol}
@@ -615,21 +654,30 @@ export default function RobotTradingPage() {
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Duration</Label>
-                    <Select value={String(expirySeconds)} onValueChange={(value) => setExpirySeconds(Number(value))}>
-                      <SelectTrigger className="border-slate-800 bg-slate-900 text-slate-100">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(metadata?.durations ?? []).map((option) => (
-                          <SelectItem key={option.seconds} value={String(option.seconds)}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {botMode === "timed_expiry" ? (
+                    <div className="space-y-2">
+                      <Label>Duration</Label>
+                      <Select value={String(expirySeconds)} onValueChange={(value) => setExpirySeconds(Number(value))}>
+                        <SelectTrigger className="border-slate-800 bg-slate-900 text-slate-100">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(metadata?.durations ?? []).map((option) => (
+                            <SelectItem key={option.seconds} value={String(option.seconds)}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label className="text-slate-400">Duration</Label>
+                      <div className="rounded-xl border border-dashed border-slate-800 px-3 py-2 text-xs text-slate-500">
+                        Not used in candle mode — exits via trailing stop, reverse candle, or take profit.
+                      </div>
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <Label>Base stake</Label>
                     <Input type="number" min={1} value={baseStake} onChange={(event) => setBaseStake(Number(event.target.value || 0))} className="border-slate-800 bg-slate-900 text-slate-100" />
@@ -816,8 +864,118 @@ export default function RobotTradingPage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="rounded-2xl border border-dashed border-slate-800 p-4 text-sm text-slate-500">
-                        No open position. {liveStats?.last_decision?.reason ?? "Waiting for a candle-direction signal."}
+                      <div className="rounded-2xl border border-dashed border-slate-800 p-4 space-y-3">
+                        {liveStats?.last_decision ? (
+                          <>
+                            {/* Signal badges row */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${liveStats.last_decision.action === "BUY" ? "bg-emerald-500/20 text-emerald-300" : liveStats.last_decision.action === "SELL" ? "bg-rose-500/20 text-rose-300" : "bg-slate-700 text-slate-400"}`}>
+                                {liveStats.last_decision.action ?? "HOLD"}
+                              </span>
+                              {liveStats.last_decision.pattern && liveStats.last_decision.pattern !== "none" && liveStats.last_decision.pattern !== "Normal Candle" && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 font-medium">
+                                  {liveStats.last_decision.pattern}
+                                </span>
+                              )}
+                              {liveStats.last_decision.trend_bias && liveStats.last_decision.trend_bias !== "neutral" && (
+                                <span className={`text-xs px-2 py-0.5 rounded-full ${liveStats.last_decision.trend_bias === "bullish" ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"}`}>
+                                  {liveStats.last_decision.trend_bias} trend
+                                </span>
+                              )}
+                              {liveStats.last_decision.confidence !== undefined && (
+                                <span className="ml-auto text-xs font-semibold text-slate-300">{(liveStats.last_decision.confidence * 100).toFixed(0)}% conf</span>
+                              )}
+                            </div>
+                            {/* Momentum + continuation metrics */}
+                            {(liveStats.last_decision.momentum_score !== undefined || liveStats.last_decision.continuation_pct !== undefined) && (
+                              <div className="grid grid-cols-2 gap-2">
+                                {liveStats.last_decision.momentum_score !== undefined && (
+                                  <div className="rounded-lg bg-slate-900 px-3 py-2">
+                                    <div className="text-xs text-slate-500 mb-1">Momentum</div>
+                                    <div className="flex gap-0.5">
+                                      {Array.from({length: 5}, (_, i) => (
+                                        <div key={i} className={`h-2 flex-1 rounded-sm ${i < (liveStats.last_decision?.momentum_score ?? 0) ? (liveStats.last_decision?.action === "BUY" ? "bg-emerald-500" : "bg-rose-500") : "bg-slate-700"}`} />
+                                      ))}
+                                    </div>
+                                    <div className="text-xs text-slate-400 mt-1">{liveStats.last_decision.momentum_score}/5 candles</div>
+                                  </div>
+                                )}
+                                {liveStats.last_decision.continuation_pct != null && (
+                                  <div className="rounded-lg bg-slate-900 px-3 py-2">
+                                    <div className="text-xs text-slate-500 mb-1">Hist. rate</div>
+                                    <div className={`text-lg font-bold ${(liveStats.last_decision.continuation_pct ?? 0) >= 60 ? "text-emerald-400" : (liveStats.last_decision.continuation_pct ?? 0) <= 40 ? "text-rose-400" : "text-slate-300"}`}>
+                                      {liveStats.last_decision.continuation_pct?.toFixed(0)}%
+                                    </div>
+                                    <div className="text-xs text-slate-500">past continuations</div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            <div className="text-xs text-slate-500 leading-relaxed">{liveStats.last_decision.reason}</div>
+                          </>
+                        ) : (
+                          <div className="text-sm text-slate-500">Waiting for a candle-direction signal.</div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Cooldown / Daily loss status banners */}
+                    {liveStats?.cooldown?.active && (
+                      <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-sm text-amber-300">
+                        <span className="text-base">⏳</span>
+                        <div className="flex-1">
+                          <span className="font-semibold">Loss cooldown</span>
+                          <span className="ml-2 text-xs text-amber-400">
+                            {Math.floor((liveStats.cooldown.seconds_left ?? 0) / 60)}m {(liveStats.cooldown.seconds_left ?? 0) % 60}s remaining — next trade after cooldown
+                          </span>
+                        </div>
+                        {selectedSessionId && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-amber-500/40 text-amber-300 hover:bg-amber-500/20 text-xs px-2 py-1 h-auto"
+                            disabled={resetDailyLoss.isPending}
+                            onClick={() => resetDailyLoss.mutate(selectedSessionId)}
+                          >
+                            Skip
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                    {liveStats?.daily_loss?.hit && (
+                      <div className="flex items-start gap-2 rounded-xl bg-rose-500/10 border border-rose-500/20 px-3 py-2 text-sm text-rose-300">
+                        <span className="text-base mt-0.5">🛑</span>
+                        <div className="flex-1">
+                          <span className="font-semibold">Daily loss limit hit</span>
+                          <span className="ml-2 text-xs text-rose-400">
+                            ${liveStats.daily_loss.today.toFixed(2)} lost today (limit ${liveStats.daily_loss.limit?.toFixed(2)}). Resumes tomorrow at UTC midnight.
+                          </span>
+                        </div>
+                        {selectedSessionId && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-rose-500/40 text-rose-300 hover:bg-rose-500/20 text-xs px-2 py-1 h-auto"
+                            disabled={resetDailyLoss.isPending}
+                            onClick={() => resetDailyLoss.mutate(selectedSessionId)}
+                          >
+                            Reset now
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                    {liveStats?.daily_loss && !liveStats.daily_loss.hit && liveStats.daily_loss.limit !== null && (
+                      <div className="rounded-xl bg-slate-900 p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-slate-500">Daily loss</span>
+                          <span className="text-xs text-slate-400">${liveStats.daily_loss.today.toFixed(2)} / ${liveStats.daily_loss.limit?.toFixed(2)}</span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-slate-800">
+                          <div
+                            className={`h-1.5 rounded-full transition-all ${(liveStats.daily_loss.pct ?? 0) >= 80 ? "bg-rose-500" : (liveStats.daily_loss.pct ?? 0) >= 50 ? "bg-amber-500" : "bg-emerald-500"}`}
+                            style={{ width: `${Math.min(100, liveStats.daily_loss.pct ?? 0)}%` }}
+                          />
+                        </div>
                       </div>
                     )}
 
