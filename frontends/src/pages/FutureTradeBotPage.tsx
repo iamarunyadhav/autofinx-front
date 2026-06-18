@@ -206,7 +206,7 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   cooldownSeconds: 180,
   scanIntervalSeconds: 3,
   autoExecutePaperSignals: true,
-  signalSource: "webhook" as "mirror" | "webhook" | "webhook_fallback",
+  signalSource: "webhook" as "mirror" | "webhook" | "webhook_fallback" | "binance",
   pineWebhookFallbackTimeoutSeconds: 1200,
   avoidChoppyMarket: true,
   emergencyStop: false,
@@ -1877,9 +1877,9 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-2 text-xs sm:grid-cols-2">
-                <Row label="Active Signal Brain" value="AutoFinX Prime v6.1.7 Pine" />
-                <Row label="Prime Signal Source" value={(settings.signalSource ?? "webhook") === "mirror" ? "Backend Mirror Scanner" : (settings.signalSource === "webhook" || !settings.signalSource ? "TradingView Webhook" : "Webhook + Binance Fallback")} />
-                <Row label="Backend Mirror" value={(settings.signalSource ?? "webhook") === "mirror" ? "Signal + Execution Enabled" : (settings.signalSource === "webhook" || !settings.signalSource ? "Validation Only" : "Fallback Execution Enabled")} />
+                <Row label="Active Signal Brain" value={(settings.signalSource ?? "webhook") === "binance" ? "AutoFinX Prime v11 Native Binance" : "AutoFinX Prime v6.1.7 Pine"} />
+                <Row label="Prime Signal Source" value={(settings.signalSource ?? "webhook") === "binance" ? "Binance Native Brain" : (settings.signalSource ?? "webhook") === "mirror" ? "Backend Mirror Scanner" : (settings.signalSource === "webhook" || !settings.signalSource ? "TradingView Webhook" : "Webhook + Binance Fallback")} />
+                <Row label="Backend Mirror" value={(settings.signalSource ?? "webhook") === "binance" ? "Native Signal + Execution Enabled" : (settings.signalSource ?? "webhook") === "mirror" ? "Signal + Execution Enabled" : (settings.signalSource === "webhook" || !settings.signalSource ? "Validation Only" : "Fallback Execution Enabled")} />
                 <Row label="Secondary AI Weighting" value="Disabled" />
                 <Row label="Legacy Weighted Scoring" value="Bypassed" />
                 <Row label="Default timeframe" value="15m locked" />
@@ -1890,9 +1890,11 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
                   <div className="text-xs text-muted-foreground">
                     {(settings.signalSource ?? "webhook") === "webhook"
                       ? "OFF: webhook-only mode; backend scanner stays read-only for diagnostics and CSV validation."
+                      : (settings.signalSource === "binance"
+                        ? "Binance ON: backend uses Binance futures data as source of truth and executes native Prime signals."
                       : (settings.signalSource === "mirror"
                         ? "Mirror ON: backend scanner uses Binance futures data and executes Prime signals."
-                        : "Fallback ON: TradingView webhook is primary; Binance mirror executes only when webhook is stale.")}
+                        : "Fallback ON: TradingView webhook is primary; Binance mirror executes only when webhook is stale."))}
                   </div>
                 </div>
                 <Switch
@@ -2180,11 +2182,29 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
             <div>
               <div className="text-sm font-medium">Signal Source</div>
               <div className="text-xs text-muted-foreground">
-                Mirror = Binance-backed scanner executes. Webhook = only TradingView Pine alerts execute.
+                Binance = native backend brain executes from Binance data. Mirror = Binance-backed scanner executes. Webhook = only TradingView Pine alerts execute.
                 Fallback = webhook is primary, but Binance mirror executes when webhook is stale.
               </div>
             </div>
             <div className="flex shrink-0 gap-1 rounded-md border bg-muted/30 p-1">
+              <button
+                type="button"
+                className={cn(
+                  "rounded px-3 py-1 text-xs",
+                  (settings.signalSource ?? "webhook") === "binance"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted",
+                )}
+                onClick={() => setSettings({
+                  ...settings,
+                  signalSource: "binance",
+                  primeMirrorLiveEnabled: true,
+                  primeMirrorExecutionEnabled: true,
+                  useLiveDataFeed: true,
+                })}
+              >
+                Binance
+              </button>
               <button
                 type="button"
                 className={cn(
@@ -2257,6 +2277,10 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
               Fallback mode active. TradingView webhook is accepted when available; if no webhook arrives within
               <span className="font-mono"> {Number(settings.pineWebhookFallbackTimeoutSeconds ?? 1200)}s</span>,
               Binance futures mirror signals can execute.
+            </div>
+          ) : settings.signalSource === "binance" ? (
+            <div className="rounded-md border border-cyan-500/30 bg-cyan-500/10 p-2 text-xs text-cyan-100">
+              Binance native mode active. Backend uses Binance futures candles/ticks as the source of truth, runs the Prime brain server-side, and rejects TradingView webhooks to avoid double-entry conflicts.
             </div>
           ) : (
             <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-200">

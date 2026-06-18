@@ -87,7 +87,7 @@ export interface FutureTradeSettings {
   cooldownSeconds: number;
   scanIntervalSeconds: number;
   autoExecutePaperSignals: boolean;
-  signalSource?: "mirror" | "webhook" | "webhook_fallback";
+  signalSource?: "mirror" | "webhook" | "webhook_fallback" | "binance";
   pineWebhookFallbackTimeoutSeconds?: number;
   avoidChoppyMarket: boolean;
   emergencyStop: boolean;

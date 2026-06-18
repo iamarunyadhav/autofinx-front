@@ -79,6 +79,7 @@ export default function RobotTradingPage() {
   const [dailyLossLimit, setDailyLossLimit] = useState<number | "">("");
   const [multiSymbol, setMultiSymbol] = useState(false);
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>([]);
+  const [chartSymbolOverride, setChartSymbolOverride] = useState<string | null>(null);
 
   const forceClose = useForceCloseSession();
   const resetDailyLoss = useResetDailyLoss();
@@ -127,6 +128,11 @@ export default function RobotTradingPage() {
     }
   }, [sessions, selectedSessionId]);
 
+  // Reset chart symbol override when switching to a different session.
+  useEffect(() => {
+    setChartSymbolOverride(null);
+  }, [selectedSessionId]);
+
   useEffect(() => {
     const timer = window.setInterval(() => {
       settleTrades.mutate(25);
@@ -171,7 +177,8 @@ export default function RobotTradingPage() {
   // graph is always visible while setting up a candle-direction bot.
   const formPreviewActive = !isCandleBot && botMode === "candle_direction" && Boolean(symbol);
   const chartEnabled = isCandleBot || formPreviewActive;
-  const chartSymbol = isCandleBot ? (selectedSession?.symbol ?? "") : symbol;
+  const baseChartSymbol = isCandleBot ? (selectedSession?.symbol ?? "") : symbol;
+  const chartSymbol = chartSymbolOverride ?? baseChartSymbol;
   const chartTimeframe = isCandleBot ? (selectedSession?.timeframe ?? "1m") : timeframe;
 
   const feed = useRobotCandleFeed(
@@ -795,11 +802,36 @@ export default function RobotTradingPage() {
               {chartEnabled && (
                 <Card className="border-slate-800 bg-slate-950 text-slate-50">
                   <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <span>
-                        {chartSymbol.replaceAll("_", " ")} · {chartTimeframe}
-                      </span>
+                    <CardTitle className="flex flex-wrap items-center justify-between gap-2">
+                      {/* Symbol pills */}
+                      <div className="flex flex-wrap gap-1">
+                        {["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","DOGEUSDT","ADAUSDT","AVAXUSDT"].map((sym) => {
+                          const active = chartSymbol === sym;
+                          const isSessionSym = sym === baseChartSymbol;
+                          return (
+                            <button
+                              key={sym}
+                              type="button"
+                              onClick={() => setChartSymbolOverride(sym === baseChartSymbol ? null : sym)}
+                              className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                                active
+                                  ? "border-blue-500 bg-blue-500/20 text-blue-200"
+                                  : "border-slate-700 bg-slate-900 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                              } ${isSessionSym ? "font-semibold" : ""}`}
+                            >
+                              {sym.replace("USDT", "")}
+                              {isSessionSym && <span className="ml-1 text-emerald-400">●</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
                       <div className="flex items-center gap-2">
+                        <span className="text-sm text-slate-400">{chartSymbol} · {chartTimeframe}</span>
+                        {chartSymbolOverride && (
+                          <button type="button" onClick={() => setChartSymbolOverride(null)} className="text-xs text-slate-500 hover:text-slate-300">
+                            ← bot
+                          </button>
+                        )}
                         {!isCandleBot && <Badge className="bg-slate-700/40 text-slate-300">PREVIEW</Badge>}
                         <Badge className={feed.connected ? "bg-emerald-500/10 text-emerald-300" : "bg-slate-500/10 text-slate-300"}>
                           {feed.connected ? `LIVE · ${feed.latencyMs}ms` : "CONNECTING"}
