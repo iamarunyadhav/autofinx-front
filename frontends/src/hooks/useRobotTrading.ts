@@ -78,6 +78,8 @@ export interface RobotLiveStats {
   last_signal_analysis?: { pattern?: string; pattern_type?: string; trend_bias?: string; trend_streak?: number; momentum_score?: number; continuation_pct?: number | null; confidence?: number; side?: string } | null;
   cooldown?: { active: boolean; seconds_left: number; until: string | null } | null;
   daily_loss?: { today: number; limit: number | null; hit: boolean; pct: number | null } | null;
+  volatility?: { tradeable: boolean; reason: string; atr_pct: number; bb_width_pct: number } | null;
+  signal_streak?: number;
   as_of: string;
 }
 
