@@ -37,20 +37,20 @@ const flowIcons = {
 };
 
 const lightStyles: Record<AuditLight, string> = {
-  green: "bg-emerald-500 text-emerald-950 border-emerald-500",
+  green: "bg-emerald-400 text-emerald-950 border-emerald-400",
   yellow: "bg-amber-400 text-amber-950 border-amber-400",
   red: "bg-rose-500 text-white border-rose-500",
-  gray: "bg-slate-300 text-slate-700 border-slate-300",
+  gray: "bg-slate-500 text-slate-100 border-slate-500",
 };
 
 const panelStyles: Record<AuditLight, string> = {
-  green: "border-emerald-200 bg-emerald-50/70",
-  yellow: "border-amber-200 bg-amber-50/80",
-  red: "border-rose-200 bg-rose-50/80",
-  gray: "border-slate-200 bg-slate-50",
+  green: "border-emerald-500/40 bg-emerald-950/30 text-slate-100",
+  yellow: "border-amber-500/45 bg-amber-950/30 text-slate-100",
+  red: "border-rose-500/45 bg-rose-950/35 text-slate-100",
+  gray: "border-slate-700 bg-slate-900/70 text-slate-100",
 };
 
-const cardClass = "rounded-lg border-slate-200 bg-white text-slate-950 shadow-sm";
+const cardClass = "rounded-lg border-slate-800 bg-slate-950 text-slate-100 shadow-sm";
 
 export default function AuditPage() {
   const { currentWorkspace } = useWorkspace();
@@ -122,33 +122,33 @@ export default function AuditPage() {
 
   return (
     <AppShell>
-      <div className="min-h-screen bg-slate-50 text-slate-950">
-        <div className="border-b bg-white">
+      <div className="min-h-screen bg-slate-950 text-slate-100">
+        <div className="border-b border-slate-800 bg-slate-950">
           <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
               <div className={cn("flex h-11 w-11 items-center justify-center rounded-lg", lightStyles[overallState])}>
                 <Workflow className="h-5 w-5" />
               </div>
               <div>
-                <h1 className="text-2xl font-semibold tracking-normal text-slate-950">Audit Flow Monitor</h1>
-                <p className="text-sm text-slate-500">Future Trade, Binance brain, robot candles, server workers, and blockers in one live trace.</p>
-                <p className="mt-1 text-sm font-medium text-slate-700">{data?.report?.summary ?? "Waiting for first audit snapshot."}</p>
+                <h1 className="text-2xl font-semibold tracking-normal text-white">Audit Flow Monitor</h1>
+                <p className="text-sm text-slate-400">Future Trade, Binance brain, robot candles, server workers, and blockers in one live trace.</p>
+                <p className="mt-1 text-sm font-medium text-slate-200">{data?.report?.summary ?? "Waiting for first audit snapshot."}</p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="h-9 gap-2 px-3">
+              <Badge variant="outline" className="h-9 gap-2 border-slate-700 bg-slate-900 px-3 text-slate-200">
                 <Clock3 className="h-4 w-4" />
                 {data?.generated_at ? formatTime(data.generated_at) : "Waiting"}
               </Badge>
-              <Button variant="outline" size="sm" onClick={() => audit.overview.refetch()}>
+              <Button variant="outline" size="sm" className="border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800" onClick={() => audit.overview.refetch()}>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Refresh
               </Button>
-              <Button variant="outline" size="sm" onClick={exportJson} disabled={!data}>
+              <Button variant="outline" size="sm" className="border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800" onClick={exportJson} disabled={!data}>
                 <Download className="mr-2 h-4 w-4" />
                 Export
               </Button>
-              <Button variant="outline" size="sm" onClick={copyReport} disabled={!data}>
+              <Button variant="outline" size="sm" className="border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800" onClick={copyReport} disabled={!data}>
                 <Copy className="mr-2 h-4 w-4" />
                 Copy Report
               </Button>
@@ -166,9 +166,9 @@ export default function AuditPage() {
 
           <section className="grid gap-3 md:grid-cols-5">
             {Object.entries(data?.metrics ?? {}).map(([key, value]) => (
-              <div key={key} className="rounded-lg border bg-white px-3 py-3">
-                <div className="text-xs font-medium uppercase text-slate-500">{labelize(key)}</div>
-                <div className="mt-1 text-2xl font-semibold text-slate-950">{value}</div>
+              <div key={key} className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-3">
+                <div className="text-xs font-medium uppercase text-slate-400">{labelize(key)}</div>
+                <div className="mt-1 text-2xl font-semibold text-white">{value}</div>
               </div>
             ))}
           </section>
@@ -176,21 +176,21 @@ export default function AuditPage() {
           <section className="grid gap-4 lg:grid-cols-[1.7fr_1fr]">
             <Card className={cardClass}>
               <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base text-slate-950">
+                <CardTitle className="flex items-center gap-2 text-base text-white">
                   <Workflow className="h-5 w-5" />
                   Live Workflow
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <Tabs value={activeFlow} onValueChange={setActiveFlow}>
-                  <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 lg:grid-cols-5">
+                  <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-lg bg-slate-900 p-1 lg:grid-cols-5">
                     {Object.entries(flows).map(([key, flow]) => {
                       const Icon = flowIcons[key as keyof typeof flowIcons] ?? Workflow;
                       return (
                         <TabsTrigger
                           key={key}
                           value={key}
-                          className="min-h-9 gap-2 whitespace-normal rounded-md px-2 text-xs text-slate-600 data-[state=active]:bg-white data-[state=active]:text-slate-950 data-[state=active]:shadow-sm"
+                          className="min-h-9 gap-2 whitespace-normal rounded-md px-2 text-xs text-slate-400 data-[state=active]:bg-slate-800 data-[state=active]:text-white data-[state=active]:shadow-sm"
                         >
                           <Icon className="h-4 w-4" />
                           {flow.title}
@@ -209,7 +209,7 @@ export default function AuditPage() {
 
             <Card className={cardClass}>
               <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base text-slate-950">
+                <CardTitle className="flex items-center gap-2 text-base text-white">
                   <ShieldCheck className="h-5 w-5" />
                   Selected Step
                 </CardTitle>
@@ -218,13 +218,13 @@ export default function AuditPage() {
                 {selectedNode ? (
                   <div className={cn("rounded-lg border p-4", panelStyles[selectedNode.state])}>
                     <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-white">
                         <StatusIcon state={selectedNode.state} />
                         {selectedNode.label}
                       </div>
-                      <Badge variant="outline" className="bg-white">{selectedNode.blockerType ?? "none"}</Badge>
+                      <Badge variant="outline" className="border-slate-700 bg-slate-900 text-slate-200">{selectedNode.blockerType ?? "none"}</Badge>
                     </div>
-                    <div className="mt-3 grid gap-2 text-sm text-slate-700">
+                    <div className="mt-3 grid gap-2 text-sm text-slate-200">
                       <DetailLine label="Reason" value={selectedNode.detail || "No event received yet"} />
                       <DetailLine label="Time" value={selectedNode.at ? formatTime(selectedNode.at) : "Waiting"} />
                       <DetailLine label="Latency" value={selectedNode.latencyMs !== null && selectedNode.latencyMs !== undefined ? `${selectedNode.latencyMs} ms` : "Not measured"} />
@@ -233,7 +233,7 @@ export default function AuditPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">Select a workflow step to inspect it.</div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4 text-sm text-slate-300">Select a workflow step to inspect it.</div>
                 )}
               </CardContent>
             </Card>
@@ -242,50 +242,50 @@ export default function AuditPage() {
           <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
             <Card className={cardClass}>
               <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base text-slate-950">
+                <CardTitle className="flex items-center gap-2 text-base text-white">
                   <Play className="h-5 w-5" />
                   Recovery And Failover
                 </CardTitle>
               </CardHeader>
               <CardContent className="grid gap-2">
-                <Button variant="outline" className="justify-start" onClick={() => run("Runtime recovery", audit.recoverRuntime)}>
+                <Button variant="outline" className="justify-start border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800" onClick={() => run("Runtime recovery", audit.recoverRuntime)}>
                   <RotateCcw className="mr-2 h-4 w-4" />
                   Recover Future Runtime
                 </Button>
-                <Button variant="outline" className="justify-start" onClick={() => run("Live feed restart", audit.restartLiveFeed)}>
+                <Button variant="outline" className="justify-start border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800" onClick={() => run("Live feed restart", audit.restartLiveFeed)}>
                   <RadioTower className="mr-2 h-4 w-4" />
                   Restart Live Feed
                 </Button>
-                <Button variant="outline" className="justify-start" onClick={() => run("Worker restart", audit.restartWorkers)}>
+                <Button variant="outline" className="justify-start border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800" onClick={() => run("Worker restart", audit.restartWorkers)}>
                   <ServerCog className="mr-2 h-4 w-4" />
                   Restart Workers
                 </Button>
-                <Button variant="outline" className="justify-start" onClick={() => run("Failed job retry", { mutateAsync: () => audit.retryFailedJobs.mutateAsync(undefined) })}>
+                <Button variant="outline" className="justify-start border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800" onClick={() => run("Failed job retry", { mutateAsync: () => audit.retryFailedJobs.mutateAsync(undefined) })}>
                   <RefreshCw className="mr-2 h-4 w-4" />
                   Retry Failed Jobs
                 </Button>
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
                   Reconcile command: <span className="font-mono">{data?.actions?.reconcile_binance ?? "php artisan future-trade:reconcile-binance"}</span>
                 </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <div className="text-sm font-semibold text-slate-950">Binance WS Order Transport</div>
-                      <div className="mt-1 text-xs text-slate-500">
+                      <div className="text-sm font-semibold text-white">Binance WS Order Transport</div>
+                      <div className="mt-1 text-xs text-slate-400">
                         Requested {requestedTransport}; effective {orderTransport}.
                       </div>
                     </div>
                     <Switch checked={wsTransportOn} onCheckedChange={toggleOrderTransport} disabled={audit.setOrderTransport.isPending} />
                   </div>
-                  <div className="mt-2 text-xs text-slate-600">{String(orderRouter.message ?? "Order router status waiting.")}</div>
+                  <div className="mt-2 text-xs text-slate-300">{String(orderRouter.message ?? "Order router status waiting.")}</div>
                 </div>
                 <div className="grid gap-2 pt-1">
                   {(data?.report?.failover ?? []).map((item) => (
-                    <div key={item.label} className="grid grid-cols-[14px_1fr] gap-2 rounded-lg border bg-white p-2 text-xs">
+                    <div key={item.label} className="grid grid-cols-[14px_1fr] gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2 text-xs">
                       <StatusDot state={item.state.includes("need") || item.state === "stopped" ? "red" : item.state === "waiting" ? "yellow" : "green"} />
                       <div>
-                        <div className="font-medium text-slate-900">{item.label} <span className="font-normal text-slate-500">({item.state})</span></div>
-                        <div className="text-slate-500">{item.detail}</div>
+                        <div className="font-medium text-white">{item.label} <span className="font-normal text-slate-400">({item.state})</span></div>
+                        <div className="text-slate-400">{item.detail}</div>
                       </div>
                     </div>
                   ))}
@@ -295,7 +295,7 @@ export default function AuditPage() {
 
             <Card className={cardClass}>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base text-slate-950">Blockers And Warnings</CardTitle>
+                <CardTitle className="text-base text-white">Blockers And Warnings</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-2">
                 {(active?.nodes ?? []).filter((node) => node.state === "red" || node.state === "yellow").map((node) => (
@@ -304,11 +304,11 @@ export default function AuditPage() {
                       {node.state === "red" ? <XCircle className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
                       {node.label}
                     </div>
-                    <div className="mt-1 text-xs text-slate-700">{node.detail || "No detail from server yet."}</div>
+                    <div className="mt-1 text-xs text-slate-300">{node.detail || "No detail from server yet."}</div>
                   </div>
                 ))}
                 {(active?.nodes ?? []).every((node) => node.state !== "red" && node.state !== "yellow") && (
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">No hard blockers in this flow.</div>
+                  <div className="rounded-lg border border-emerald-500/40 bg-emerald-950/30 p-3 text-sm text-emerald-100">No hard blockers in this flow.</div>
                 )}
               </CardContent>
             </Card>
@@ -317,17 +317,17 @@ export default function AuditPage() {
           <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
             <Card className={cardClass}>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base text-slate-950">Recent Timeline</CardTitle>
+                <CardTitle className="text-base text-white">Recent Timeline</CardTitle>
               </CardHeader>
               <CardContent className="max-h-[440px] space-y-2 overflow-y-auto">
                 {(data?.timeline ?? []).map((item, index) => (
-                  <div key={`${item.type}-${item.at}-${index}`} className="grid grid-cols-[20px_1fr_auto] gap-3 rounded-lg border bg-white p-3">
+                  <div key={`${item.type}-${item.at}-${index}`} className="grid grid-cols-[20px_1fr_auto] gap-3 rounded-lg border border-slate-800 bg-slate-900 p-3">
                     <StatusDot state={item.state} />
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-slate-950">{item.title}</div>
-                      <div className="truncate text-xs text-slate-500">{item.reason || item.type}</div>
+                      <div className="truncate text-sm font-medium text-white">{item.title}</div>
+                      <div className="truncate text-xs text-slate-400">{item.reason || item.type}</div>
                     </div>
-                    <div className="text-right text-xs text-slate-500">
+                    <div className="text-right text-xs text-slate-400">
                       <div>{item.at ? formatTime(item.at) : "-"}</div>
                       <div>{item.latency_ms ? `${item.latency_ms} ms` : ""}</div>
                     </div>
@@ -338,7 +338,7 @@ export default function AuditPage() {
 
             <Card className={cardClass}>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base text-slate-950">Full Report</CardTitle>
+                <CardTitle className="text-base text-white">Full Report</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-3">
                 <div className="grid gap-2 text-sm">
@@ -346,7 +346,7 @@ export default function AuditPage() {
                     <DetailLine key={key} label={labelize(key)} value={value || "-"} />
                   ))}
                 </div>
-                <pre className="max-h-[300px] overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                <pre className="max-h-[300px] overflow-auto rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs text-slate-300">
                   {JSON.stringify({ refs: data?.report?.raw_refs, runtime: data?.runtime, queues: data?.queues, latest: data?.latest }, null, 2)}
                 </pre>
               </CardContent>
@@ -363,7 +363,7 @@ function WorkflowGraph({ flow, selectedKey, onSelect }: { flow: AuditFlow; selec
     <div className="grid gap-3 md:grid-cols-4">
       {flow.nodes.map((node, index) => (
         <div key={node.key} className="relative">
-          {index < flow.nodes.length - 1 && <div className="absolute left-[calc(100%-4px)] top-7 hidden h-0.5 w-6 bg-slate-300 md:block" />}
+          {index < flow.nodes.length - 1 && <div className="absolute left-[calc(100%-4px)] top-7 hidden h-0.5 w-6 bg-slate-700 md:block" />}
           <NodePanel node={node} selected={node.key === selectedKey} onSelect={() => onSelect(node.key)} />
         </div>
       ))}
@@ -373,16 +373,16 @@ function WorkflowGraph({ flow, selectedKey, onSelect }: { flow: AuditFlow; selec
 
 function NodePanel({ node, selected, onSelect }: { node: AuditFlowNode; selected?: boolean; onSelect: () => void }) {
   return (
-    <button type="button" onClick={onSelect} className={cn("min-h-[150px] w-full rounded-lg border p-3 text-left transition hover:shadow-sm", panelStyles[node.state], selected && "ring-2 ring-slate-900")}>
+    <button type="button" onClick={onSelect} className={cn("min-h-[150px] w-full rounded-lg border p-3 text-left transition hover:border-cyan-400/70 hover:shadow-sm", panelStyles[node.state], selected && "ring-2 ring-cyan-400")}>
       <div className="flex items-start justify-between gap-2">
         <StatusIcon state={node.state} />
         {node.latencyMs !== null && node.latencyMs !== undefined && (
-          <Badge variant="outline" className="bg-white text-xs">{node.latencyMs} ms</Badge>
+          <Badge variant="outline" className="border-slate-700 bg-slate-900 text-xs text-slate-200">{node.latencyMs} ms</Badge>
         )}
       </div>
-      <div className="mt-3 text-sm font-semibold text-slate-950">{node.label}</div>
-      <div className="mt-1 line-clamp-3 text-xs text-slate-600">{node.detail || "No event yet"}</div>
-      <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-500">
+      <div className="mt-3 text-sm font-semibold text-white">{node.label}</div>
+      <div className="mt-1 line-clamp-3 text-xs text-slate-300">{node.detail || "No event yet"}</div>
+      <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-400">
         <span>{node.at ? formatTime(node.at) : "Waiting for trigger"}</span>
         <span>{node.blockerType ?? "none"}</span>
       </div>
@@ -394,10 +394,10 @@ function HealthTile({ label, value, state }: { label: string; value: string; sta
   return (
     <div className={cn("rounded-lg border px-3 py-3", panelStyles[state])}>
       <div className="flex items-center justify-between gap-2">
-        <div className="text-xs font-medium uppercase text-slate-500">{label}</div>
+        <div className="text-xs font-medium uppercase text-slate-400">{label}</div>
         <StatusDot state={state} />
       </div>
-      <div className="mt-1 text-xl font-semibold text-slate-950">{value}</div>
+      <div className="mt-1 text-xl font-semibold text-white">{value}</div>
     </div>
   );
 }
@@ -405,8 +405,8 @@ function HealthTile({ label, value, state }: { label: string; value: string; sta
 function DetailLine({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="grid grid-cols-[90px_1fr] gap-3">
-      <span className="text-xs font-medium uppercase text-slate-500">{label}</span>
-      <span className="min-w-0 break-words text-slate-700">{value}</span>
+      <span className="text-xs font-medium uppercase text-slate-400">{label}</span>
+      <span className="min-w-0 break-words text-slate-200">{value}</span>
     </div>
   );
 }
