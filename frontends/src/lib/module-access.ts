@@ -19,6 +19,7 @@ export const MODULE_DEFINITIONS: ModuleDefinition[] = [
   { key: "ratio-bot", label: "Ratio Bot", path: "/ratio-bot", description: "Core ratio bot trading module.", defaultMode: "active" },
   { key: "fast2x", label: "Fast2X", path: "/fast2x", description: "Core Fast2X trading module.", defaultMode: "active" },
   { key: "future-trade", label: "Future Trade", path: "/future-trade", description: "Core Future Trade futures scanner bot.", defaultMode: "active" },
+  { key: "audit", label: "Audit", path: "/audit", description: "Live workflow tracing for Future Trade, Robot Trade, queues, and server processes.", defaultMode: "active" },
   { key: "scheduler", label: "Scheduler", path: "/scheduler", description: "Scheduler controls required for automation timing.", defaultMode: "active" },
   { key: "risk", label: "Risk", path: "/risk", description: "Risk and kill switch controls.", defaultMode: "active" },
   { key: "wallet", label: "Wallet", path: "/wallet", description: "Wallet balances and transfer flows.", defaultMode: "active" },

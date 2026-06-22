@@ -24,6 +24,7 @@ import {
   Shield,
   Wallet,
   Waves,
+  Workflow,
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ const iconMap = {
   "ratio-bot": Zap,
   fast2x: Zap,
   "future-trade": FlaskConical,
+  audit: Workflow,
   scheduler: Calendar,
   risk: Shield,
   wallet: Wallet,

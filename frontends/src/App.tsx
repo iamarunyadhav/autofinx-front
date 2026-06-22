@@ -38,6 +38,7 @@ import PortfolioIntelligencePage from "./pages/PortfolioIntelligencePage";
 import RatioBotPage from "./pages/RatioBotPage";
 import Fast2XPage from "./pages/Fast2XPage";
 import FutureTradeBotPage from "./pages/FutureTradeBotPage";
+import AuditPage from "./pages/AuditPage";
 import JobsPage from "./pages/JobsPage";
 import SettingsPage from "./pages/SettingsPage";
 import AccessPage from "./pages/AccessPage";
@@ -217,6 +218,11 @@ const App = () => (
             <Route path="/future-trade" element={
               <ModuleRoute moduleKey="future-trade">
                 <FutureTradeBotPage />
+              </ModuleRoute>
+            } />
+            <Route path="/audit" element={
+              <ModuleRoute moduleKey="audit">
+                <AuditPage />
               </ModuleRoute>
             } />
             <Route path="/payouts/:id" element={
