@@ -50,6 +50,8 @@ const panelStyles: Record<AuditLight, string> = {
   gray: "border-slate-200 bg-slate-50",
 };
 
+const cardClass = "rounded-lg border-slate-200 bg-white text-slate-950 shadow-sm";
+
 export default function AuditPage() {
   const { currentWorkspace } = useWorkspace();
   const { toast } = useToast();
@@ -120,7 +122,7 @@ export default function AuditPage() {
 
   return (
     <AppShell>
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-slate-50 text-slate-950">
         <div className="border-b bg-white">
           <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
@@ -172,20 +174,24 @@ export default function AuditPage() {
           </section>
 
           <section className="grid gap-4 lg:grid-cols-[1.7fr_1fr]">
-            <Card className="rounded-lg">
+            <Card className={cardClass}>
               <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
+                <CardTitle className="flex items-center gap-2 text-base text-slate-950">
                   <Workflow className="h-5 w-5" />
                   Live Workflow
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <Tabs value={activeFlow} onValueChange={setActiveFlow}>
-                  <TabsList className="grid h-auto w-full grid-cols-2 gap-1 bg-slate-100 p-1 lg:grid-cols-5">
+                  <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 lg:grid-cols-5">
                     {Object.entries(flows).map(([key, flow]) => {
                       const Icon = flowIcons[key as keyof typeof flowIcons] ?? Workflow;
                       return (
-                        <TabsTrigger key={key} value={key} className="gap-2">
+                        <TabsTrigger
+                          key={key}
+                          value={key}
+                          className="min-h-9 gap-2 whitespace-normal rounded-md px-2 text-xs text-slate-600 data-[state=active]:bg-white data-[state=active]:text-slate-950 data-[state=active]:shadow-sm"
+                        >
                           <Icon className="h-4 w-4" />
                           {flow.title}
                         </TabsTrigger>
@@ -201,9 +207,9 @@ export default function AuditPage() {
               </CardContent>
             </Card>
 
-            <Card className="rounded-lg">
+            <Card className={cardClass}>
               <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
+                <CardTitle className="flex items-center gap-2 text-base text-slate-950">
                   <ShieldCheck className="h-5 w-5" />
                   Selected Step
                 </CardTitle>
@@ -234,9 +240,9 @@ export default function AuditPage() {
           </section>
 
           <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-            <Card className="rounded-lg">
+            <Card className={cardClass}>
               <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
+                <CardTitle className="flex items-center gap-2 text-base text-slate-950">
                   <Play className="h-5 w-5" />
                   Recovery And Failover
                 </CardTitle>
@@ -287,9 +293,9 @@ export default function AuditPage() {
               </CardContent>
             </Card>
 
-            <Card className="rounded-lg">
+            <Card className={cardClass}>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Blockers And Warnings</CardTitle>
+                <CardTitle className="text-base text-slate-950">Blockers And Warnings</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-2">
                 {(active?.nodes ?? []).filter((node) => node.state === "red" || node.state === "yellow").map((node) => (
@@ -309,9 +315,9 @@ export default function AuditPage() {
           </section>
 
           <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-            <Card className="rounded-lg">
+            <Card className={cardClass}>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Recent Timeline</CardTitle>
+                <CardTitle className="text-base text-slate-950">Recent Timeline</CardTitle>
               </CardHeader>
               <CardContent className="max-h-[440px] space-y-2 overflow-y-auto">
                 {(data?.timeline ?? []).map((item, index) => (
@@ -330,9 +336,9 @@ export default function AuditPage() {
               </CardContent>
             </Card>
 
-            <Card className="rounded-lg">
+            <Card className={cardClass}>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Full Report</CardTitle>
+                <CardTitle className="text-base text-slate-950">Full Report</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-3">
                 <div className="grid gap-2 text-sm">
@@ -340,7 +346,7 @@ export default function AuditPage() {
                     <DetailLine key={key} label={labelize(key)} value={value || "-"} />
                   ))}
                 </div>
-                <pre className="max-h-[300px] overflow-auto rounded-lg border bg-slate-950 p-3 text-xs text-slate-100">
+                <pre className="max-h-[300px] overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
                   {JSON.stringify({ refs: data?.report?.raw_refs, runtime: data?.runtime, queues: data?.queues, latest: data?.latest }, null, 2)}
                 </pre>
               </CardContent>
