@@ -3,7 +3,7 @@ import { getApiBaseUrl } from "@/lib/api-base";
 import { getAuthToken } from "@/lib/auth";
 
 export interface CandleData {
-  time: number; // unix timestamp (seconds) — lightweight-charts compatible
+  time: number; // unix timestamp (seconds), lightweight-charts compatible
   open: number;
   high: number;
   low: number;
@@ -18,30 +18,14 @@ export interface RobotFeedState {
   lastSignal: "BUY" | "SELL" | "HOLD" | null;
   connected: boolean;
   latencyMs: number;
-  source: "binance" | "sse" | null;
+  source: "backend" | "sse" | null;
 }
 
 const CRYPTO_QUOTES = ["USDT", "USDC", "BUSD", "FDUSD", "TUSD"];
 
-/** Crypto symbols stream directly off Binance; everything else falls back to backend SSE. */
 function isCryptoSymbol(symbol: string): boolean {
   const s = symbol.toUpperCase();
   return CRYPTO_QUOTES.some((q) => s.endsWith(q));
-}
-
-/** Map an AutoFinX timeframe to a Binance kline interval. */
-function toBinanceInterval(timeframe: string): string {
-  const tf = timeframe.toLowerCase().trim();
-  const allowed = new Set([
-    "1m", "3m", "5m", "15m", "30m",
-    "1h", "2h", "4h", "6h", "8h", "12h",
-    "1d", "3d", "1w", "1M",
-  ]);
-  if (allowed.has(tf)) return tf;
-  // Common aliases.
-  if (tf === "60m") return "1h";
-  if (tf === "240m") return "4h";
-  return "1m";
 }
 
 function upsertCandle(list: CandleData[], candle: CandleData): CandleData[] {
@@ -57,12 +41,33 @@ function upsertCandle(list: CandleData[], candle: CandleData): CandleData[] {
   return next;
 }
 
+function normalizeCandle(row: any, fallbackClosed = false): CandleData | null {
+  const time = Number(row?.time ?? Math.floor(Number(row?.timestamp ?? 0) / 1000));
+  const candle = {
+    time,
+    open: Number(row?.open),
+    high: Number(row?.high),
+    low: Number(row?.low),
+    close: Number(row?.close),
+    volume: Number(row?.volume ?? 0),
+    isClosed: Boolean(row?.isClosed ?? row?.is_closed ?? fallbackClosed),
+  };
+
+  return candle.time > 0 &&
+    candle.open > 0 &&
+    candle.high > 0 &&
+    candle.low > 0 &&
+    candle.close > 0
+    ? candle
+    : null;
+}
+
 /**
- * Live candle feed for the Robot Trade chart.
+ * Live candle feed for Robot/Quick Trade charts.
  *
- * Crypto symbols connect straight to the Binance Futures WebSocket; non-crypto
- * symbols (forex/metals) fall back to the backend SSE endpoint when a sessionId
- * is supplied. Auto-reconnects with backoff and exposes a rough latency figure.
+ * Crypto candles are streamed through the Laravel backend, which owns the
+ * Binance Futures REST/WS connection. Non-crypto robot sessions keep using the
+ * existing backend session SSE feed.
  */
 export function useRobotCandleFeed(
   symbol: string,
@@ -88,16 +93,14 @@ export function useRobotCandleFeed(
     }
 
     candlesRef.current = [];
-    setState((s) => ({ ...s, candles: [], currentCandle: null, connected: false }));
+    setState((s) => ({ ...s, candles: [], currentCandle: null, connected: false, source: null }));
 
     let stopped = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
     let attempt = 0;
-    let activeWs: WebSocket | null = null;
     let activeController: AbortController | null = null;
 
-    const apply = (candle: CandleData, latencyMs: number) => {
+    const apply = (candle: CandleData, latencyMs: number, source: RobotFeedState["source"]) => {
       candlesRef.current = upsertCandle(candlesRef.current, candle);
       setState((s) => ({
         ...s,
@@ -105,6 +108,7 @@ export function useRobotCandleFeed(
         currentCandle: candle,
         connected: true,
         latencyMs,
+        source,
       }));
     };
 
@@ -115,197 +119,133 @@ export function useRobotCandleFeed(
       reconnectTimer = setTimeout(connect, delay);
     };
 
-    // Seed the chart with recent history so it isn't blank until the live WS
-    // ticks in. The kline WS only streams the currently-forming candle; without
-    // a history snapshot the chart shows nothing.
-    const seedBinanceHistory = async () => {
-      try {
-        const interval = toBinanceInterval(timeframe);
-        const resp = await fetch(
-          `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol.toUpperCase()}&interval=${interval}&limit=200`,
-        );
-        if (!resp.ok) return;
-        const rows: any[] = await resp.json();
-        const seeded: CandleData[] = rows.map((r) => ({
-          time: Math.floor(Number(r[0]) / 1000),
-          open: Number(r[1]),
-          high: Number(r[2]),
-          low: Number(r[3]),
-          close: Number(r[4]),
-          volume: Number(r[5]),
-          isClosed: true,
-        }));
-        if (!stopped && seeded.length) {
-          // Keep any live candles that may have already arrived.
-          seeded.forEach((c) => {
-            candlesRef.current = upsertCandle(candlesRef.current, c);
-          });
-          setState((s) => ({
-            ...s,
-            candles: candlesRef.current,
-            currentCandle: candlesRef.current[candlesRef.current.length - 1] ?? null,
-          }));
+    const readSse = async (
+      url: URL,
+      controller: AbortController,
+      onPayload: (payload: any) => void,
+      source: RobotFeedState["source"],
+    ) => {
+      const token = getAuthToken();
+      const resp = await fetch(url.toString(), {
+        headers: {
+          Accept: "text/event-stream",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        signal: controller.signal,
+      });
+      if (!resp.ok || !resp.body) throw new Error(`SSE ${resp.status}`);
+
+      attempt = 0;
+      setState((s) => ({ ...s, connected: true, source }));
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (!stopped) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let sep: number;
+        while ((sep = buffer.indexOf("\n\n")) >= 0) {
+          const chunk = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+          const dataLine = chunk.split("\n").find((l) => l.startsWith("data:"));
+          if (!dataLine) continue;
+          try {
+            onPayload(JSON.parse(dataLine.slice(5).trim()));
+          } catch {
+            /* ignore malformed event */
+          }
         }
-      } catch {
-        /* history is best-effort; live WS still drives updates */
       }
     };
 
-    // ---- Binance direct WebSocket (crypto) ----
-    const connectBinance = () => {
+    const connectBackendBinance = () => {
       if (stopped) return;
-      const interval = toBinanceInterval(timeframe);
-      const stream = `${symbol.toLowerCase()}@kline_${interval}`;
-      const ws = new WebSocket(`wss://fstream.binance.com/ws/${stream}`);
-      activeWs = ws;
+      const base = getApiBaseUrl();
+      const url = new URL(`${base}/quick-trade/candle-feed`);
+      url.searchParams.set("symbol", symbol.toUpperCase());
+      url.searchParams.set("timeframe", timeframe);
+      url.searchParams.set("history_limit", "200");
+      url.searchParams.set("max_seconds", "300");
 
-      ws.onopen = () => {
-        attempt = 0;
-        setState((s) => ({ ...s, connected: true, source: "binance" }));
-        void seedBinanceHistory();
-      };
-      ws.onmessage = (event) => {
+      const controller = new AbortController();
+      activeController = controller;
+
+      (async () => {
         try {
-          const msg = JSON.parse(event.data as string);
-          const k = msg.k;
-          if (!k) return;
-          const candle: CandleData = {
-            time: Math.floor(Number(k.t) / 1000),
-            open: Number(k.o),
-            high: Number(k.h),
-            low: Number(k.l),
-            close: Number(k.c),
-            volume: Number(k.v),
-            isClosed: Boolean(k.x),
-          };
-          const eventTs = Number(msg.E ?? Date.now());
-          apply(candle, Math.max(0, Date.now() - eventTs));
-        } catch {
-          /* ignore malformed frame */
+          await readSse(
+            url,
+            controller,
+            (payload) => {
+              const rows: any[] = payload.candles ?? [];
+              rows.forEach((row, index) => {
+                const candle = normalizeCandle(row, index < rows.length - 1);
+                if (candle) apply(candle, Number(payload.latency_ms ?? 0), "backend");
+              });
+
+              const current = normalizeCandle(payload.candle ?? payload.current);
+              if (current) apply(current, Number(payload.latency_ms ?? 0), "backend");
+
+              if (payload.connected === false) {
+                setState((s) => ({ ...s, connected: false, source: "backend" }));
+              }
+            },
+            "backend",
+          );
+          if (!stopped) scheduleReconnect(connectBackendBinance);
+        } catch (err) {
+          if (stopped || (err as Error)?.name === "AbortError") return;
+          setState((s) => ({ ...s, connected: false, source: "backend" }));
+          scheduleReconnect(connectBackendBinance);
         }
-      };
-      ws.onerror = () => ws.close();
-      ws.onclose = () => {
-        if (stopped) return;
-        setState((s) => ({ ...s, connected: false }));
-        scheduleReconnect(connectBinance);
-      };
+      })();
     };
 
-    // ---- Backend SSE fallback (forex / non-crypto) ----
-    const connectSse = () => {
+    const connectSessionSse = () => {
       if (stopped || !sessionId) {
         setState((s) => ({ ...s, connected: false, source: null }));
         return;
       }
       const base = getApiBaseUrl();
-      const token = getAuthToken();
       const url = new URL(`${base}/robot-sessions/${sessionId}/candle-feed`);
       const controller = new AbortController();
       activeController = controller;
 
       (async () => {
         try {
-          const resp = await fetch(url.toString(), {
-            headers: {
-              Accept: "text/event-stream",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          await readSse(
+            url,
+            controller,
+            (payload) => {
+              const rows: any[] = payload.candles ?? [];
+              rows.forEach((row, index) => {
+                const candle = normalizeCandle(row, index < rows.length - 1);
+                if (candle) apply(candle, 0, "sse");
+              });
             },
-            signal: controller.signal,
-          });
-          if (!resp.ok || !resp.body) throw new Error(`SSE ${resp.status}`);
-
-          attempt = 0;
-          setState((s) => ({ ...s, connected: true, source: "sse" }));
-
-          const reader = resp.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-
-          while (!stopped) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-
-            let sep: number;
-            while ((sep = buffer.indexOf("\n\n")) >= 0) {
-              const chunk = buffer.slice(0, sep);
-              buffer = buffer.slice(sep + 2);
-              const dataLine = chunk.split("\n").find((l) => l.startsWith("data:"));
-              if (!dataLine) continue;
-              try {
-                const payload = JSON.parse(dataLine.slice(5).trim());
-                const rows: any[] = payload.candles ?? [];
-                rows.forEach((row, i) => {
-                  const candle: CandleData = {
-                    time: Math.floor(Number(row.timestamp ?? 0) / 1000),
-                    open: Number(row.open),
-                    high: Number(row.high),
-                    low: Number(row.low),
-                    close: Number(row.close),
-                    volume: Number(row.volume ?? 0),
-                    isClosed: i < rows.length - 1,
-                  };
-                  if (candle.time > 0) apply(candle, 0);
-                });
-              } catch {
-                /* ignore malformed event */
-              }
-            }
-          }
+            "sse",
+          );
+          if (!stopped) scheduleReconnect(connectSessionSse);
         } catch (err) {
           if (stopped || (err as Error)?.name === "AbortError") return;
-          setState((s) => ({ ...s, connected: false }));
-          scheduleReconnect(connectSse);
+          setState((s) => ({ ...s, connected: false, source: "sse" }));
+          scheduleReconnect(connectSessionSse);
         }
       })();
     };
 
-    // REST poll fallback (crypto): keeps the chart moving every few seconds even
-    // when the Binance WebSocket is blocked/flaky. WS still drives sub-second
-    // updates when available; this guarantees real-time-ish movement regardless.
-    const pollBinance = async () => {
-      if (stopped) return;
-      try {
-        const interval = toBinanceInterval(timeframe);
-        const resp = await fetch(
-          `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol.toUpperCase()}&interval=${interval}&limit=2`,
-        );
-        if (!resp.ok) return;
-        const rows: any[] = await resp.json();
-        rows.forEach((r, i) =>
-          apply(
-            {
-              time: Math.floor(Number(r[0]) / 1000),
-              open: Number(r[1]),
-              high: Number(r[2]),
-              low: Number(r[3]),
-              close: Number(r[4]),
-              volume: Number(r[5]),
-              isClosed: i < rows.length - 1,
-            },
-            0,
-          ),
-        );
-        setState((s) => ({ ...s, connected: true, source: s.source ?? "binance" }));
-      } catch {
-        /* ignore — WS or next poll will refresh */
-      }
-    };
-
     if (isCryptoSymbol(symbol)) {
-      connectBinance();
-      void seedBinanceHistory();
-      pollTimer = setInterval(pollBinance, 3000);
+      connectBackendBinance();
     } else {
-      connectSse();
+      connectSessionSse();
     }
 
     return () => {
       stopped = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (pollTimer) clearInterval(pollTimer);
-      activeWs?.close();
       activeController?.abort();
     };
   }, [symbol, timeframe, enabled, sessionId]);

@@ -408,7 +408,7 @@ export default function QuickTradePage() {
               )}
               <div className="ml-auto flex items-center gap-2">
                 {feed.connected
-                  ? <><Wifi className="h-3.5 w-3.5 text-emerald-400" /><span className="text-xs text-emerald-400">Binance live · {feed.latencyMs}ms</span></>
+                  ? <><Wifi className="h-3.5 w-3.5 text-emerald-400" /><span className="text-xs text-emerald-400">Backend WS · {feed.latencyMs}ms</span></>
                   : <><WifiOff className="h-3.5 w-3.5 text-slate-600" /><span className="text-xs text-slate-600">Connecting...</span></>
                 }
               </div>
@@ -517,7 +517,7 @@ export default function QuickTradePage() {
                     </div>
                     <div className="flex items-center gap-2 text-xs">
                       <span className={cn("h-2 w-2 rounded-full", feed.connected ? "bg-emerald-400 animate-pulse" : "bg-slate-600")} />
-                      <span className="text-slate-500">{feed.source === "binance" ? "Binance WS" : feed.source === "sse" ? "SSE" : "—"}</span>
+                      <span className="text-slate-500">{feed.source === "backend" ? "Backend WS" : feed.source === "sse" ? "SSE" : "—"}</span>
                       {activeTradeForSymbol && (
                         <span className={cn(
                           "ml-2 rounded-lg px-2 py-0.5 font-mono font-semibold",
@@ -533,7 +533,7 @@ export default function QuickTradePage() {
                   {feed.candles.length === 0 ? (
                     <div className="flex h-[360px] items-center justify-center flex-col gap-2 text-slate-600">
                       <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-700 border-t-slate-400" />
-                      <span className="text-sm">{feed.connected ? "Loading candles..." : "Connecting to Binance..."}</span>
+                      <span className="text-sm">{feed.connected ? "Loading candles..." : "Connecting to backend feed..."}</span>
                     </div>
                   ) : (
                     <RobotLiveChart
