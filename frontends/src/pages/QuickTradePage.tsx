@@ -26,7 +26,8 @@ import {
   useSettleQuickTrades,
   type QuickTradeRecord,
 } from "@/hooks/useQuickTrade";
-import { useRobotCandleFeed, type CandleData } from "@/hooks/useRobotCandleFeed";
+import { type CandleData } from "@/hooks/useRobotCandleFeed";
+import { useQuickTradeCandleFeed } from "@/hooks/useQuickTradeCandleFeed";
 import type { ChartMarker } from "@/components/trading/RobotLiveChart";
 import { cn } from "@/lib/utils";
 
@@ -212,8 +213,8 @@ export default function QuickTradePage() {
     integrationId: selectedIntegrationId === "auto" ? undefined : selectedIntegrationId,
   });
 
-  // Live Binance WebSocket feed
-  const feed = useRobotCandleFeed(symbol, timeframe, !!symbol);
+  // Backend SSE → Binance WebSocket (server-side) → no direct browser→Binance needed
+  const feed = useQuickTradeCandleFeed(symbol, timeframe, !!symbol);
   // Fallback candles from backend REST when Binance WebSocket isn't reachable from browser
   const fallbackCandles = useMemo<CandleData[]>(() => {
     if (!chartQuery.data?.candles?.length) return [];
