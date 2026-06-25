@@ -26,7 +26,7 @@ import {
   useSettleQuickTrades,
   type QuickTradeRecord,
 } from "@/hooks/useQuickTrade";
-import { useRobotCandleFeed } from "@/hooks/useRobotCandleFeed";
+import { useRobotCandleFeed, type CandleData } from "@/hooks/useRobotCandleFeed";
 import type { ChartMarker } from "@/components/trading/RobotLiveChart";
 import { cn } from "@/lib/utils";
 
@@ -214,6 +214,22 @@ export default function QuickTradePage() {
 
   // Live Binance WebSocket feed
   const feed = useRobotCandleFeed(symbol, timeframe, !!symbol);
+  // Fallback candles from backend REST when Binance WebSocket isn't reachable from browser
+  const fallbackCandles = useMemo<CandleData[]>(() => {
+    if (!chartQuery.data?.candles?.length) return [];
+    return chartQuery.data.candles.map((c) => ({
+      time: Math.floor(Number(c.timestamp) / 1000),
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume,
+      isClosed: true,
+    }));
+  }, [chartQuery.data?.candles]);
+
+  // Use live WebSocket candles when available, otherwise fall back to backend candles
+  const chartCandles = feed.candles.length > 0 ? feed.candles : fallbackCandles;
   const currentPrice = feed.currentCandle?.close ?? chartQuery.data?.quote?.price;
 
   const activeTrades = useQuickTradeActive(workspaceId);
@@ -530,14 +546,14 @@ export default function QuickTradePage() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-3">
-                  {feed.candles.length === 0 ? (
+                  {chartCandles.length === 0 ? (
                     <div className="flex h-[360px] items-center justify-center flex-col gap-2 text-slate-600">
                       <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-700 border-t-slate-400" />
-                      <span className="text-sm">{feed.connected ? "Loading candles..." : "Connecting to backend feed..."}</span>
+                      <span className="text-sm">{chartQuery.isLoading ? "Loading chart..." : "Connecting..."}</span>
                     </div>
                   ) : (
                     <RobotLiveChart
-                      candles={feed.candles}
+                      candles={chartCandles}
                       entryPrice={activeTradeForSymbol?.entry_price ?? null}
                       side={activeTradeForSymbol ? (activeTradeForSymbol.side === "buy" ? "BUY" : "SELL") : null}
                       markers={chartMarkers}
