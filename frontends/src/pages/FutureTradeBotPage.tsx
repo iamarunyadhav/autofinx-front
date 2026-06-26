@@ -131,9 +131,9 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   legacyWeightedScoring: false,
   primeMirrorLiveEnabled: false,
   primeMirrorExecutionEnabled: false,
-  validatedDefaultSymbols: ["ETHUSDT", "BTCUSDT", "SOLUSDT"],
-  validationSymbols: ["ETHUSDT", "BTCUSDT", "SOLUSDT", "BNBUSDT"],
-  symbols: ["ETHUSDT", "BTCUSDT", "SOLUSDT"],
+  validatedDefaultSymbols: ["ETHUSDT"],
+  validationSymbols: ["ETHUSDT"],
+  symbols: ["ETHUSDT"],
   timeframe: "15m",
   paperTrading: true,
   liveTrading: false,
@@ -1815,11 +1815,13 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
     }));
   }, [intelligence, settings]);
 
-  const toggleSymbol = (sym: string) => {
-    const active = selectedSymbols.includes(sym);
-    if (active && selectedSymbols.length <= 1) return; // keep at least one
-    const next = active ? selectedSymbols.filter((s) => s !== sym) : [...selectedSymbols, sym];
-    update("symbols", next);
+  const selectSymbol = (sym: string) => {
+    setSettings({
+      ...settings,
+      symbols: [sym],
+      validatedDefaultSymbols: [sym],
+      validationSymbols: [sym],
+    });
   };
 
   return (
@@ -1843,7 +1845,7 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
             </div>
           </div>
         ) : null}
-        <Field label="Symbols — click to toggle scan list">
+        <Field label="Symbol - one active scanner at a time">
           <div className="flex flex-wrap gap-2 rounded-md border p-2">
             {availableSymbols.map((sym) => {
               const active = selectedSymbols.includes(sym);
@@ -1851,7 +1853,7 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
                 <button
                   key={sym}
                   type="button"
-                  onClick={() => toggleSymbol(sym)}
+                  onClick={() => selectSymbol(sym)}
                   className={cn(
                     "rounded px-2 py-1 text-xs font-medium transition-colors",
                     active
@@ -1864,7 +1866,7 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
               );
             })}
           </div>
-          <p className="text-xs text-muted-foreground">{selectedSymbols.length} coin{selectedSymbols.length !== 1 ? "s" : ""} selected: {selectedSymbols.map((s) => String(s).replace("USDT", "")).join(", ")}</p>
+          <p className="text-xs text-muted-foreground">Selected: {String(selectedSymbols[0] ?? "ETHUSDT").replace("USDT", "")}</p>
         </Field>
         <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
           Execution mode is controlled from `My Config`.

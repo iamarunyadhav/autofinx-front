@@ -305,6 +305,8 @@ export default function QuickTradePage() {
   }, [activeMode, balances, selectedIntegrationId, selectedProvider]);
 
   const balance = Number(selectedBalance?.available ?? selectedBalance?.balance ?? 0);
+  const minStake = Number(metadata?.quick_trade.min_stake ?? 10);
+  const maxStake = Number(metadata?.quick_trade.max_stake ?? 500);
   const amountStep = useMemo(() => Math.max(1, Math.round(stake >= 25 ? 5 : 1)), [stake]);
   const liveReady = Boolean(tradingState?.live_ready);
   const integrationLabel =
@@ -335,7 +337,7 @@ export default function QuickTradePage() {
       workspace_id: workspaceId,
       symbol,
       side,
-      stake_amount: stake,
+      stake_amount: Math.min(maxStake, Math.max(minStake, stake)),
       timeframe,
       expiry_seconds: duration,
       mode: activeMode,
@@ -584,7 +586,7 @@ export default function QuickTradePage() {
                   <CardHeader className="pb-2"><CardTitle className="text-base">Stake</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
                     <div className="flex items-center justify-between rounded-3xl border border-slate-800 bg-slate-900 p-3">
-                      <Button variant="ghost" className="h-10 w-10 rounded-full text-2xl text-slate-100" onClick={() => setStake((c) => Math.max(1, c - amountStep))}>-</Button>
+                      <Button variant="ghost" className="h-10 w-10 rounded-full text-2xl text-slate-100" onClick={() => setStake((c) => Math.max(minStake, c - amountStep))}>-</Button>
                       <div className="text-center">
                         <div className="text-2xl font-bold">${stake.toFixed(2)}</div>
                         <div className="text-xs text-slate-500">
@@ -593,7 +595,15 @@ export default function QuickTradePage() {
                       </div>
                       <Button variant="ghost" className="h-10 w-10 rounded-full text-2xl text-slate-100" onClick={() => setStake((c) => c + amountStep)}>+</Button>
                     </div>
-                    <Input type="number" min={metadata?.quick_trade.min_stake ?? 1} max={metadata?.quick_trade.max_stake ?? 500} value={stake} onChange={(e) => setStake(Number(e.target.value || 0))} className="border-slate-800 bg-slate-900 text-slate-100" />
+                    <Input
+                      type="number"
+                      min={minStake}
+                      max={maxStake}
+                      value={stake}
+                      onBlur={() => setStake((current) => Math.min(maxStake, Math.max(minStake, Number(current || 0))))}
+                      onChange={(e) => setStake(Number(e.target.value || 0))}
+                      className="border-slate-800 bg-slate-900 text-slate-100"
+                    />
                   </CardContent>
                 </Card>
               </div>

@@ -33,6 +33,8 @@ import {
 import { useRobotCandleFeed } from "@/hooks/useRobotCandleFeed";
 import { RobotLiveChart } from "@/components/trading/RobotLiveChart";
 
+const MIN_ROBOT_STAKE = 10;
+
 export default function RobotTradingPage() {
   const { currentWorkspace } = useWorkspace();
   const workspaceId = currentWorkspace?.id;
@@ -66,17 +68,17 @@ export default function RobotTradingPage() {
   const [confidenceThreshold, setConfidenceThreshold] = useState(60);
   const [maxActiveTrades, setMaxActiveTrades] = useState(2);
   const [profitTarget, setProfitTarget] = useState(20);
-  const [lossLimit, setLossLimit] = useState(20);
-  const [maxConsecutiveLosses, setMaxConsecutiveLosses] = useState(3);
+  const [lossLimit, setLossLimit] = useState(5);
+  const [maxConsecutiveLosses, setMaxConsecutiveLosses] = useState(2);
   const [riskProfileId, setRiskProfileId] = useState<string>("none");
   const [indicatorSet, setIndicatorSet] = useState<string[]>(["RSI", "MACD"]);
   const [selectedProvider, setSelectedProvider] = useState("binance");
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("auto");
   const [botMode, setBotMode] = useState<"candle_direction" | "timed_expiry">("candle_direction");
-  const [stopLossPct, setStopLossPct] = useState(20);
+  const [stopLossPct, setStopLossPct] = useState(12);
   const [takeProfitPct, setTakeProfitPct] = useState<number | "">("");
-  const [cooldownSeconds, setCooldownSeconds] = useState(300);
-  const [dailyLossLimit, setDailyLossLimit] = useState<number | "">("");
+  const [cooldownSeconds, setCooldownSeconds] = useState(600);
+  const [dailyLossLimit, setDailyLossLimit] = useState<number | "">(5);
   const [multiSymbol, setMultiSymbol] = useState(false);
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>([]);
   const [chartSymbolOverride, setChartSymbolOverride] = useState<string | null>(null);
@@ -172,14 +174,13 @@ export default function RobotTradingPage() {
   const liveStats = liveStatsQuery.data ?? null;
   const livePosition = liveStats?.position ?? null;
 
-  // The chart follows a selected candle session when there is one; otherwise it
-  // shows a live preview of the symbol/timeframe currently being configured so a
-  // graph is always visible while setting up a candle-direction bot.
-  const formPreviewActive = !isCandleBot && botMode === "candle_direction" && Boolean(symbol);
-  const chartEnabled = isCandleBot || formPreviewActive;
-  const baseChartSymbol = isCandleBot ? (selectedSession?.symbol ?? "") : symbol;
+  // Keep the graph tied to the asset dropdown first. If the operator clicks a
+  // running session card, the form is loaded with that symbol so the chart still
+  // follows one selected symbol at a time.
+  const chartEnabled = botMode === "candle_direction" && Boolean(symbol);
+  const baseChartSymbol = symbol;
   const chartSymbol = chartSymbolOverride ?? baseChartSymbol;
-  const chartTimeframe = isCandleBot ? (selectedSession?.timeframe ?? "1m") : timeframe;
+  const chartTimeframe = timeframe;
 
   const feed = useRobotCandleFeed(
     chartSymbol,
@@ -187,26 +188,27 @@ export default function RobotTradingPage() {
     chartEnabled,
     isCandleBot ? selectedSessionId : undefined,
   );
+  const chartLivePosition = selectedSession?.symbol === chartSymbol ? livePosition : null;
 
   const takeProfitPrice = useMemo(() => {
-    if (!livePosition || !selectedSession?.take_profit_pct) return null;
+    if (!chartLivePosition || !selectedSession?.take_profit_pct) return null;
     const pct = Number(selectedSession.take_profit_pct) / 100;
-    return livePosition.side === "SELL"
-      ? livePosition.entry_price * (1 - pct)
-      : livePosition.entry_price * (1 + pct);
-  }, [livePosition, selectedSession?.take_profit_pct]);
+    return chartLivePosition.side === "SELL"
+      ? chartLivePosition.entry_price * (1 - pct)
+      : chartLivePosition.entry_price * (1 + pct);
+  }, [chartLivePosition, selectedSession?.take_profit_pct]);
 
   // Entry marker (snapped to the nearest candle) + live PnL overlay for the chart.
   const chartMarkers = useMemo(() => {
-    if (!livePosition?.active_since) return [];
-    const entrySec = Math.floor(new Date(livePosition.active_since).getTime() / 1000);
+    if (!chartLivePosition?.active_since) return [];
+    const entrySec = Math.floor(new Date(chartLivePosition.active_since).getTime() / 1000);
     const earlier = feed.candles.filter((c) => c.time <= entrySec).map((c) => c.time);
     const markerTime = earlier.length ? earlier[earlier.length - 1] : entrySec;
-    return [{ time: markerTime, side: livePosition.side, text: `${livePosition.side} @ ${livePosition.entry_price}` }];
-  }, [livePosition, feed.candles]);
+    return [{ time: markerTime, side: chartLivePosition.side, text: `${chartLivePosition.side} @ ${chartLivePosition.entry_price}` }];
+  }, [chartLivePosition, feed.candles]);
 
-  const chartPnl = livePosition
-    ? { side: livePosition.side, pct: livePosition.unrealized_pct, value: livePosition.unrealized_pnl }
+  const chartPnl = chartLivePosition
+    ? { side: chartLivePosition.side, pct: chartLivePosition.unrealized_pct, value: chartLivePosition.unrealized_pnl }
     : null;
 
   const recentTrades = sessionStatus.data?.recent_trades ?? [];
@@ -280,7 +282,7 @@ export default function RobotTradingPage() {
       expiry_seconds: expirySeconds,
       indicator_set: indicatorSet,
       strategy_profile: strategyProfile,
-      base_stake: baseStake,
+      base_stake: Math.max(MIN_ROBOT_STAKE, Number(baseStake || 0)),
       profit_target: profitTarget,
       loss_limit: lossLimit,
       max_consecutive_losses: maxConsecutiveLosses,
@@ -293,21 +295,21 @@ export default function RobotTradingPage() {
       stop_loss_pct: stopLossPct,
       take_profit_pct: takeProfitPct === "" ? null : Number(takeProfitPct),
       cooldown_seconds: cooldownSeconds,
-      daily_loss_limit: dailyLossLimit === "" ? null : Number(dailyLossLimit),
+      daily_loss_limit: dailyLossLimit === "" ? null : Math.max(0, Number(dailyLossLimit)),
     };
 
     // Editing an existing session — PATCH it in place.
     if (editingSessionId) {
       await updateSession.mutateAsync({
         id: editingSessionId,
-        payload: { ...basePayload, name, symbol, multi_symbol: multiSymbol, symbol_list: multiSymbol ? selectedSymbols : undefined },
+        payload: { ...basePayload, name, symbol, multi_symbol: false, symbol_list: [symbol] },
       });
       setEditingSessionId(null);
       return;
     }
 
     // Multi-symbol candle bots fan out to one independent session per symbol.
-    const fanOut = botMode === "candle_direction" && multiSymbol && selectedSymbols.length > 0;
+    const fanOut = false;
     if (fanOut) {
       const display = (sym: string) => metadata?.symbols.find((o) => o.symbol === sym)?.display ?? sym;
       for (const sym of selectedSymbols) {
@@ -322,7 +324,7 @@ export default function RobotTradingPage() {
       return;
     }
 
-    createSession.mutate({ ...basePayload, name, symbol, multi_symbol: false });
+    createSession.mutate({ ...basePayload, name, symbol, multi_symbol: false, symbol_list: [symbol] });
   };
 
   const toggleIndicator = (key: string, checked: boolean) => {
@@ -335,16 +337,17 @@ export default function RobotTradingPage() {
     setEditingSessionId(s.id);
     setName(s.name);
     setSymbol(s.symbol);
+    setChartSymbolOverride(null);
     setTimeframe(s.timeframe);
     setExpirySeconds(s.expiry_seconds);
-    setBaseStake(Number(s.base_stake));
+    setBaseStake(Math.max(MIN_ROBOT_STAKE, Number(s.base_stake)));
     setBotMode((s.bot_mode ?? "timed_expiry") as "candle_direction" | "timed_expiry");
-    setStopLossPct(Number(s.stop_loss_pct ?? 20));
+    setStopLossPct(Number(s.stop_loss_pct ?? 12));
     setTakeProfitPct(s.take_profit_pct == null ? "" : Number(s.take_profit_pct));
     setCooldownSeconds(Number(s.cooldown_seconds ?? 300));
     setDailyLossLimit(s.daily_loss_limit == null ? "" : Number(s.daily_loss_limit));
-    setMultiSymbol(Boolean(s.multi_symbol));
-    setSelectedSymbols(s.symbol_list ?? []);
+    setMultiSymbol(false);
+    setSelectedSymbols([s.symbol]);
     setConfidenceThreshold(s.confidence_threshold ?? 60);
     setMaxActiveTrades(s.max_active_trades ?? 2);
     setProfitTarget(Number(s.profit_target ?? 0));
@@ -580,17 +583,18 @@ export default function RobotTradingPage() {
                     )}
                     <label className="flex cursor-pointer items-center gap-3 text-sm text-slate-300">
                       <Checkbox
-                        checked={multiSymbol}
+                        checked={false}
+                        disabled
                         onCheckedChange={(value) => {
                           const on = Boolean(value);
                           setMultiSymbol(on);
                           if (on && selectedSymbols.length === 0 && symbol) setSelectedSymbols([symbol]);
                         }}
                       />
-                      Allow multiple symbols (each runs independently)
+                      One symbol at a time (graph follows the selected asset)
                     </label>
 
-                    {multiSymbol && (
+                    {false && (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
                           <Label>Symbols ({selectedSymbols.length} selected — one bot each)</Label>
@@ -687,7 +691,16 @@ export default function RobotTradingPage() {
                   )}
                   <div className="space-y-2">
                     <Label>Base stake</Label>
-                    <Input type="number" min={1} value={baseStake} onChange={(event) => setBaseStake(Number(event.target.value || 0))} className="border-slate-800 bg-slate-900 text-slate-100" />
+                    <Input
+                      type="number"
+                      min={MIN_ROBOT_STAKE}
+                      step={1}
+                      value={baseStake}
+                      onBlur={() => setBaseStake((current) => Math.max(MIN_ROBOT_STAKE, Number(current || 0)))}
+                      onChange={(event) => setBaseStake(Number(event.target.value || 0))}
+                      className="border-slate-800 bg-slate-900 text-slate-100"
+                    />
+                    <p className="text-xs text-slate-500">Minimum ${MIN_ROBOT_STAKE} so BTCUSDT/ETHUSDT live orders do not fail as too small.</p>
                   </div>
                 </div>
 
@@ -775,7 +788,7 @@ export default function RobotTradingPage() {
 
                 {(() => {
                   const isEditing = Boolean(editingSessionId);
-                  const fanOut = !isEditing && botMode === "candle_direction" && multiSymbol;
+                  const fanOut = false;
                   const fanOutBlocked = fanOut && selectedSymbols.length === 0;
                   const busy = createSession.isPending || updateSession.isPending;
                   const label = busy
@@ -812,7 +825,10 @@ export default function RobotTradingPage() {
                             <button
                               key={sym}
                               type="button"
-                              onClick={() => setChartSymbolOverride(sym === baseChartSymbol ? null : sym)}
+                              onClick={() => {
+                                setSymbol(sym);
+                                setChartSymbolOverride(null);
+                              }}
                               className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
                                 active
                                   ? "border-blue-500 bg-blue-500/20 text-blue-200"
@@ -843,20 +859,20 @@ export default function RobotTradingPage() {
                   <CardContent className="space-y-4">
                     <RobotLiveChart
                       candles={feed.candles}
-                      side={livePosition?.side ?? null}
-                      entryPrice={livePosition?.entry_price ?? null}
-                      stopPrice={livePosition?.stop_price ?? null}
+                      side={chartLivePosition?.side ?? null}
+                      entryPrice={chartLivePosition?.entry_price ?? null}
+                      stopPrice={chartLivePosition?.stop_price ?? null}
                       takeProfitPrice={takeProfitPrice}
                       markers={chartMarkers}
                       pnl={chartPnl}
                     />
 
-                    {livePosition ? (
+                    {chartLivePosition ? (
                       <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div className="flex items-center gap-2">
-                            <Badge className={livePosition.side === "BUY" ? "bg-emerald-500/10 text-emerald-300" : "bg-rose-500/10 text-rose-300"}>
-                              {livePosition.side === "BUY" ? "LONG" : "SHORT"}
+                            <Badge className={chartLivePosition.side === "BUY" ? "bg-emerald-500/10 text-emerald-300" : "bg-rose-500/10 text-rose-300"}>
+                              {chartLivePosition.side === "BUY" ? "LONG" : "SHORT"}
                             </Badge>
                             <span className="text-sm text-slate-400">
                               Entry {livePosition.entry_price} · Now {livePosition.current_price}
@@ -865,8 +881,8 @@ export default function RobotTradingPage() {
                           <Button
                             size="sm"
                             className="rounded-xl bg-rose-500 text-white hover:bg-rose-400"
-                            onClick={() => forceClose.mutate(selectedSession.id)}
-                            disabled={forceClose.isPending}
+                            onClick={() => selectedSession && forceClose.mutate(selectedSession.id)}
+                            disabled={forceClose.isPending || !selectedSession}
                           >
                             Force close
                           </Button>
@@ -874,23 +890,23 @@ export default function RobotTradingPage() {
                         <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
                           <div>
                             <div className="text-xs uppercase tracking-wide text-slate-500">PnL</div>
-                            <div className={`text-lg font-semibold ${livePosition.unrealized_pnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                              {livePosition.unrealized_pnl >= 0 ? "+" : ""}
-                              {livePosition.unrealized_pnl.toFixed(2)} ({livePosition.unrealized_pct.toFixed(2)}%)
+                            <div className={`text-lg font-semibold ${chartLivePosition.unrealized_pnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                              {chartLivePosition.unrealized_pnl >= 0 ? "+" : ""}
+                              {chartLivePosition.unrealized_pnl.toFixed(2)} ({chartLivePosition.unrealized_pct.toFixed(2)}%)
                             </div>
                           </div>
                           <div>
                             <div className="text-xs uppercase tracking-wide text-slate-500">Peak</div>
-                            <div className="text-lg font-semibold text-slate-200">+{livePosition.peak_pct.toFixed(2)}%</div>
+                            <div className="text-lg font-semibold text-slate-200">+{chartLivePosition.peak_pct.toFixed(2)}%</div>
                           </div>
                           <div>
                             <div className="text-xs uppercase tracking-wide text-slate-500">Stop at</div>
-                            <div className="text-lg font-semibold text-rose-300">{livePosition.stop_price}</div>
+                            <div className="text-lg font-semibold text-rose-300">{chartLivePosition.stop_price}</div>
                           </div>
                           <div>
                             <div className="text-xs uppercase tracking-wide text-slate-500">In trade</div>
                             <div className="text-lg font-semibold text-slate-200">
-                              {Math.floor(livePosition.seconds_in_trade / 60)}m {livePosition.seconds_in_trade % 60}s
+                              {Math.floor(chartLivePosition.seconds_in_trade / 60)}m {chartLivePosition.seconds_in_trade % 60}s
                             </div>
                           </div>
                         </div>
