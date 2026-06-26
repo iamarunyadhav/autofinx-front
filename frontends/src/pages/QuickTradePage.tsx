@@ -28,6 +28,7 @@ import {
 } from "@/hooks/useQuickTrade";
 import { type CandleData } from "@/hooks/useRobotCandleFeed";
 import { useQuickTradeCandleFeed } from "@/hooks/useQuickTradeCandleFeed";
+import { runtimeIsRed, useRuntimeHealth } from "@/hooks/useRuntimeHealth";
 import type { ChartMarker } from "@/components/trading/RobotLiveChart";
 import { cn } from "@/lib/utils";
 
@@ -186,6 +187,7 @@ export default function QuickTradePage() {
   const workspaceId = currentWorkspace?.id;
   const { data: balances = [] } = useBalances(workspaceId);
   const { data: metadata } = useQuickTradeMetadata(workspaceId);
+  const runtimeHealth = useRuntimeHealth(workspaceId);
   const updateTradingSettings = useUpdateTradingSettings(workspaceId);
 
   const [symbol, setSymbol] = useState("");
@@ -322,6 +324,7 @@ export default function QuickTradePage() {
   const maxStake = Number(metadata?.quick_trade.max_stake ?? 500);
   const amountStep = useMemo(() => Math.max(1, Math.round(stake >= 25 ? 5 : 1)), [stake]);
   const liveReady = Boolean(tradingState?.live_ready);
+  const liveRuntimeRed = activeMode === "live" && runtimeIsRed(runtimeHealth.data);
 
   useEffect(() => {
     setStake((current) => Math.min(maxStake, Math.max(minStake, Number(current || 0))));
@@ -362,12 +365,13 @@ export default function QuickTradePage() {
       provider: selectedProvider,
       integration_id: selectedIntegrationId === "auto" ? undefined : selectedIntegrationId,
       indicator_set: indicatorSet,
+      idempotency_key: `qt-${workspaceId}-${symbol}-${side}-${timeframe}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     });
   };
 
   const tradeButtonsDisabled =
     placeQuickTrade.isPending || updateTradingSettings.isPending || !workspaceId || !symbol ||
-    (activeMode === "live" && !liveReady);
+    (activeMode === "live" && (!liveReady || liveRuntimeRed || Boolean(activeTradeForSymbol)));
 
   const priceDisplay = currentPrice
     ? `$${currentPrice.toFixed(currentPrice > 100 ? 2 : 4)}`
@@ -376,6 +380,8 @@ export default function QuickTradePage() {
   const allActiveTrades = activeTrades.data ?? [];
   const activeForSymbol = allActiveTrades.filter((t) => t.symbol === symbol && t.status === "open");
   const activeOther = allActiveTrades.filter((t) => t.symbol !== symbol && t.status === "open");
+  const estimatedQuantity = currentPrice ? Math.max(minStake, stake) / currentPrice : null;
+  const feeEstimate = activeMode === "live" ? Math.max(minStake, stake) * 0.0008 : 0;
 
   return (
     <AppShell>
@@ -454,6 +460,16 @@ export default function QuickTradePage() {
             {activeMode === "live" && !liveReady && (
               <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-sm text-amber-200">
                 {tradingState?.live_ready_reason ?? "Connect a Binance integration to open live trades."}
+              </div>
+            )}
+            {activeMode === "live" && liveRuntimeRed && (
+              <div className="mt-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-200">
+                Live actions are blocked because runtime health is red: {(runtimeHealth.data?.reasons ?? []).slice(0, 3).join(", ") || "required workers/feed are unhealthy"}.
+              </div>
+            )}
+            {activeMode === "live" && activeTradeForSymbol && (
+              <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-sm text-amber-200">
+                Same-symbol live position is already open. Close or settle the active {symbol} trade before opening another one.
               </div>
             )}
           </div>
@@ -622,6 +638,17 @@ export default function QuickTradePage() {
                       onChange={(e) => setStake(Number(e.target.value || 0))}
                       className="border-slate-800 bg-slate-900 text-slate-100"
                     />
+                    {activeMode === "live" && (
+                      <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
+                        <div className="rounded-xl bg-slate-900 px-3 py-2">Notional ${Math.max(minStake, stake).toFixed(2)}</div>
+                        <div className="rounded-xl bg-slate-900 px-3 py-2">
+                          Qty {estimatedQuantity ? estimatedQuantity.toFixed(6) : "waiting"}
+                        </div>
+                        <div className="rounded-xl bg-slate-900 px-3 py-2 md:col-span-2">
+                          Fee estimate ~{feeEstimate.toFixed(4)} USDT round trip. Final PnL uses exchange fills when available.
+                        </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>

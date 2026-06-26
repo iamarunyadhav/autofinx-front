@@ -18,7 +18,7 @@ export interface RobotFeedState {
   lastSignal: "BUY" | "SELL" | "HOLD" | null;
   connected: boolean;
   latencyMs: number;
-  source: "backend" | "sse" | null;
+  source: "ws" | "backend" | "sse" | null;
 }
 
 const CRYPTO_QUOTES = ["USDT", "USDC", "BUSD", "FDUSD", "TUSD"];
@@ -65,9 +65,8 @@ function normalizeCandle(row: any, fallbackClosed = false): CandleData | null {
 /**
  * Live candle feed for Robot/Quick Trade charts.
  *
- * Crypto candles are streamed through the Laravel backend, which owns the
- * Binance Futures REST/WS connection. Non-crypto robot sessions keep using the
- * existing backend session SSE feed.
+ * Crypto candles use Binance Futures WebSocket directly for the lowest chart
+ * latency. Non-crypto robot sessions keep using the backend session SSE feed.
  */
 export function useRobotCandleFeed(
   symbol: string,
@@ -99,6 +98,7 @@ export function useRobotCandleFeed(
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
     let activeController: AbortController | null = null;
+    let activeSocket: WebSocket | null = null;
 
     const apply = (candle: CandleData, latencyMs: number, source: RobotFeedState["source"]) => {
       candlesRef.current = upsertCandle(candlesRef.current, candle);
@@ -162,46 +162,55 @@ export function useRobotCandleFeed(
       }
     };
 
-    const connectBackendBinance = () => {
+    const connectBinanceWebSocket = () => {
       if (stopped) return;
-      const base = getApiBaseUrl();
-      const url = new URL(`${base}/quick-trade/candle-feed`);
-      url.searchParams.set("symbol", symbol.toUpperCase());
-      url.searchParams.set("timeframe", timeframe);
-      url.searchParams.set("history_limit", "200");
-      url.searchParams.set("max_seconds", "300");
+      const streamSymbol = symbol.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const interval = ["1m", "3m", "5m", "15m", "30m", "1h", "4h"].includes(timeframe)
+        ? timeframe
+        : "1m";
+      const socket = new WebSocket(`wss://fstream.binance.com/ws/${streamSymbol}@kline_${interval}`);
+      activeSocket = socket;
 
-      const controller = new AbortController();
-      activeController = controller;
+      socket.onopen = () => {
+        attempt = 0;
+        setState((s) => ({ ...s, connected: true, source: "ws" }));
+      };
 
-      (async () => {
+      socket.onmessage = (event) => {
         try {
-          await readSse(
-            url,
-            controller,
-            (payload) => {
-              const rows: any[] = payload.candles ?? [];
-              rows.forEach((row, index) => {
-                const candle = normalizeCandle(row, index < rows.length - 1);
-                if (candle) apply(candle, Number(payload.latency_ms ?? 0), "backend");
-              });
+          const payload = JSON.parse(String(event.data));
+          const kline = payload?.k;
+          if (!kline) return;
 
-              const current = normalizeCandle(payload.candle ?? payload.current);
-              if (current) apply(current, Number(payload.latency_ms ?? 0), "backend");
+          const eventTs = Number(payload?.E ?? Date.now());
+          const candle = normalizeCandle({
+            time: Math.floor(Number(kline.t ?? eventTs) / 1000),
+            open: kline.o,
+            high: kline.h,
+            low: kline.l,
+            close: kline.c,
+            volume: kline.v,
+            isClosed: Boolean(kline.x),
+          });
 
-              if (payload.connected === false) {
-                setState((s) => ({ ...s, connected: false, source: "backend" }));
-              }
-            },
-            "backend",
-          );
-          if (!stopped) scheduleReconnect(connectBackendBinance);
-        } catch (err) {
-          if (stopped || (err as Error)?.name === "AbortError") return;
-          setState((s) => ({ ...s, connected: false, source: "backend" }));
-          scheduleReconnect(connectBackendBinance);
+          if (candle) {
+            apply(candle, Math.max(0, Date.now() - eventTs), "ws");
+          }
+        } catch {
+          /* ignore malformed websocket frame */
         }
-      })();
+      };
+
+      socket.onerror = () => {
+        if (stopped) return;
+        setState((s) => ({ ...s, connected: false, source: "ws" }));
+      };
+
+      socket.onclose = () => {
+        if (stopped) return;
+        setState((s) => ({ ...s, connected: false, source: "ws" }));
+        scheduleReconnect(connectBinanceWebSocket);
+      };
     };
 
     const connectSessionSse = () => {
@@ -238,7 +247,7 @@ export function useRobotCandleFeed(
     };
 
     if (isCryptoSymbol(symbol)) {
-      connectBackendBinance();
+      connectBinanceWebSocket();
     } else {
       connectSessionSse();
     }
@@ -246,6 +255,7 @@ export function useRobotCandleFeed(
     return () => {
       stopped = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      activeSocket?.close();
       activeController?.abort();
     };
   }, [symbol, timeframe, enabled, sessionId]);

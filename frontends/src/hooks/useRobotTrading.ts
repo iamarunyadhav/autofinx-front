@@ -75,6 +75,7 @@ export interface RobotLiveStats {
     win_rate: number;
   };
   last_decision?: { action?: string; reason?: string; confidence?: number; pattern?: string; trend_bias?: string; pattern_type?: string; momentum_score?: number; continuation_pct?: number | null } | null;
+  last_entry_block?: { status?: string; reason?: string; symbol?: string; age_seconds?: number; drift_bps?: number; max_drift_bps?: number; feed?: { age_seconds?: number; max_age_seconds?: number; source?: string; last_tick_at?: string } } | null;
   last_signal_analysis?: { pattern?: string; pattern_type?: string; trend_bias?: string; trend_streak?: number; momentum_score?: number; continuation_pct?: number | null; confidence?: number; side?: string } | null;
   cooldown?: { active: boolean; seconds_left: number; until: string | null } | null;
   daily_loss?: { today: number; limit: number | null; hit: boolean; pct: number | null } | null;

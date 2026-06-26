@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout";
 import { MobileTradeNav } from "@/components/trading/MobileTradeNav";
 import { TradeDealList } from "@/components/trading/TradeDealList";
@@ -13,7 +13,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { useBalances } from "@/hooks/useWallet";
 import { useRiskProfiles } from "@/hooks/useRisk";
 import { useUpdateTradingSettings } from "@/hooks/useTradingMode";
-import { useQuickTradeMetadata, useSettleQuickTrades } from "@/hooks/useQuickTrade";
+import { useQuickTradeChart, useQuickTradeMetadata, useSettleQuickTrades } from "@/hooks/useQuickTrade";
 import {
   useCreateRobotSession,
   useDeleteRobotSession,
@@ -30,10 +30,11 @@ import {
   useStartRobotSession,
   useStopRobotSession,
 } from "@/hooks/useRobotTrading";
-import { useRobotCandleFeed } from "@/hooks/useRobotCandleFeed";
+import { runtimeIsRed, useRuntimeHealth } from "@/hooks/useRuntimeHealth";
+import { type CandleData, useRobotCandleFeed } from "@/hooks/useRobotCandleFeed";
 import { RobotLiveChart } from "@/components/trading/RobotLiveChart";
 
-const MIN_ROBOT_STAKE = 10;
+const MIN_ROBOT_STAKE = 20;
 
 export default function RobotTradingPage() {
   const { currentWorkspace } = useWorkspace();
@@ -41,6 +42,7 @@ export default function RobotTradingPage() {
   const { data: balances = [] } = useBalances(workspaceId);
   const { data: riskProfiles = [] } = useRiskProfiles(workspaceId);
   const { data: metadata } = useQuickTradeMetadata(workspaceId);
+  const runtimeHealth = useRuntimeHealth(workspaceId);
   const updateTradingSettings = useUpdateTradingSettings(workspaceId);
 
   const sessionsQuery = useRobotSessions(workspaceId);
@@ -63,7 +65,7 @@ export default function RobotTradingPage() {
   const [symbol, setSymbol] = useState("BTCUSDT");
   const [timeframe, setTimeframe] = useState("1m");
   const [expirySeconds, setExpirySeconds] = useState(60);
-  const [baseStake, setBaseStake] = useState(10);
+  const [baseStake, setBaseStake] = useState(MIN_ROBOT_STAKE);
   const [strategyProfile, setStrategyProfile] = useState("balanced");
   const [confidenceThreshold, setConfidenceThreshold] = useState(60);
   const [maxActiveTrades, setMaxActiveTrades] = useState(2);
@@ -182,12 +184,38 @@ export default function RobotTradingPage() {
   const chartSymbol = chartSymbolOverride ?? baseChartSymbol;
   const chartTimeframe = timeframe;
 
+  const chartQuery = useQuickTradeChart({
+    workspaceId,
+    symbol: chartSymbol,
+    timeframe: chartTimeframe,
+    chartType: "candles",
+    indicatorSet,
+    mode: activeMode,
+    provider: selectedProvider,
+    integrationId: selectedIntegrationId === "auto" ? undefined : selectedIntegrationId,
+  });
+
   const feed = useRobotCandleFeed(
     chartSymbol,
     chartTimeframe,
     chartEnabled,
     isCandleBot ? selectedSessionId : undefined,
   );
+
+  const fallbackCandles = useMemo<CandleData[]>(() => {
+    if (!chartQuery.data?.candles?.length) return [];
+    return chartQuery.data.candles.map((c) => ({
+      time: Math.floor(Number(c.timestamp) / 1000),
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume,
+      isClosed: true,
+    }));
+  }, [chartQuery.data?.candles]);
+
+  const chartCandles = feed.candles.length > 0 ? feed.candles : fallbackCandles;
   const chartLivePosition = selectedSession?.symbol === chartSymbol ? livePosition : null;
 
   const takeProfitPrice = useMemo(() => {
@@ -202,10 +230,10 @@ export default function RobotTradingPage() {
   const chartMarkers = useMemo(() => {
     if (!chartLivePosition?.active_since) return [];
     const entrySec = Math.floor(new Date(chartLivePosition.active_since).getTime() / 1000);
-    const earlier = feed.candles.filter((c) => c.time <= entrySec).map((c) => c.time);
+    const earlier = chartCandles.filter((c) => c.time <= entrySec).map((c) => c.time);
     const markerTime = earlier.length ? earlier[earlier.length - 1] : entrySec;
     return [{ time: markerTime, side: chartLivePosition.side, text: `${chartLivePosition.side} @ ${chartLivePosition.entry_price}` }];
-  }, [chartLivePosition, feed.candles]);
+  }, [chartLivePosition, chartCandles]);
 
   const chartPnl = chartLivePosition
     ? { side: chartLivePosition.side, pct: chartLivePosition.unrealized_pct, value: chartLivePosition.unrealized_pnl }
@@ -298,7 +326,7 @@ export default function RobotTradingPage() {
       daily_loss_limit: dailyLossLimit === "" ? null : Math.max(0, Number(dailyLossLimit)),
     };
 
-    // Editing an existing session — PATCH it in place.
+    // Editing an existing session â€” PATCH it in place.
     if (editingSessionId) {
       await updateSession.mutateAsync({
         id: editingSessionId,
@@ -362,6 +390,12 @@ export default function RobotTradingPage() {
   const cancelEdit = () => setEditingSessionId(null);
 
   const actionDisabled = activeMode === "live" && !liveReady;
+  const liveRuntimeRed = activeMode === "live" && runtimeIsRed(runtimeHealth.data);
+  const robotRuntimeRed = activeMode === "live" && (
+    liveRuntimeRed ||
+    runtimeHealth.data?.robot_trade?.evaluator === "red" ||
+    runtimeHealth.data?.robot_trade?.market_feed === "red"
+  );
 
   return (
     <AppShell>
@@ -381,12 +415,12 @@ export default function RobotTradingPage() {
                       ? `Live from ${(exchangeBalance?.provider ?? "binance").toUpperCase()} ${exchangeBalance?.environment ?? ""} account`
                       : exchangeBalance?.error
                         ? `Exchange balance unavailable: ${exchangeBalance.error}`
-                        : "Fetching live exchange balance…"}
+                        : "Fetching live exchange balanceâ€¦"}
                   </div>
                 )}
                 <div className="mt-2 text-sm text-slate-400">
                   {botMode === "candle_direction"
-                    ? "Candle bot analyzes 20–100 past candles for pattern + momentum + trend. Exits on reverse candle, trailing stop, or take-profit — not by time."
+                    ? "Candle bot analyzes 20â€“100 past candles for pattern + momentum + trend. Exits on reverse candle, trailing stop, or take-profit â€” not by time."
                     : activeMode === "live"
                     ? "Live robots open Binance timed futures positions and auto-close them on the configured duration."
                     : "Paper robots share the same expiry engine, wallet, and ledger as manual quick trades."}
@@ -438,7 +472,7 @@ export default function RobotTradingPage() {
                 </div>
                 {currentEnv !== "paper" && (
                   <div className="mt-2 text-[11px] text-slate-500">
-                    {currentEnv === "testnet" ? "Binance testnet — practice funds." : "Binance live — real funds."}
+                    {currentEnv === "testnet" ? "Binance testnet â€” practice funds." : "Binance live â€” real funds."}
                   </div>
                 )}
               </div>
@@ -548,7 +582,7 @@ export default function RobotTradingPage() {
                         <Input type="number" min={0.1} max={100} step={0.5} value={stopLossPct} onChange={(event) => setStopLossPct(Number(event.target.value || 0))} className="border-slate-800 bg-slate-900 text-slate-100" />
                       </div>
                       <div className="space-y-2">
-                        <Label>Take profit (% — optional)</Label>
+                        <Label>Take profit (% â€” optional)</Label>
                         <Input type="number" min={0.1} step={0.5} placeholder="Off" value={takeProfitPct} onChange={(event) => setTakeProfitPct(event.target.value === "" ? "" : Number(event.target.value))} className="border-slate-800 bg-slate-900 text-slate-100" />
                       </div>
                     </div>
@@ -597,7 +631,7 @@ export default function RobotTradingPage() {
                     {false && (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <Label>Symbols ({selectedSymbols.length} selected — one bot each)</Label>
+                          <Label>Symbols ({selectedSymbols.length} selected â€” one bot each)</Label>
                           {selectedSymbols.length > 0 && (
                             <button type="button" className="text-xs text-slate-400 hover:text-slate-200" onClick={() => setSelectedSymbols([])}>
                               Clear
@@ -685,7 +719,7 @@ export default function RobotTradingPage() {
                     <div className="space-y-2">
                       <Label className="text-slate-400">Duration</Label>
                       <div className="rounded-xl border border-dashed border-slate-800 px-3 py-2 text-xs text-slate-500">
-                        Not used in candle mode — exits via trailing stop, reverse candle, or take profit.
+                        Not used in candle mode â€” exits via trailing stop, reverse candle, or take profit.
                       </div>
                     </div>
                   )}
@@ -836,21 +870,21 @@ export default function RobotTradingPage() {
                               } ${isSessionSym ? "font-semibold" : ""}`}
                             >
                               {sym.replace("USDT", "")}
-                              {isSessionSym && <span className="ml-1 text-emerald-400">●</span>}
+                              {isSessionSym && <span className="ml-1 text-emerald-400">â—</span>}
                             </button>
                           );
                         })}
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-slate-400">{chartSymbol} · {chartTimeframe}</span>
+                        <span className="text-sm text-slate-400">{chartSymbol} Â· {chartTimeframe}</span>
                         {chartSymbolOverride && (
                           <button type="button" onClick={() => setChartSymbolOverride(null)} className="text-xs text-slate-500 hover:text-slate-300">
-                            ← bot
+                            â† bot
                           </button>
                         )}
                         {!isCandleBot && <Badge className="bg-slate-700/40 text-slate-300">PREVIEW</Badge>}
-                        <Badge className={feed.connected ? "bg-emerald-500/10 text-emerald-300" : "bg-slate-500/10 text-slate-300"}>
-                          {feed.connected ? `LIVE · ${feed.latencyMs}ms` : "CONNECTING"}
+                        <Badge className={feed.connected ? "bg-emerald-500/10 text-emerald-300" : chartCandles.length > 0 ? "bg-blue-500/10 text-blue-300" : "bg-slate-500/10 text-slate-300"}>
+                          {feed.connected ? `LIVE · ${feed.latencyMs}ms` : chartCandles.length > 0 ? "REST" : "CONNECTING"}
                         </Badge>
                         {feed.source && <Badge className="bg-blue-500/10 text-blue-300">{feed.source.toUpperCase()}</Badge>}
                       </div>
@@ -858,7 +892,7 @@ export default function RobotTradingPage() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <RobotLiveChart
-                      candles={feed.candles}
+                      candles={chartCandles}
                       side={chartLivePosition?.side ?? null}
                       entryPrice={chartLivePosition?.entry_price ?? null}
                       stopPrice={chartLivePosition?.stop_price ?? null}
@@ -875,7 +909,7 @@ export default function RobotTradingPage() {
                               {chartLivePosition.side === "BUY" ? "LONG" : "SHORT"}
                             </Badge>
                             <span className="text-sm text-slate-400">
-                              Entry {livePosition.entry_price} · Now {livePosition.current_price}
+                              Entry {livePosition.entry_price} Â· Now {livePosition.current_price}
                             </span>
                           </div>
                           <Button
@@ -907,9 +941,19 @@ export default function RobotTradingPage() {
                             <div className="text-xs uppercase tracking-wide text-slate-500">In trade</div>
                             <div className="text-lg font-semibold text-slate-200">
                               {Math.floor(chartLivePosition.seconds_in_trade / 60)}m {chartLivePosition.seconds_in_trade % 60}s
-                            </div>
-                          </div>
-                        </div>
+              </div>
+            </div>
+            {activeMode === "live" && robotRuntimeRed && (
+              <div className="mt-4 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+                Live robot start is blocked until runtime is healthy. Evaluator: {runtimeHealth.data?.robot_trade?.evaluator ?? "unknown"}, backend feed: {runtimeHealth.data?.robot_trade?.market_feed ?? "unknown"}. Browser chart can still move, but live entries require the server-side feed.
+              </div>
+            )}
+            {activeMode === "live" && runtimeHealth.data?.robot_trade?.market_feed !== "green" && feed.connected && (
+              <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-200">
+                Chart WebSocket is connected, but backend market feed is not green. Robot live entry will stay blocked to prevent chart/server price mismatch.
+              </div>
+            )}
+          </div>
                       </div>
                     ) : (
                       <div className="rounded-2xl border border-dashed border-slate-800 p-4 space-y-3">
@@ -970,11 +1014,11 @@ export default function RobotTradingPage() {
                     {/* Cooldown / Daily loss status banners */}
                     {liveStats?.cooldown?.active && (
                       <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-sm text-amber-300">
-                        <span className="text-base">⏳</span>
+                        <span className="text-base">â³</span>
                         <div className="flex-1">
                           <span className="font-semibold">Loss cooldown</span>
                           <span className="ml-2 text-xs text-amber-400">
-                            {Math.floor((liveStats.cooldown.seconds_left ?? 0) / 60)}m {(liveStats.cooldown.seconds_left ?? 0) % 60}s remaining — next trade after cooldown
+                            {Math.floor((liveStats.cooldown.seconds_left ?? 0) / 60)}m {(liveStats.cooldown.seconds_left ?? 0) % 60}s remaining â€” next trade after cooldown
                           </span>
                         </div>
                         {selectedSessionId && (
@@ -992,7 +1036,7 @@ export default function RobotTradingPage() {
                     )}
                     {liveStats?.daily_loss?.hit && (
                       <div className="flex items-start gap-2 rounded-xl bg-rose-500/10 border border-rose-500/20 px-3 py-2 text-sm text-rose-300">
-                        <span className="text-base mt-0.5">🛑</span>
+                        <span className="text-base mt-0.5">ðŸ›‘</span>
                         <div className="flex-1">
                           <span className="font-semibold">Daily loss limit hit</span>
                           <span className="ml-2 text-xs text-rose-400">
@@ -1027,14 +1071,36 @@ export default function RobotTradingPage() {
                       </div>
                     )}
 
+                    {liveStats?.last_entry_block && !chartLivePosition && (
+                      <div className="flex items-start gap-2 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-sm text-amber-200">
+                        <span className="mt-0.5 text-base">!</span>
+                        <div className="flex-1">
+                          <div className="font-semibold">Entry blocked: {liveStats.last_entry_block.status ?? "safety_guard"}</div>
+                          <div className="mt-0.5 text-xs text-amber-300/90">
+                            {liveStats.last_entry_block.reason ?? "Robot skipped this entry because a safety guard failed."}
+                          </div>
+                          {(liveStats.last_entry_block.feed || liveStats.last_entry_block.drift_bps !== undefined) && (
+                            <div className="mt-1 text-xs text-amber-400/80">
+                              {liveStats.last_entry_block.feed?.age_seconds !== undefined && (
+                                <span>Feed age {liveStats.last_entry_block.feed.age_seconds}s / {liveStats.last_entry_block.feed.max_age_seconds}s. </span>
+                              )}
+                              {liveStats.last_entry_block.drift_bps !== undefined && (
+                                <span>Drift {liveStats.last_entry_block.drift_bps} bps / {liveStats.last_entry_block.max_drift_bps} bps.</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Volatility block banner */}
                     {liveStats?.volatility && !liveStats.volatility.tradeable && (
                       <div className="flex items-center gap-2 rounded-xl bg-slate-800/60 border border-slate-700 px-3 py-2 text-sm text-slate-400">
-                        <span className="text-base">📉</span>
+                        <span className="text-base">ðŸ“‰</span>
                         <div className="flex-1">
-                          <div className="font-medium text-slate-300">Market too flat — skipping entries</div>
+                          <div className="font-medium text-slate-300">Market too flat â€” skipping entries</div>
                           <div className="text-xs text-slate-500 mt-0.5">
-                            {liveStats.volatility.reason} · ATR {liveStats.volatility.atr_pct.toFixed(3)}% · BB {liveStats.volatility.bb_width_pct.toFixed(3)}%
+                            {liveStats.volatility.reason} Â· ATR {liveStats.volatility.atr_pct.toFixed(3)}% Â· BB {liveStats.volatility.bb_width_pct.toFixed(3)}%
                           </div>
                         </div>
                       </div>
@@ -1101,7 +1167,7 @@ export default function RobotTradingPage() {
                       </div>
 
                       <div className="mt-4 flex flex-wrap gap-2">
-                        <Button size="sm" className="rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400" onClick={() => startSession.mutate(session.id)} disabled={actionDisabled}>
+                        <Button size="sm" className="rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400" onClick={() => startSession.mutate(session.id)} disabled={actionDisabled || robotRuntimeRed}>
                           Start
                         </Button>
                         <Button size="sm" variant="outline" className="rounded-xl border-slate-700 bg-slate-900 text-slate-100" onClick={() => pauseSession.mutate(session.id)}>
@@ -1151,7 +1217,7 @@ export default function RobotTradingPage() {
                       </div>
                       {session.last_error && (
                         <div className="mt-2 text-xs text-amber-300/90">
-                          ⚠ {session.last_error} — tap <span className="font-semibold">Reset</span> then Start.
+                          âš  {session.last_error} â€” tap <span className="font-semibold">Reset</span> then Start.
                         </div>
                       )}
                     </div>

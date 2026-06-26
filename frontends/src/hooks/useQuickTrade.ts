@@ -183,6 +183,7 @@ interface PlaceQuickTradePayload {
   provider?: string;
   integration_id?: string;
   indicator_set?: string[];
+  idempotency_key?: string;
 }
 
 export function useQuickTradeMetadata(workspaceId?: string) {
