@@ -64,6 +64,27 @@ function CountdownRing({ secs, totalSecs }: { secs: number; totalSecs: number })
   );
 }
 
+function formatUsdtPnl(value: number) {
+  const abs = Math.abs(value);
+  if (abs > 0 && abs < 0.01) return value.toFixed(6);
+  if (abs < 1) return value.toFixed(4);
+  return value.toFixed(2);
+}
+
+function liveFuturesPnl(trade: QuickTradeRecord, currentPrice: number) {
+  const entry = Number(trade.entry_price);
+  if (!entry) return null;
+
+  const quantity = Number(trade.quantity || 0);
+  const priceDelta = trade.side === "buy" ? currentPrice - entry : entry - currentPrice;
+  const value = quantity > 0
+    ? priceDelta * quantity
+    : ((priceDelta / entry) * Number(trade.stake_amount));
+  const pct = (value / Math.max(Number(trade.stake_amount), 0.00000001)) * 100;
+
+  return { pct, value };
+}
+
 interface LiveTradeCardProps {
   trade: QuickTradeRecord;
   currentPrice: number | undefined;
@@ -74,13 +95,8 @@ function LiveTradeCard({ trade, currentPrice }: LiveTradeCardProps) {
   const totalSecs = trade.expiry_seconds ?? 60;
 
   const livePnl = useMemo(() => {
-    if (!currentPrice || trade.symbol !== trade.symbol) return null;
-    const entry = Number(trade.entry_price);
-    if (!entry) return null;
-    const pct = trade.side === "buy"
-      ? ((currentPrice - entry) / entry) * 100
-      : ((entry - currentPrice) / entry) * 100;
-    return { pct, value: (pct / 100) * Number(trade.stake_amount) };
+    if (!currentPrice) return null;
+    return liveFuturesPnl(trade, currentPrice);
   }, [currentPrice, trade]);
 
   const winning = (livePnl?.pct ?? 0) >= 0;
@@ -113,7 +129,7 @@ function LiveTradeCard({ trade, currentPrice }: LiveTradeCardProps) {
                 {winning ? "+" : ""}{livePnl.pct.toFixed(3)}%
               </div>
               <div className={cn("text-sm font-medium", winning ? "text-emerald-400" : "text-rose-400")}>
-                {winning ? "+" : ""}{livePnl.value.toFixed(3)} USD
+                {winning ? "+" : ""}{formatUsdtPnl(livePnl.value)} USDT
               </div>
             </>
           ) : (
@@ -153,7 +169,7 @@ function HistoryTradeCard({ trade }: { trade: QuickTradeRecord }) {
         </div>
         <div className="text-right">
           <div className={cn("text-base font-bold", won ? "text-emerald-300" : pnl < 0 ? "text-rose-300" : "text-slate-400")}>
-            {won ? "+" : ""}{pnl.toFixed(2)}
+            {won ? "+" : ""}{formatUsdtPnl(pnl)}
           </div>
           <div className="text-xs text-slate-600">
             {formatDistanceToNowStrict(new Date(trade.settled_at ?? trade.entry_at), { addSuffix: true })}
@@ -252,15 +268,12 @@ export default function QuickTradePage() {
   // Live unrealized P&L — shown on chart and in signal card
   const livePnl = useMemo(() => {
     if (!activeTradeForSymbol || !currentPrice) return null;
-    const entry = Number(activeTradeForSymbol.entry_price);
-    if (!entry) return null;
-    const pct = activeTradeForSymbol.side === "buy"
-      ? ((currentPrice - entry) / entry) * 100
-      : ((entry - currentPrice) / entry) * 100;
+    const pnl = liveFuturesPnl(activeTradeForSymbol, currentPrice);
+    if (!pnl) return null;
     return {
       side: activeTradeForSymbol.side === "buy" ? "BUY" as const : "SELL" as const,
-      pct,
-      value: (pct / 100) * Number(activeTradeForSymbol.stake_amount),
+      pct: pnl.pct,
+      value: pnl.value,
     };
   }, [activeTradeForSymbol, currentPrice]);
 
@@ -309,6 +322,11 @@ export default function QuickTradePage() {
   const maxStake = Number(metadata?.quick_trade.max_stake ?? 500);
   const amountStep = useMemo(() => Math.max(1, Math.round(stake >= 25 ? 5 : 1)), [stake]);
   const liveReady = Boolean(tradingState?.live_ready);
+
+  useEffect(() => {
+    setStake((current) => Math.min(maxStake, Math.max(minStake, Number(current || 0))));
+  }, [maxStake, minStake]);
+
   const integrationLabel =
     providerIntegrations.find((i) => i.id === selectedIntegrationId)?.display_name ??
     tradingState?.preferred_integration_label ?? "Auto";
@@ -489,7 +507,7 @@ export default function QuickTradePage() {
                     {livePnl.pct >= 0 ? "+" : ""}{livePnl.pct.toFixed(3)}%
                   </div>
                   <div className={cn("text-sm", livePnl.pct >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                    {livePnl.value >= 0 ? "+" : ""}{livePnl.value.toFixed(3)} USD
+                    {livePnl.value >= 0 ? "+" : ""}{formatUsdtPnl(livePnl.value)} USDT
                   </div>
                 </div>
               )}
