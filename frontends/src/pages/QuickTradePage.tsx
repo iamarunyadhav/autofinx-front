@@ -325,6 +325,9 @@ export default function QuickTradePage() {
   const amountStep = useMemo(() => Math.max(1, Math.round(stake >= 25 ? 5 : 1)), [stake]);
   const liveReady = Boolean(tradingState?.live_ready);
   const liveRuntimeRed = activeMode === "live" && runtimeIsRed(runtimeHealth.data);
+  const quickSettlerUnhealthy =
+    activeMode === "live" &&
+    (runtimeHealth.isSuccess ? runtimeHealth.data?.quick_trade?.settler !== "green" : true);
 
   useEffect(() => {
     setStake((current) => Math.min(maxStake, Math.max(minStake, Number(current || 0))));
@@ -371,7 +374,7 @@ export default function QuickTradePage() {
 
   const tradeButtonsDisabled =
     placeQuickTrade.isPending || updateTradingSettings.isPending || !workspaceId || !symbol ||
-    (activeMode === "live" && (!liveReady || liveRuntimeRed || Boolean(activeTradeForSymbol)));
+    (activeMode === "live" && (!liveReady || liveRuntimeRed || quickSettlerUnhealthy || Boolean(activeTradeForSymbol)));
 
   const priceDisplay = currentPrice
     ? `$${currentPrice.toFixed(currentPrice > 100 ? 2 : 4)}`
@@ -465,6 +468,11 @@ export default function QuickTradePage() {
             {activeMode === "live" && liveRuntimeRed && (
               <div className="mt-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-200">
                 Live actions are blocked because runtime health is red: {(runtimeHealth.data?.reasons ?? []).slice(0, 3).join(", ") || "required workers/feed are unhealthy"}.
+              </div>
+            )}
+            {activeMode === "live" && quickSettlerUnhealthy && (
+              <div className="mt-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-200">
+                Quick Trade settler is not running. Timed live trades may not close reliably.
               </div>
             )}
             {activeMode === "live" && activeTradeForSymbol && (

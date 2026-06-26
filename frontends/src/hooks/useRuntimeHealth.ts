@@ -7,21 +7,25 @@ export interface RuntimeHealth {
   generated_at: string;
   quick_trade: {
     settler: "green" | "yellow" | "red";
+    settler_age_seconds?: number | null;
     open_expired_count: number;
     settler_detail?: Record<string, unknown>;
   };
   robot_trade: {
     evaluator: "green" | "yellow" | "red";
+    evaluator_age_seconds?: number | null;
     market_feed: "green" | "yellow" | "red";
     evaluator_detail?: Record<string, unknown>;
     market_feed_detail?: Record<string, unknown>;
   };
   future_trade: {
     live_feed: "green" | "yellow" | "red";
+    live_feed_age_seconds?: number | null;
     user_stream: "green" | "yellow" | "red";
     execution_queue: "green" | "yellow" | "red";
     tick: "green" | "yellow" | "red";
     reconcile: "green" | "yellow" | "red";
+    daily_loss_lock?: boolean;
     [key: string]: unknown;
   };
   binance: {
@@ -29,6 +33,14 @@ export interface RuntimeHealth {
     ws: "green" | "yellow" | "red";
     circuit: string;
     message?: string;
+  };
+  supervisor?: {
+    quick_settler: string;
+    robot_evaluator: string;
+    live_feed: string;
+    user_stream: string;
+    tick_loop: string;
+    queue_critical: string;
   };
   reasons: string[];
 }

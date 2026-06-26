@@ -391,10 +391,16 @@ export default function RobotTradingPage() {
 
   const actionDisabled = activeMode === "live" && !liveReady;
   const liveRuntimeRed = activeMode === "live" && runtimeIsRed(runtimeHealth.data);
+  const robotEvaluatorUnhealthy =
+    activeMode === "live" &&
+    (runtimeHealth.isSuccess ? runtimeHealth.data?.robot_trade?.evaluator !== "green" : true);
+  const robotFeedUnhealthy =
+    activeMode === "live" &&
+    (runtimeHealth.isSuccess ? runtimeHealth.data?.robot_trade?.market_feed !== "green" : true);
   const robotRuntimeRed = activeMode === "live" && (
     liveRuntimeRed ||
-    runtimeHealth.data?.robot_trade?.evaluator === "red" ||
-    runtimeHealth.data?.robot_trade?.market_feed === "red"
+    robotEvaluatorUnhealthy ||
+    robotFeedUnhealthy
   );
 
   return (
