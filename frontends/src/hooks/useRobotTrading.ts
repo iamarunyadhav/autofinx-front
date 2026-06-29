@@ -80,6 +80,31 @@ export interface RobotLiveStats {
   cooldown?: { active: boolean; seconds_left: number; until: string | null } | null;
   daily_loss?: { today: number; limit: number | null; hit: boolean; pct: number | null } | null;
   volatility?: { tradeable: boolean; reason: string; atr_pct: number; bb_width_pct: number } | null;
+  market_feed?: { fresh: boolean; reason?: string; age_seconds?: number; max_age_seconds?: number; last_tick_at?: string; price?: number; source?: string } | null;
+  trust_chain?: {
+    state: "ready" | "warning" | "blocked";
+    ready: boolean;
+    summary: string;
+    blockers: string[];
+    warnings: string[];
+    checks: Array<{ key: string; ok: boolean; label: string; detail: string; severity: "hard" | "soft" }>;
+  } | null;
+  forecast?: {
+    available: boolean;
+    horizon_seconds?: number;
+    horizon_candles?: number;
+    bias?: "BUY" | "SELL" | "NEUTRAL";
+    confidence?: number;
+    current_price?: number;
+    expected_mid_price?: number;
+    expected_low?: number;
+    expected_high?: number;
+    atr_pct?: number;
+    recent_bull_candles?: number;
+    recent_bear_candles?: number;
+    drift_pct?: number;
+    summary: string;
+  } | null;
   signal_streak?: number;
   as_of: string;
 }

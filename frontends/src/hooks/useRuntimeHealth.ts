@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { authorizedFetch } from "@/lib/api";
 
 export interface RuntimeHealth {
@@ -54,6 +54,27 @@ export function useRuntimeHealth(workspaceId?: string) {
     },
     enabled: !!workspaceId,
     refetchInterval: 5000,
+  });
+}
+
+export interface RuntimeRepairResult {
+  ok: boolean;
+  method: string;
+  exit_code: number;
+  output: string;
+  health: RuntimeHealth;
+  ran_at: string;
+}
+
+export function useRepairRuntime(workspaceId?: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () =>
+      authorizedFetch("/runtime/repair", "POST", { workspace_id: workspaceId }) as Promise<RuntimeRepairResult>,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["runtime-health", workspaceId] });
+    },
   });
 }
 

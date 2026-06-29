@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useClearPendingQueue, useForgetFailedJob, useJobsDashboard, usePruneStalePendingJobs, useRestartWorkers, useRetryFailedJob } from "@/hooks/useJobs";
+import { useRepairRuntime } from "@/hooks/useRuntimeHealth";
 import { AlertTriangle, CheckCircle2, Gauge, ListRestart, PlayCircle, RefreshCcw, ServerCog, ShieldAlert, Trash2, Workflow, XCircle } from "lucide-react";
 
 const n = (value?: number | null) => Number(value ?? 0).toLocaleString();
@@ -37,8 +38,9 @@ export default function JobsPage() {
   const forgetFailed = useForgetFailedJob();
   const clearPending = useClearPendingQueue();
   const pruneStale = usePruneStalePendingJobs();
+  const repairRuntime = useRepairRuntime();
   const data = dashboard.data;
-  const busy = restartWorkers.isPending || retryFailed.isPending || forgetFailed.isPending || clearPending.isPending || pruneStale.isPending;
+  const busy = restartWorkers.isPending || retryFailed.isPending || forgetFailed.isPending || clearPending.isPending || pruneStale.isPending || repairRuntime.isPending;
 
   const confirmAction = (message: string, fn: () => void) => {
     if (window.confirm(message)) fn();
@@ -74,6 +76,9 @@ export default function JobsPage() {
             <Button onClick={() => restartWorkers.mutate({})} disabled={busy}>
               <ListRestart className="mr-2 h-4 w-4" /> Restart Workers
             </Button>
+            <Button onClick={() => repairRuntime.mutate()} disabled={busy} className="bg-cyan-500 text-slate-950 hover:bg-cyan-400">
+              <PlayCircle className="mr-2 h-4 w-4" /> Check & Repair
+            </Button>
           </div>
         </div>
 
@@ -92,7 +97,7 @@ export default function JobsPage() {
           <MetricCard title="Backlog" value={n(data?.backlog)} detail={`warn ${n(data?.warning_threshold)} / block ${n(data?.block_threshold)}`} icon={<AlertTriangle className="h-4 w-4" />} />
           <MetricCard title="Failed jobs" value={n(data?.failed)} detail="retry or forget after review" icon={<XCircle className="h-4 w-4" />} />
           <MetricCard title="Safe stale jobs" value={n(data?.stale_prune?.candidates?.prunable_total)} detail={`older than ${n(data?.stale_prune?.older_than_minutes)} min`} icon={<Trash2 className="h-4 w-4" />} />
-          <MetricCard title="Redis/Horizon" value={data?.redis_ready?.configured ? "Redis" : "Not Redis"} detail={data?.horizon?.installed ? "Horizon installed" : "Horizon missing"} icon={<ServerCog className="h-4 w-4" />} />
+          <MetricCard title="Redis/Horizon" value={data?.redis_ready?.configured ? "Redis" : "Not Redis"} detail={data?.horizon?.installed ? "Horizon installed" : "Horizon optional; queue:work fallback OK"} icon={<ServerCog className="h-4 w-4" />} />
         </div>
 
         <div className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
@@ -149,7 +154,22 @@ export default function JobsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <StatusLine label="Redis queue" ok={Boolean(data?.redis_ready?.configured)} detail={`QUEUE_CONNECTION=${data?.redis_ready?.queue_connection || "unknown"}`} />
-              <StatusLine label="Horizon package" ok={Boolean(data?.horizon?.installed)} detail={data?.horizon?.installed ? data?.horizon?.dashboard_url : "composer require laravel/horizon"} />
+              <StatusLine label="Horizon package" ok={true} detail={data?.horizon?.installed ? data?.horizon?.dashboard_url : "Optional: queue:work fallback is supported"} />
+              {repairRuntime.data && (
+                <div className="rounded-lg border border-border bg-background/70 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="text-sm font-medium">Runtime repair output</div>
+                    <Badge variant={repairRuntime.data.ok ? "default" : "secondary"}>exit {repairRuntime.data.exit_code}</Badge>
+                  </div>
+                  <pre className="max-h-56 overflow-auto whitespace-pre-wrap text-xs text-cyan-100">{repairRuntime.data.output || "No output."}</pre>
+                </div>
+              )}
+              {repairRuntime.error && (
+                <Alert className="border-amber-500/30 bg-amber-500/10">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>{repairRuntime.error.message}</AlertDescription>
+                </Alert>
+              )}
               <CommandBlock title="Single worker fallback" value={data?.worker?.recommended_command} />
               <CommandBlock title="Supervisor restart" value={data?.worker?.supervisor_command} />
               <CommandBlock title="Horizon command" value={data?.worker?.horizon_command} />

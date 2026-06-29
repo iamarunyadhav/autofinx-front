@@ -30,7 +30,7 @@ import {
   useStartRobotSession,
   useStopRobotSession,
 } from "@/hooks/useRobotTrading";
-import { runtimeIsRed, useRuntimeHealth } from "@/hooks/useRuntimeHealth";
+import { useRepairRuntime, useRuntimeHealth } from "@/hooks/useRuntimeHealth";
 import { type CandleData, useRobotCandleFeed } from "@/hooks/useRobotCandleFeed";
 import { RobotLiveChart } from "@/components/trading/RobotLiveChart";
 
@@ -43,6 +43,8 @@ export default function RobotTradingPage() {
   const { data: riskProfiles = [] } = useRiskProfiles(workspaceId);
   const { data: metadata } = useQuickTradeMetadata(workspaceId);
   const runtimeHealth = useRuntimeHealth(workspaceId);
+  const repairRuntime = useRepairRuntime(workspaceId);
+  const [repairOutputOpen, setRepairOutputOpen] = useState(false);
   const updateTradingSettings = useUpdateTradingSettings(workspaceId);
 
   const sessionsQuery = useRobotSessions(workspaceId);
@@ -228,18 +230,68 @@ export default function RobotTradingPage() {
 
   // Entry marker (snapped to the nearest candle) + live PnL overlay for the chart.
   const chartMarkers = useMemo(() => {
-    if (!chartLivePosition?.active_since) return [];
-    const entrySec = Math.floor(new Date(chartLivePosition.active_since).getTime() / 1000);
-    const earlier = chartCandles.filter((c) => c.time <= entrySec).map((c) => c.time);
-    const markerTime = earlier.length ? earlier[earlier.length - 1] : entrySec;
-    return [{ time: markerTime, side: chartLivePosition.side, text: `${chartLivePosition.side} @ ${chartLivePosition.entry_price}` }];
-  }, [chartLivePosition, chartCandles]);
+    if (chartLivePosition?.active_since) {
+      const entrySec = Math.floor(new Date(chartLivePosition.active_since).getTime() / 1000);
+      const earlier = chartCandles.filter((c) => c.time <= entrySec).map((c) => c.time);
+      const markerTime = earlier.length ? earlier[earlier.length - 1] : entrySec;
+      return [{ time: markerTime, side: chartLivePosition.side, text: `${chartLivePosition.side} @ ${chartLivePosition.entry_price}` }];
+    }
+    const action = liveStats?.last_decision?.action;
+    const latestCandle = chartCandles[chartCandles.length - 1];
+    if ((action === "BUY" || action === "SELL") && latestCandle) {
+      return [{ time: latestCandle.time, side: action, text: `${action} signal` }];
+    }
+    return [];
+  }, [chartLivePosition, chartCandles, liveStats?.last_decision?.action]);
 
   const chartPnl = chartLivePosition
     ? { side: chartLivePosition.side, pct: chartLivePosition.unrealized_pct, value: chartLivePosition.unrealized_pnl }
     : null;
+  const trustState = liveStats?.trust_chain?.state ?? "blocked";
+  const trustTone =
+    trustState === "ready"
+      ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-200"
+      : trustState === "warning"
+        ? "border-amber-500/25 bg-amber-500/10 text-amber-200"
+        : "border-rose-500/25 bg-rose-500/10 text-rose-200";
+  const forecastBias = liveStats?.forecast?.bias ?? "NEUTRAL";
+  const forecastTone =
+    forecastBias === "BUY"
+      ? "text-emerald-300"
+      : forecastBias === "SELL"
+        ? "text-rose-300"
+        : "text-slate-300";
 
   const recentTrades = sessionStatus.data?.recent_trades ?? [];
+  const exportRobotDealsCsv = () => {
+    const rows = recentTrades.map((trade) => ({
+      id: trade.id,
+      symbol: trade.symbol,
+      side: trade.side,
+      status: trade.status,
+      stake_amount: trade.stake_amount,
+      entry_price: trade.entry_price,
+      exit_price: trade.exit_price,
+      pnl: trade.profit_loss,
+      opened_at: trade.entry_at,
+      settled_at: trade.settled_at,
+    }));
+    const headers = Object.keys(rows[0] ?? { id: "", symbol: "", side: "", status: "", stake_amount: "", entry_price: "", exit_price: "", pnl: "", opened_at: "", settled_at: "" });
+    const csv = [
+      headers.join(","),
+      ...rows.map((row) => headers.map((key) => {
+        const value = String((row as Record<string, unknown>)[key] ?? "");
+        return `"${value.replaceAll('"', '""')}"`;
+      }).join(",")),
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `robot-deals-${selectedSession?.symbol ?? "session"}-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
   const strategyProfiles = metadata?.robot_trade.strategy_profiles ?? [];
   const runtimeBadgeTone =
     selectedSession?.status === "RUNNING"
@@ -390,18 +442,10 @@ export default function RobotTradingPage() {
   const cancelEdit = () => setEditingSessionId(null);
 
   const actionDisabled = activeMode === "live" && !liveReady;
-  const liveRuntimeRed = activeMode === "live" && runtimeIsRed(runtimeHealth.data);
-  const robotEvaluatorUnhealthy =
+  const robotFeedHardBlock =
     activeMode === "live" &&
-    (runtimeHealth.isSuccess ? runtimeHealth.data?.robot_trade?.evaluator !== "green" : true);
-  const robotFeedUnhealthy =
-    activeMode === "live" &&
-    (runtimeHealth.isSuccess ? runtimeHealth.data?.robot_trade?.market_feed !== "green" : true);
-  const robotRuntimeRed = activeMode === "live" && (
-    liveRuntimeRed ||
-    robotEvaluatorUnhealthy ||
-    robotFeedUnhealthy
-  );
+    (runtimeHealth.isSuccess ? runtimeHealth.data?.robot_trade?.market_feed === "red" : false);
+  const robotRuntimeRed = robotFeedHardBlock;
 
   return (
     <AppShell>
@@ -907,6 +951,70 @@ export default function RobotTradingPage() {
                       pnl={chartPnl}
                     />
 
+                    <div className={`rounded-2xl border px-4 py-3 ${trustTone}`}>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs uppercase tracking-wide opacity-70">Decision trust chain</div>
+                          <div className="text-sm font-semibold">{liveStats?.trust_chain?.summary ?? "Waiting for backend health data."}</div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge className={liveStats?.market_feed?.fresh ? "bg-emerald-500/20 text-emerald-200" : "bg-rose-500/20 text-rose-200"}>
+                            Feed {liveStats?.market_feed?.fresh ? "fresh" : "stale"}
+                          </Badge>
+                          <Badge className="bg-slate-900/50 text-slate-200">
+                            {liveStats?.market_feed?.age_seconds ?? "-"}s / {liveStats?.market_feed?.max_age_seconds ?? "-"}s
+                          </Badge>
+                          <Badge className={trustState === "ready" ? "bg-emerald-500/20 text-emerald-200" : trustState === "warning" ? "bg-amber-500/20 text-amber-200" : "bg-rose-500/20 text-rose-200"}>
+                            {trustState.toUpperCase()}
+                          </Badge>
+                        </div>
+                      </div>
+                      {liveStats?.trust_chain?.checks && (
+                        <div className="mt-3 grid gap-2 md:grid-cols-3">
+                          {liveStats.trust_chain.checks.slice(0, 6).map((check) => (
+                            <div key={check.key} className="rounded-xl bg-slate-950/40 px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-semibold text-slate-200">{check.label}</span>
+                                <span className={`h-2.5 w-2.5 rounded-full ${check.ok ? "bg-emerald-400" : check.severity === "soft" ? "bg-amber-400" : "bg-rose-400"}`} />
+                              </div>
+                              <div className="mt-1 line-clamp-2 text-xs text-slate-400">{check.detail}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs uppercase tracking-wide text-slate-500">Near-term forecast</div>
+                          <div className={`text-lg font-bold ${forecastTone}`}>{forecastBias}</div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 text-right md:grid-cols-4">
+                          <div>
+                            <div className="text-xs text-slate-500">Confidence</div>
+                            <div className="text-sm font-semibold text-slate-200">{liveStats?.forecast?.confidence?.toFixed(0) ?? "-"}%</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500">Expected</div>
+                            <div className="text-sm font-semibold text-slate-200">{liveStats?.forecast?.expected_mid_price ?? "-"}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500">Range low</div>
+                            <div className="text-sm font-semibold text-rose-200">{liveStats?.forecast?.expected_low ?? "-"}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500">Range high</div>
+                            <div className="text-sm font-semibold text-emerald-200">{liveStats?.forecast?.expected_high ?? "-"}</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-2 text-xs leading-relaxed text-slate-400">
+                        {liveStats?.forecast?.summary ?? "Forecast waits for fresh candle and decision data."}
+                        {liveStats?.forecast?.horizon_seconds ? ` Horizon ${Math.round(liveStats.forecast.horizon_seconds / 60)}m, ATR ${liveStats.forecast.atr_pct?.toFixed(3)}%.` : ""}
+                      </div>
+                    </div>
+
                     {chartLivePosition ? (
                       <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
                         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -951,7 +1059,7 @@ export default function RobotTradingPage() {
             </div>
             {activeMode === "live" && robotRuntimeRed && (
               <div className="mt-4 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-                Live robot start is blocked until runtime is healthy. Evaluator: {runtimeHealth.data?.robot_trade?.evaluator ?? "unknown"}, backend feed: {runtimeHealth.data?.robot_trade?.market_feed ?? "unknown"}. Browser chart can still move, but live entries require the server-side feed.
+                Live robot start is blocked because backend market feed is red. Evaluator: {runtimeHealth.data?.robot_trade?.evaluator ?? "unknown"}, backend feed: {runtimeHealth.data?.robot_trade?.market_feed ?? "unknown"}. Warnings will auto-repair in the background; hard stale feed still blocks entries.
               </div>
             )}
             {activeMode === "live" && runtimeHealth.data?.robot_trade?.market_feed !== "green" && feed.connected && (
@@ -1233,7 +1341,20 @@ export default function RobotTradingPage() {
 
               <Card className="border-slate-800 bg-slate-950 text-slate-50">
                 <CardHeader>
-                  <CardTitle>Runtime</CardTitle>
+                  <CardTitle className="flex flex-wrap items-center justify-between gap-3">
+                    Runtime
+                    <Button
+                      size="sm"
+                      className="rounded-xl bg-cyan-500 text-slate-950 hover:bg-cyan-400"
+                      disabled={repairRuntime.isPending}
+                      onClick={() => {
+                        setRepairOutputOpen(true);
+                        repairRuntime.mutate();
+                      }}
+                    >
+                      {repairRuntime.isPending ? "Repairing..." : "Check & repair"}
+                    </Button>
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-4 md:grid-cols-2">
                   <div className="rounded-2xl bg-slate-900 p-4">
@@ -1261,10 +1382,47 @@ export default function RobotTradingPage() {
                     <div className="text-sm text-slate-400">Last note</div>
                     <div className="mt-2 text-sm text-slate-200">{sessionStatus.data?.session.last_error ?? selectedSession?.last_error ?? "No stop conditions hit."}</div>
                   </div>
+                  {(repairRuntime.data || repairRuntime.error || repairOutputOpen) && (
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 md:col-span-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-200">Repair console</div>
+                          <div className="text-xs text-slate-500">
+                            Safe fixed commands only. No arbitrary root terminal is exposed.
+                          </div>
+                        </div>
+                        {repairRuntime.data && (
+                          <Badge className={repairRuntime.data.ok ? "bg-emerald-500/10 text-emerald-300" : "bg-amber-500/10 text-amber-300"}>
+                            exit {repairRuntime.data.exit_code}
+                          </Badge>
+                        )}
+                      </div>
+                      <pre className="mt-3 max-h-64 overflow-auto rounded-xl bg-black/40 p-3 text-xs leading-relaxed text-slate-300">
+                        {repairRuntime.isPending
+                          ? "Running runtime doctor..."
+                          : repairRuntime.error
+                            ? repairRuntime.error.message
+                            : repairRuntime.data?.output || "No output yet."}
+                      </pre>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
-              <TradeDealList title="Robot deals" trades={recentTrades} emptyMessage="Robot settlements will appear here after expiry." />
+              <div className="space-y-3">
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl border-slate-700 bg-slate-900 text-slate-100"
+                    onClick={exportRobotDealsCsv}
+                    disabled={recentTrades.length === 0}
+                  >
+                    Export CSV
+                  </Button>
+                </div>
+                <TradeDealList title="Robot deals" trades={recentTrades} emptyMessage="Robot settlements will appear here after expiry." />
+              </div>
             </div>
           </div>
         </div>
