@@ -32,13 +32,47 @@ interface RobotLiveChartProps {
   height?: number;
 }
 
-const toBar = (c: CandleData): CandlestickData<Time> => ({
-  time: c.time as UTCTimestamp,
-  open: c.open,
-  high: c.high,
-  low: c.low,
-  close: c.close,
-});
+function normalizeBars(candles: CandleData[]): CandlestickData<Time>[] {
+  const byTime = new Map<number, CandlestickData<Time>>();
+
+  for (const candle of candles) {
+    const time = Number(candle.time);
+    const open = Number(candle.open);
+    const high = Number(candle.high);
+    const low = Number(candle.low);
+    const close = Number(candle.close);
+
+    if (![time, open, high, low, close].every(Number.isFinite) || time <= 0 || open <= 0 || close <= 0) {
+      continue;
+    }
+
+    const normalizedHigh = Math.max(open, high, low, close);
+    const normalizedLow = Math.min(open, high, low, close);
+    if (normalizedLow <= 0) continue;
+
+    byTime.set(time, {
+      time: time as UTCTimestamp,
+      open,
+      high: normalizedHigh,
+      low: normalizedLow,
+      close,
+    });
+  }
+
+  const sorted = [...byTime.values()].sort((a, b) => Number(a.time) - Number(b.time));
+  if (sorted.length < 8) return sorted;
+
+  const closes = sorted.map((bar) => bar.close).sort((a, b) => a - b);
+  const median = closes[Math.floor(closes.length / 2)] || 0;
+  if (median <= 0) return sorted;
+
+  return sorted.filter((bar) => {
+    const rangePct = ((bar.high - bar.low) / median) * 100;
+    const closeDeviationPct = (Math.abs(bar.close - median) / median) * 100;
+
+    return rangePct <= 12 && closeDeviationPct <= 35;
+  });
+}
 
 /**
  * Dark-theme candlestick chart for the Robot Trade page. Renders the live feed
@@ -109,8 +143,14 @@ export function RobotLiveChart({
   // Push candle data.
   useEffect(() => {
     const series = seriesRef.current;
-    if (!series || candles.length === 0) return;
-    series.setData(candles.map(toBar));
+    if (!series) return;
+    if (candles.length === 0) {
+      series.setData([]);
+      return;
+    }
+    const bars = normalizeBars(candles);
+    series.setData(bars);
+    chartRef.current?.timeScale().fitContent();
   }, [candles]);
 
   // Sync the entry / stop / take-profit price lines.
