@@ -21,6 +21,7 @@ export interface RuntimeHealth {
   future_trade: {
     live_feed: "green" | "yellow" | "red";
     live_feed_age_seconds?: number | null;
+    live_feed_detail?: Record<string, unknown>;
     user_stream: "green" | "yellow" | "red";
     execution_queue: "green" | "yellow" | "red";
     tick: "green" | "yellow" | "red";

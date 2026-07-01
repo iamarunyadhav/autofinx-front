@@ -328,6 +328,12 @@ export default function QuickTradePage() {
   const quickSettlerUnhealthy =
     activeMode === "live" &&
     (runtimeHealth.isSuccess ? runtimeHealth.data?.quick_trade?.settler !== "green" : true);
+  const liveFeedDetail = (runtimeHealth.data?.future_trade?.live_feed_detail ?? {}) as Record<string, unknown>;
+  const liveFeedSource = String(liveFeedDetail.truth_source ?? liveFeedDetail.source ?? "runtime");
+  const liveFeedAge = Number(liveFeedDetail.age_seconds ?? runtimeHealth.data?.future_trade?.live_feed_age_seconds ?? NaN);
+  const liveFeedLabel = Number.isFinite(liveFeedAge)
+    ? `${liveFeedSource} age ${Math.round(liveFeedAge)}s`
+    : liveFeedSource;
 
   useEffect(() => {
     setStake((current) => Math.min(maxStake, Math.max(minStake, Number(current || 0))));
@@ -467,7 +473,7 @@ export default function QuickTradePage() {
             )}
             {activeMode === "live" && liveRuntimeRed && (
               <div className="mt-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-200">
-                Live actions are blocked because runtime health is red: {(runtimeHealth.data?.reasons ?? []).slice(0, 3).join(", ") || "required workers/feed are unhealthy"}.
+                Live actions are blocked because runtime health is red: {(runtimeHealth.data?.reasons ?? []).slice(0, 3).join(", ") || "required workers/feed are unhealthy"}. Feed source: {liveFeedLabel}.
               </div>
             )}
             {activeMode === "live" && quickSettlerUnhealthy && (
