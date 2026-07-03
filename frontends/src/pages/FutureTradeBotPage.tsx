@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, Bot, Brain, Download, FileSpreadsheet, Lightbu
 import { AppShell } from "@/components/layout";
 import { ExecutionSafetyControls, type ExecutionSafetyValues } from "@/components/trading/ExecutionSafetyControls";
 import { FutureTradeProChart } from "@/components/future-trade/FutureTradeProChart";
+import { RobotLiveChart, type ChartMarker } from "@/components/trading/RobotLiveChart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { usePruneStalePendingJobs, useRestartWorkers } from "@/hooks/useJobs";
 import { useFutureTradeBot, type FutureTradeBinanceHealth, type FutureTradeConfig, type FutureTradeDashboard, type FutureTradeDiagnostics, type FutureTradeDynamicDecision, type FutureTradeDynamicPoint, type FutureTradeEnvConfig, type FutureTradeEnvConfigPayload, type FutureTradeIndicatorSuite, type FutureTradeLastWebhook, type FutureTradeLiveFeedStatus, type FutureTradeLog, type FutureTradeRecord, type FutureTradeRecoveryResult, type FutureTradeResearchLab, type FutureTradeRuntimeHealth, type FutureTradeSettings, type FutureTradeTuningPlanPreview } from "@/hooks/useFutureTradeBot";
+import type { CandleData } from "@/hooks/useRobotCandleFeed";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { cn } from "@/lib/utils";
 
@@ -335,6 +337,20 @@ function balanceValue(value: unknown, digits = 4) {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: digits }).format(parsed);
 }
 
+function candleTime(value: string | number | null | undefined) {
+  if (typeof value === "number") {
+    return value > 1_000_000_000_000 ? Math.floor(value / 1000) : value;
+  }
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : null;
+}
+
+function toNumberOrNull(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function statusVariant(value?: string) {
   const normalized = (value || "").toLowerCase();
   if (["running", "connected", "buy", "sell", "long", "short", "in_position", "buy_executed", "sell_executed"].includes(normalized)) return "default";
@@ -544,6 +560,53 @@ export default function FutureTradeBotPage() {
   const displaySignalMinimum = webhookAuthority
     ? (diagnostics?.tradeEligibility?.activeMinimum ?? fastBestSignal?.effectiveMinConfidence ?? status?.activeMinConfidence ?? settings.minConfidence)
     : (fastBestSignal?.effectiveMinConfidence ?? status?.activeMinConfidence ?? settings.minConfidence);
+  const candleChartCandles = useMemo<CandleData[]>(() => {
+    return liveCandles
+      .map((candle) => {
+        const time = candleTime(candle.time);
+        const open = Number(candle.open);
+        const high = Number(candle.high);
+        const low = Number(candle.low);
+        const close = Number(candle.close);
+        const volume = Number(candle.volume ?? 0);
+
+        if (!time || ![open, high, low, close].every(Number.isFinite)) return null;
+
+        return {
+          time,
+          open,
+          high,
+          low,
+          close,
+          volume: Number.isFinite(volume) ? volume : 0,
+        };
+      })
+      .filter((candle): candle is CandleData => Boolean(candle));
+  }, [liveCandles]);
+  const candleChartMarkers = useMemo<ChartMarker[]>(() => {
+    const lastCandle = candleChartCandles[candleChartCandles.length - 1];
+    const signal = String(displaySignal || "").toUpperCase();
+    if (!lastCandle || !["BUY", "SELL"].includes(signal)) return [];
+
+    return [{
+      time: lastCandle.time,
+      side: signal as "BUY" | "SELL",
+      text: `${signal} ${n(displaySignalConfidence * 100, 0)}%`,
+    }];
+  }, [candleChartCandles, displaySignal, displaySignalConfidence]);
+  const candleChartSide = ["BUY", "SELL"].includes(String(status?.positionSide ?? "").toUpperCase())
+    ? String(status?.positionSide).toUpperCase() as "BUY" | "SELL"
+    : null;
+  const candleEntryPrice = toNumberOrNull(status?.entryPrice);
+  const candleStopPrice = candleEntryPrice && candleChartSide
+    ? candleEntryPrice * (candleChartSide === "BUY" ? 1 - settings.stopLossPercent / 100 : 1 + settings.stopLossPercent / 100)
+    : null;
+  const candleTakeProfitPrice = candleEntryPrice && candleChartSide
+    ? candleEntryPrice * (candleChartSide === "BUY" ? 1 + settings.takeProfitPercent / 100 : 1 - settings.takeProfitPercent / 100)
+    : null;
+  const candleChartPnl = candleChartSide && Number.isFinite(Number(status?.unrealizedPnlPercent)) && Number.isFinite(Number(status?.unrealizedPnl))
+    ? { side: candleChartSide, pct: Number(status?.unrealizedPnlPercent), value: Number(status?.unrealizedPnl) }
+    : null;
 
   const runRecovery = (action: "auto" | "sync_state" | "cancel_reduce_only") => {
     bot.recover.mutate(action, {
@@ -812,24 +875,57 @@ export default function FutureTradeBotPage() {
           <div className="space-y-6">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Live Futures Graph</CardTitle>
+                <div>
+                  <CardTitle>Live Futures Graph</CardTitle>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span className="font-mono">{fastChart?.symbol ?? status?.currentSymbol ?? "-"}</span>
+                    <span>{fastChart?.timeframe ?? settings.timeframe}</span>
+                    <Badge variant={fastChart?.dataSource === "redis_live_feed" ? "default" : "secondary"}>
+                      {fastChart?.dataSource ?? "chart"}
+                    </Badge>
+                  </div>
+                </div>
                 <Badge variant={statusVariant(fastBestSignal?.signal)}>{fastBestSignal?.signal || "WAIT"}</Badge>
               </CardHeader>
-              <CardContent className="h-[420px]">
-                <FutureTradeProChart
-                  candles={liveCandles}
-                  runtimePoints={runtimeChart}
-                  settings={settings}
-                  symbol={fastChart?.symbol ?? status?.currentSymbol}
-                  timeframe={fastChart?.timeframe ?? settings.timeframe}
-                  bestSignal={fastBestSignal}
-                  levels={dashboard?.levels}
-                  overlayHints={dashboard?.researchLab?.overlayHints ?? []}
-                  chartDebug={fastChartDebug}
-                />
+              <CardContent>
+                <Tabs defaultValue="prime" className="space-y-3">
+                  <TabsList className="grid w-full max-w-md grid-cols-2">
+                    <TabsTrigger value="prime">Prime Graph</TabsTrigger>
+                    <TabsTrigger value="candles">Candles</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="prime" className="m-0">
+                    <div className="h-[420px]">
+                      <FutureTradeProChart
+                        candles={liveCandles}
+                        runtimePoints={runtimeChart}
+                        settings={settings}
+                        symbol={fastChart?.symbol ?? status?.currentSymbol}
+                        timeframe={fastChart?.timeframe ?? settings.timeframe}
+                        bestSignal={fastBestSignal}
+                        levels={dashboard?.levels}
+                        overlayHints={dashboard?.researchLab?.overlayHints ?? []}
+                        chartDebug={fastChartDebug}
+                      />
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="candles" className="m-0">
+                    <div className="rounded-md border border-border/70 bg-background/30 p-2">
+                      <RobotLiveChart
+                        candles={candleChartCandles}
+                        side={candleChartSide}
+                        entryPrice={candleEntryPrice}
+                        stopPrice={candleStopPrice}
+                        takeProfitPrice={candleTakeProfitPrice}
+                        markers={candleChartMarkers}
+                        pnl={candleChartPnl}
+                        height={410}
+                      />
+                    </div>
+                  </TabsContent>
+                </Tabs>
               </CardContent>
               <div className="px-6 pb-4 text-xs text-muted-foreground">
-                Chart debug: latestTickPrice={fastChartDebug.latestTickPrice ?? "-"} | chartUpdatedAt={fastChartDebug.chartUpdatedAt ?? "-"} | lastCandleClose={fastChartDebug.lastCandleClose ?? "-"} | isFormingCandle={String(fastChartDebug.isFormingCandle)}
+                Chart debug: latestTickPrice={fastChartDebug.latestTickPrice ?? "-"} | chartUpdatedAt={fastChartDebug.chartUpdatedAt ?? "-"} | lastCandleClose={fastChartDebug.lastCandleClose ?? "-"} | candles={candleChartCandles.length} | isFormingCandle={String(fastChartDebug.isFormingCandle)}
               </div>
             </Card>
 
