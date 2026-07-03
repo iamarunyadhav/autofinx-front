@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Activity, AlertTriangle, Bot, Brain, Download, FileSpreadsheet, Lightbulb, Power, RefreshCw, Save, ShieldAlert, Square, Trash2, Upload, Wallet } from "lucide-react";
 import { AppShell } from "@/components/layout";
+import { ExecutionSafetyControls, type ExecutionSafetyValues } from "@/components/trading/ExecutionSafetyControls";
 import { FutureTradeProChart } from "@/components/future-trade/FutureTradeProChart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -208,6 +209,8 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   autoExecutePaperSignals: true,
   signalSource: "webhook" as "mirror" | "webhook" | "webhook_fallback" | "binance",
   pineWebhookFallbackTimeoutSeconds: 1200,
+  liveFeedMaxAgeSeconds: 3,
+  webhookMaxSignalLatencyMs: 4000,
   avoidChoppyMarket: true,
   emergencyStop: false,
   tradingHoursEnabled: false,
@@ -947,6 +950,15 @@ export default function FutureTradeBotPage() {
               onRecoverRuntime={() => bot.recoverRuntime.mutate(undefined, { onError: err(toast) })}
             />
 
+            <ExecutionSafetyPanel
+              settings={settings}
+              setSettings={setSettings}
+              liveFeed={bot.liveFeed.data}
+              lastWebhook={bot.lastWebhook.data}
+              onSave={save}
+              busy={busy}
+            />
+
             <RiskPanel settings={settings} dynamic={dashboard?.dynamic ?? status?.dynamic} />
             <DynamicSuggestionPanel
               dynamic={dashboard?.dynamic ?? status?.dynamic}
@@ -1174,6 +1186,47 @@ function LatestRuntimeAlert({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function ExecutionSafetyPanel({
+  settings,
+  setSettings,
+  liveFeed,
+  lastWebhook,
+  onSave,
+  busy,
+}: {
+  settings: FutureTradeSettings;
+  setSettings: (settings: FutureTradeSettings) => void;
+  liveFeed?: FutureTradeLiveFeedStatus;
+  lastWebhook?: FutureTradeLastWebhook;
+  onSave: () => void;
+  busy: boolean;
+}) {
+  const liveFeedMax = Number(settings.liveFeedMaxAgeSeconds ?? liveFeed?.maxAgeSeconds ?? 3);
+  const webhookMax = Number(settings.webhookMaxSignalLatencyMs ?? 4000);
+  return (
+    <ExecutionSafetyControls
+      moduleLabel="Future Trade"
+      values={{ liveFeedMaxAgeSeconds: liveFeedMax, webhookMaxSignalLatencyMs: webhookMax }}
+      telemetry={{
+        feedAgeSeconds: liveFeed?.feedAgeSeconds ?? liveFeed?.ageSeconds ?? null,
+        feedState: liveFeed?.feedFresh ? "green" : "red",
+        feedReason: liveFeed?.reason ?? liveFeed?.message,
+        truthSource: liveFeed?.source ?? liveFeed?.dataSource ?? "binance_futures_ws",
+        lastTickAt: liveFeed?.lastTickAt,
+        webhookSignalLatencyMs: lastWebhook?.signalLatencyMs ?? null,
+        serverNow: liveFeed?.server_now,
+      }}
+      onChange={(values: ExecutionSafetyValues) => setSettings({
+        ...settings,
+        liveFeedMaxAgeSeconds: values.liveFeedMaxAgeSeconds,
+        webhookMaxSignalLatencyMs: values.webhookMaxSignalLatencyMs,
+      })}
+      onSave={onSave}
+      busy={busy}
+    />
   );
 }
 

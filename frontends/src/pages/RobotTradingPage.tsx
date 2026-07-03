@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout";
+import { ExecutionSafetyControls, type ExecutionSafetyValues } from "@/components/trading/ExecutionSafetyControls";
 import { MobileTradeNav } from "@/components/trading/MobileTradeNav";
 import { TradeDealList } from "@/components/trading/TradeDealList";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +32,7 @@ import {
   useStopRobotSession,
 } from "@/hooks/useRobotTrading";
 import { useRepairRuntime, useRuntimeHealth } from "@/hooks/useRuntimeHealth";
+import { useRuntimeSafetySettings, useUpdateRuntimeSafetySettings } from "@/hooks/useRuntimeSafetySettings";
 import { type CandleData, useRobotCandleFeed } from "@/hooks/useRobotCandleFeed";
 import { RobotLiveChart } from "@/components/trading/RobotLiveChart";
 
@@ -44,6 +46,8 @@ export default function RobotTradingPage() {
   const { data: metadata } = useQuickTradeMetadata(workspaceId);
   const runtimeHealth = useRuntimeHealth(workspaceId);
   const repairRuntime = useRepairRuntime(workspaceId);
+  const runtimeSafety = useRuntimeSafetySettings(workspaceId);
+  const updateRuntimeSafety = useUpdateRuntimeSafetySettings(workspaceId);
   const [repairOutputOpen, setRepairOutputOpen] = useState(false);
   const updateTradingSettings = useUpdateTradingSettings(workspaceId);
 
@@ -86,6 +90,10 @@ export default function RobotTradingPage() {
   const [multiSymbol, setMultiSymbol] = useState(false);
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>([]);
   const [chartSymbolOverride, setChartSymbolOverride] = useState<string | null>(null);
+  const [safetyValues, setSafetyValues] = useState<ExecutionSafetyValues>({
+    liveFeedMaxAgeSeconds: 3,
+    webhookMaxSignalLatencyMs: 4000,
+  });
 
   const forceClose = useForceCloseSession();
   const resetDailyLoss = useResetDailyLoss();
@@ -146,6 +154,14 @@ export default function RobotTradingPage() {
 
     return () => window.clearInterval(timer);
   }, [settleTrades]);
+
+  useEffect(() => {
+    if (!runtimeSafety.data) return;
+    setSafetyValues({
+      liveFeedMaxAgeSeconds: Number(runtimeSafety.data.live_feed_max_age_seconds ?? 3),
+      webhookMaxSignalLatencyMs: Number(runtimeSafety.data.webhook_max_signal_latency_ms ?? 4000),
+    });
+  }, [runtimeSafety.data]);
 
   const selectedBalance = useMemo(() => {
     if (activeMode === "live") {
@@ -446,6 +462,14 @@ export default function RobotTradingPage() {
     activeMode === "live" &&
     (runtimeHealth.isSuccess ? runtimeHealth.data?.robot_trade?.market_feed === "red" : false);
   const robotRuntimeRed = robotFeedHardBlock;
+  const marketFeedDetail = runtimeHealth.data?.robot_trade?.market_feed_detail ?? {};
+  const evaluatorDetail = runtimeHealth.data?.robot_trade?.evaluator_detail ?? {};
+  const saveRuntimeSafety = () => {
+    updateRuntimeSafety.mutate({
+      live_feed_max_age_seconds: safetyValues.liveFeedMaxAgeSeconds,
+      webhook_max_signal_latency_ms: safetyValues.webhookMaxSignalLatencyMs,
+    });
+  };
 
   return (
     <AppShell>
@@ -582,6 +606,29 @@ export default function RobotTradingPage() {
                 {tradingState?.live_ready_reason ?? "Connect an active Binance integration before starting live robots."}
               </div>
             )}
+
+            <div className="mt-4">
+              <ExecutionSafetyControls
+                title="Robot Execution Safety"
+                moduleLabel="Robot Trade"
+                values={safetyValues}
+                telemetry={{
+                  feedAgeSeconds: numberFrom(marketFeedDetail.age_seconds ?? liveStats?.market_feed?.age_seconds),
+                  feedState: runtimeHealth.data?.robot_trade?.market_feed,
+                  feedReason: String(marketFeedDetail.reason ?? liveStats?.market_feed?.reason ?? ""),
+                  truthSource: String(marketFeedDetail.truth_source ?? marketFeedDetail.source ?? liveStats?.market_feed?.source ?? feed.source ?? "binance_futures_ws"),
+                  lastTickAt: String(marketFeedDetail.last_tick_at ?? liveStats?.market_feed?.last_tick_at ?? ""),
+                  evaluatorAgeSeconds: numberFrom(runtimeHealth.data?.robot_trade?.evaluator_age_seconds),
+                  evaluatorState: runtimeHealth.data?.robot_trade?.evaluator,
+                  latestDecisionAgeSeconds: secondsSince(liveStats?.as_of),
+                  chartLatencyMs: feed.latencyMs,
+                  serverNow: runtimeHealth.data?.generated_at,
+                }}
+                onChange={setSafetyValues}
+                onSave={saveRuntimeSafety}
+                busy={updateRuntimeSafety.isPending}
+              />
+            </div>
           </div>
 
           <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
@@ -678,7 +725,7 @@ export default function RobotTradingPage() {
                       One symbol at a time (graph follows the selected asset)
                     </label>
 
-                    {false && (
+                    {multiSymbol && (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
                           <Label>Symbols ({selectedSymbols.length} selected â€” one bot each)</Label>
@@ -1331,7 +1378,7 @@ export default function RobotTradingPage() {
                       </div>
                       {session.last_error && (
                         <div className="mt-2 text-xs text-amber-300/90">
-                          âš  {session.last_error} â€” tap <span className="font-semibold">Reset</span> then Start.
+                          Warning: {session.last_error} - tap <span className="font-semibold">Reset</span> then Start.
                         </div>
                       )}
                     </div>
@@ -1431,4 +1478,17 @@ export default function RobotTradingPage() {
       </div>
     </AppShell>
   );
+}
+
+function numberFrom(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) return Number(value);
+  return null;
+}
+
+function secondsSince(timestamp?: string | null): number | null {
+  if (!timestamp) return null;
+  const ms = Date.now() - new Date(timestamp).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  return Math.floor(ms / 1000);
 }

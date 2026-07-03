@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
-const FUTURE_TRADE_LIVE_REFRESH_MS = 1000;
+const FUTURE_TRADE_LIVE_REFRESH_MS = 3000;
 
 export interface FutureTradeSettings {
   signalProfile?: string;
@@ -89,6 +89,8 @@ export interface FutureTradeSettings {
   autoExecutePaperSignals: boolean;
   signalSource?: "mirror" | "webhook" | "webhook_fallback" | "binance";
   pineWebhookFallbackTimeoutSeconds?: number;
+  liveFeedMaxAgeSeconds?: number;
+  webhookMaxSignalLatencyMs?: number;
   avoidChoppyMarket: boolean;
   emergencyStop: boolean;
   tradingHoursEnabled: boolean;
@@ -900,6 +902,19 @@ export interface FutureTradeLiveFeedStatus {
   symbolSetInSync: boolean;
   restartRecommended: boolean;
   message?: string | null;
+  server_now?: string | null;
+  feedFresh?: boolean;
+  feedAgeSeconds?: number | null;
+  maxAgeSeconds?: number | null;
+  lastTickPrice?: number | null;
+  source?: string | null;
+  reason?: string | null;
+  per_symbol?: Record<string, {
+    last_message_at?: string | null;
+    age_seconds?: number | null;
+    exchange_to_backend_latency_ms?: number | null;
+    stream?: string | null;
+  }>;
 }
 
 export interface FutureTradeRuntimeRecoverResult {
@@ -1051,6 +1066,8 @@ export interface FutureTradeLastWebhook {
   parsedJsonValid?: boolean;
   rejectedReason?: string | null;
   finalReason?: string | null;
+  signalLatencyMs?: number | null;
+  maxSignalLatencyMs?: number | null;
   latency?: {
     t0_received_at?: string | null;
     validatedMs?: number | null;
