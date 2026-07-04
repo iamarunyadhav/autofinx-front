@@ -23,6 +23,11 @@ export function TradeDealList({ title, trades, emptyMessage }: TradeDealListProp
         {trades.map((trade) => {
           const pnl = Number(trade.profit_loss || 0);
           const tone = pnl > 0 ? "text-emerald-300" : pnl < 0 ? "text-rose-300" : "text-slate-200";
+          const cost = trade.signal_payload?.execution_cost;
+          const fees = Number(cost?.total_fees ?? trade.fees_total ?? 0);
+          const entrySlip = cost?.entry_slippage_pct == null ? null : Number(cost.entry_slippage_pct);
+          const exitSlip = cost?.exit_slippage_pct == null ? null : Number(cost.exit_slippage_pct);
+          const grossPnl = cost?.gross_pnl == null ? null : Number(cost.gross_pnl);
 
           return (
             <div key={trade.id} className="rounded-3xl border border-slate-800 bg-[linear-gradient(180deg,_rgba(15,23,42,0.9),_rgba(2,6,23,0.98))] p-4">
@@ -68,6 +73,35 @@ export function TradeDealList({ title, trades, emptyMessage }: TradeDealListProp
                 </div>
                 <div>{trade.status.toUpperCase()}</div>
               </div>
+
+              {(fees > 0 || entrySlip !== null || exitSlip !== null || grossPnl !== null) && (
+                <div className="mt-3 grid gap-2 rounded-2xl border border-slate-800 bg-slate-950/70 p-3 text-xs text-slate-400 sm:grid-cols-2">
+                  <div>
+                    <span className="text-slate-500">Fees</span>{" "}
+                    <span className="font-medium text-slate-200">${fees.toFixed(4)}</span>
+                  </div>
+                  {grossPnl !== null && (
+                    <div>
+                      <span className="text-slate-500">Gross</span>{" "}
+                      <span className={cn("font-medium", grossPnl >= 0 ? "text-emerald-300" : "text-rose-300")}>
+                        {grossPnl >= 0 ? "+" : ""}${grossPnl.toFixed(4)}
+                      </span>
+                    </div>
+                  )}
+                  {entrySlip !== null && (
+                    <div>
+                      <span className="text-slate-500">Entry slip</span>{" "}
+                      <span className={cn("font-medium", entrySlip <= 0 ? "text-emerald-300" : "text-amber-300")}>{entrySlip.toFixed(4)}%</span>
+                    </div>
+                  )}
+                  {exitSlip !== null && (
+                    <div>
+                      <span className="text-slate-500">Exit slip</span>{" "}
+                      <span className={cn("font-medium", exitSlip <= 0 ? "text-emerald-300" : "text-amber-300")}>{exitSlip.toFixed(4)}%</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}

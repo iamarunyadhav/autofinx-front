@@ -164,7 +164,23 @@ export interface QuickTradeRecord {
   fees_total?: number | null;
   entry_trade_id?: string | null;
   close_trade_id?: string | null;
-  signal_payload?: SignalPreview | null;
+  signal_payload?: (SignalPreview & {
+    execution_cost?: {
+      fee_model?: string;
+      entry_fee?: number | string | null;
+      exit_fee?: number | string | null;
+      total_fees?: number | string | null;
+      gross_pnl?: number | string | null;
+      net_pnl?: number | string | null;
+      entry_slippage_pct?: number | string | null;
+      exit_slippage_pct?: number | string | null;
+      entry_reference_price?: number | string | null;
+      exit_reference_price?: number | string | null;
+      entry_notional?: number | string | null;
+      exit_notional?: number | string | null;
+      fee_rate?: number | string | null;
+    };
+  }) | null;
   indicator_snapshot?: Record<string, unknown> | null;
   entry_at: string;
   expires_at: string;
