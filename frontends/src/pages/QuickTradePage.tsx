@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout";
+import { ExecutionSafetyControls, type ExecutionSafetyValues } from "@/components/trading/ExecutionSafetyControls";
 import { MobileTradeNav } from "@/components/trading/MobileTradeNav";
 import { RobotLiveChart } from "@/components/trading/RobotLiveChart";
 import { SignalSummaryCard } from "@/components/trading/SignalSummaryCard";
@@ -29,6 +30,7 @@ import {
 import { type CandleData } from "@/hooks/useRobotCandleFeed";
 import { useQuickTradeCandleFeed } from "@/hooks/useQuickTradeCandleFeed";
 import { runtimeIsRed, useRuntimeHealth } from "@/hooks/useRuntimeHealth";
+import { useRuntimeSafetySettings, useUpdateRuntimeSafetySettings } from "@/hooks/useRuntimeSafetySettings";
 import type { ChartMarker } from "@/components/trading/RobotLiveChart";
 import { cn } from "@/lib/utils";
 
@@ -70,6 +72,11 @@ function formatUsdtPnl(value: number) {
   if (abs > 0 && abs < 0.01) return value.toFixed(6);
   if (abs < 1) return value.toFixed(4);
   return value.toFixed(2);
+}
+
+function numberFrom(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 function liveFuturesPnl(trade: QuickTradeRecord, currentPrice: number) {
@@ -188,6 +195,8 @@ export default function QuickTradePage() {
   const { data: balances = [] } = useBalances(workspaceId);
   const { data: metadata } = useQuickTradeMetadata(workspaceId);
   const runtimeHealth = useRuntimeHealth(workspaceId);
+  const runtimeSafety = useRuntimeSafetySettings(workspaceId);
+  const updateRuntimeSafety = useUpdateRuntimeSafetySettings(workspaceId);
   const updateTradingSettings = useUpdateTradingSettings(workspaceId);
 
   const [symbol, setSymbol] = useState("");
@@ -197,6 +206,10 @@ export default function QuickTradePage() {
   const [indicatorSet, setIndicatorSet] = useState<string[]>(["RSI", "MACD"]);
   const [selectedProvider, setSelectedProvider] = useState("binance");
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("auto");
+  const [safetyValues, setSafetyValues] = useState<ExecutionSafetyValues>({
+    liveFeedMaxAgeSeconds: 3,
+    webhookMaxSignalLatencyMs: 4000,
+  });
 
   const tradingState = metadata?.trading_state;
   const activeMode = tradingState?.mode ?? "paper";
@@ -260,6 +273,14 @@ export default function QuickTradePage() {
     const t = window.setInterval(() => { settleTrades.mutate(25); }, 5000);
     return () => window.clearInterval(t);
   }, [settleTrades]);
+
+  useEffect(() => {
+    if (!runtimeSafety.data) return;
+    setSafetyValues({
+      liveFeedMaxAgeSeconds: Number(runtimeSafety.data.live_feed_max_age_seconds ?? 3),
+      webhookMaxSignalLatencyMs: Number(runtimeSafety.data.webhook_max_signal_latency_ms ?? 4000),
+    });
+  }, [runtimeSafety.data]);
 
   // Active trade for current symbol — drives chart lines + P&L overlay
   const activeTradeForSymbol = useMemo(
@@ -334,6 +355,14 @@ export default function QuickTradePage() {
   const liveFeedLabel = Number.isFinite(liveFeedAge)
     ? `${liveFeedSource} age ${Math.round(liveFeedAge)}s`
     : liveFeedSource;
+  const quickSettlerDetail = (runtimeHealth.data?.quick_trade?.settler_detail ?? {}) as Record<string, unknown>;
+
+  const saveRuntimeSafety = () => {
+    updateRuntimeSafety.mutate({
+      live_feed_max_age_seconds: safetyValues.liveFeedMaxAgeSeconds,
+      webhook_max_signal_latency_ms: safetyValues.webhookMaxSignalLatencyMs,
+    });
+  };
 
   useEffect(() => {
     setStake((current) => Math.min(maxStake, Math.max(minStake, Number(current || 0))));
@@ -733,6 +762,27 @@ export default function QuickTradePage() {
             {/* ── Right sidebar ── */}
             <div className="space-y-5">
               <SignalSummaryCard signal={signal} />
+
+              <ExecutionSafetyControls
+                title="Quick Trade Execution Safety"
+                moduleLabel="Quick Trade"
+                values={safetyValues}
+                telemetry={{
+                  feedAgeSeconds: numberFrom(liveFeedDetail.age_seconds ?? runtimeHealth.data?.future_trade?.live_feed_age_seconds),
+                  feedState: runtimeHealth.data?.future_trade?.live_feed,
+                  feedReason: String(liveFeedDetail.reason ?? liveFeedDetail.state ?? ""),
+                  truthSource: String(liveFeedDetail.truth_source ?? liveFeedDetail.source ?? feed.source ?? "binance_futures_ws"),
+                  lastTickAt: String(liveFeedDetail.last_tick_at ?? liveFeedDetail.last_message_at ?? ""),
+                  evaluatorAgeSeconds: numberFrom(runtimeHealth.data?.quick_trade?.settler_age_seconds),
+                  evaluatorState: runtimeHealth.data?.quick_trade?.settler,
+                  latestDecisionAgeSeconds: numberFrom(quickSettlerDetail.age_seconds),
+                  chartLatencyMs: feed.latencyMs,
+                  serverNow: runtimeHealth.data?.generated_at,
+                }}
+                onChange={setSafetyValues}
+                onSave={saveRuntimeSafety}
+                busy={updateRuntimeSafety.isPending}
+              />
 
               <Card className="border-slate-800 bg-slate-950 text-slate-50">
                 <CardHeader className="pb-2"><CardTitle className="text-base">Indicators</CardTitle></CardHeader>
