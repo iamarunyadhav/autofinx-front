@@ -92,6 +92,7 @@ export function RobotLiveChart({
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const linesRef = useRef<Record<string, IPriceLine | null>>({ entry: null, stop: null, tp: null });
+  const lastViewportKeyRef = useRef<string | null>(null);
 
   // Create the chart once.
   useEffect(() => {
@@ -111,7 +112,16 @@ export function RobotLiveChart({
         horzLines: { color: "rgba(148,163,184,0.08)" },
       },
       rightPriceScale: { borderColor: "rgba(148,163,184,0.15)" },
-      timeScale: { borderColor: "rgba(148,163,184,0.15)", timeVisible: true, secondsVisible: false },
+      timeScale: {
+        borderColor: "rgba(148,163,184,0.15)",
+        timeVisible: true,
+        secondsVisible: false,
+        rightOffset: 8,
+        barSpacing: 8,
+        fixLeftEdge: true,
+        rightBarStaysOnScroll: true,
+        shiftVisibleRangeOnNewBar: true,
+      },
       crosshair: { mode: CrosshairMode.Normal },
     });
 
@@ -136,6 +146,7 @@ export function RobotLiveChart({
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      lastViewportKeyRef.current = null;
       linesRef.current = { entry: null, stop: null, tp: null };
     };
   }, [height]);
@@ -146,11 +157,24 @@ export function RobotLiveChart({
     if (!series) return;
     if (candles.length === 0) {
       series.setData([]);
+      lastViewportKeyRef.current = null;
       return;
     }
     const bars = normalizeBars(candles);
     series.setData(bars);
-    chartRef.current?.timeScale().fitContent();
+    const firstTime = Number(bars.at(0)?.time ?? 0);
+    const lastTime = Number(bars.at(-1)?.time ?? 0);
+    const viewportKey = `${firstTime}:${lastTime}:${bars.length}`;
+    const timeScale = chartRef.current?.timeScale();
+
+    if (!timeScale || bars.length === 0) return;
+
+    if (lastViewportKeyRef.current === null) {
+      timeScale.fitContent();
+    }
+
+    lastViewportKeyRef.current = viewportKey;
+    timeScale.scrollToPosition(8, false);
   }, [candles]);
 
   // Sync the entry / stop / take-profit price lines.
