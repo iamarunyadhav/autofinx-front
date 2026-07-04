@@ -4,6 +4,7 @@ import { getAuthToken } from "@/lib/auth";
 
 export interface CandleData {
   time: number; // unix timestamp (seconds), lightweight-charts compatible
+  symbol?: string;
   open: number;
   high: number;
   low: number;

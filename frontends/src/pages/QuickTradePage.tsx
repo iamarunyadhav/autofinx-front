@@ -633,6 +633,7 @@ export default function QuickTradePage() {
                     </div>
                   ) : (
                     <RobotLiveChart
+                      key={`${symbol}-${timeframe}`}
                       candles={chartCandles}
                       entryPrice={activeTradeForSymbol?.entry_price ?? null}
                       side={activeTradeForSymbol ? (activeTradeForSymbol.side === "buy" ? "BUY" : "SELL") : null}

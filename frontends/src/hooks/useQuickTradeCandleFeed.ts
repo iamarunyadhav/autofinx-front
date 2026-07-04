@@ -16,6 +16,12 @@ function upsertCandle(list: CandleData[], candle: CandleData): CandleData[] {
   return next;
 }
 
+function matchesRequestedSymbol(payloadSymbol: unknown, requestedSymbol: string): boolean {
+  if (payloadSymbol == null || payloadSymbol === "") return true;
+  const normalize = (value: unknown) => String(value ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return normalize(payloadSymbol) === normalize(requestedSymbol);
+}
+
 /**
  * Connects to the backend SSE candle feed for Quick Trade.
  * The server opens the Binance Futures WebSocket and streams candles to the
@@ -116,9 +122,15 @@ export function useQuickTradeCandleFeed(
               const payload = JSON.parse(dataLine.slice(5).trim());
 
               // Initial history batch from REST
+              if (!matchesRequestedSymbol(payload.symbol, symbol)) {
+                continue;
+              }
+
               if (Array.isArray(payload.candles)) {
                 payload.candles.forEach((c: CandleData) => {
-                  if (c.time > 0) candlesRef.current = upsertCandle(candlesRef.current, c);
+                  if (c.time > 0 && matchesRequestedSymbol(c.symbol, symbol)) {
+                    candlesRef.current = upsertCandle(candlesRef.current, { ...c, symbol: symbol.toUpperCase() });
+                  }
                 });
                 const last = candlesRef.current[candlesRef.current.length - 1] ?? null;
                 setState((s) => ({
@@ -136,8 +148,8 @@ export function useQuickTradeCandleFeed(
               }
 
               // Live candle update
-              if (payload.candle && typeof payload.candle.time === "number") {
-                apply(payload.candle as CandleData, payload.latency_ms ?? 0);
+              if (payload.candle && typeof payload.candle.time === "number" && matchesRequestedSymbol(payload.candle.symbol, symbol)) {
+                apply({ ...(payload.candle as CandleData), symbol: symbol.toUpperCase() }, payload.latency_ms ?? 0);
               }
             } catch {
               /* ignore malformed frame */
