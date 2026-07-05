@@ -73,7 +73,7 @@ export default function RobotTradingPage() {
   const [expirySeconds, setExpirySeconds] = useState(60);
   const [baseStake, setBaseStake] = useState(MIN_ROBOT_STAKE);
   const [strategyProfile, setStrategyProfile] = useState("balanced");
-  const [confidenceThreshold, setConfidenceThreshold] = useState(60);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(70);
   const [maxActiveTrades, setMaxActiveTrades] = useState(2);
   const [profitTarget, setProfitTarget] = useState(20);
   const [lossLimit, setLossLimit] = useState(5);
@@ -440,15 +440,15 @@ export default function RobotTradingPage() {
     setBotMode((s.bot_mode ?? "timed_expiry") as "candle_direction" | "timed_expiry");
     setStopLossPct(Number(s.stop_loss_pct ?? 12));
     setTakeProfitPct(s.take_profit_pct == null ? "" : Number(s.take_profit_pct));
-    setCooldownSeconds(Number(s.cooldown_seconds ?? 300));
+    setCooldownSeconds(Number(s.cooldown_seconds ?? 600));
     setDailyLossLimit(s.daily_loss_limit == null ? "" : Number(s.daily_loss_limit));
     setMultiSymbol(false);
     setSelectedSymbols([s.symbol]);
-    setConfidenceThreshold(s.confidence_threshold ?? 60);
+    setConfidenceThreshold(s.confidence_threshold ?? 70);
     setMaxActiveTrades(s.max_active_trades ?? 2);
     setProfitTarget(Number(s.profit_target ?? 0));
     setLossLimit(Number(s.loss_limit ?? 0));
-    setMaxConsecutiveLosses(s.max_consecutive_losses ?? 3);
+    setMaxConsecutiveLosses(s.max_consecutive_losses ?? 2);
     setStrategyProfile(s.strategy_profile ?? "balanced");
     setRiskProfileId(s.risk_profile_id ?? "none");
     if (Array.isArray(s.indicator_set) && s.indicator_set.length) setIndicatorSet(s.indicator_set);

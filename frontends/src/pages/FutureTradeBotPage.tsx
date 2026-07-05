@@ -197,13 +197,13 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   corePassRule: 3,
   classicSimpleMode: false,
   strictEntryGuards: true,
-  takeProfitPercent: 0.5,
-  stopLossPercent: 0.25,
-  trailingTakeProfitPercent: 0.22,
-  rollbackLossPercent: 0.15,
-  maxDailyLossPercent: 0.3,
+  takeProfitPercent: 1.5,
+  stopLossPercent: 0.75,
+  trailingTakeProfitPercent: 0.45,
+  rollbackLossPercent: 0.6,
+  maxDailyLossPercent: 2.0,
   maxOpenPositions: 1,
-  maxTradesPerDay: 3,
+  maxTradesPerDay: 50,
   maxLeverage: 2,
   maxSpreadPercent: 0.12,
   cooldownSeconds: 180,
@@ -2098,12 +2098,12 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
                   <Field label="Leverage"><Input type="number" min={1} max={125} step="1" value={Number(settings.leverage ?? 2)} onChange={(e) => updateLeverage(Number(e.target.value))} /></Field>
                   <Field label="Trade size USDT"><Input type="number" step="1" value={Number(settings.tradeAmountUsdt ?? 10)} onChange={(e) => update("tradeAmountUsdt", Number(e.target.value))} /></Field>
                   <Field label="Max leverage"><Input type="number" min={1} max={125} step="1" value={Number(settings.maxLeverage ?? 2)} onChange={(e) => update("maxLeverage", Math.max(Number(e.target.value), Number(settings.leverage ?? 1)))} /></Field>
-                  <Field label="Stop loss %"><Input type="number" step="0.01" value={Number(settings.stopLossPercent ?? 0.25)} onChange={(e) => update("stopLossPercent", Number(e.target.value))} /></Field>
-                  <Field label="Rollback loss %"><Input type="number" step="0.01" value={Number(settings.rollbackLossPercent ?? 0.15)} onChange={(e) => update("rollbackLossPercent", Number(e.target.value))} /></Field>
-                  <Field label="Take profit %"><Input type="number" step="0.01" value={Number(settings.takeProfitPercent ?? 0.5)} onChange={(e) => update("takeProfitPercent", Number(e.target.value))} /></Field>
-                  <Field label="Trailing %"><Input type="number" step="0.01" value={Number(settings.trailingTakeProfitPercent ?? 0.22)} onChange={(e) => update("trailingTakeProfitPercent", Number(e.target.value))} /></Field>
-                  <Field label="Max trades/day"><Input type="number" step="1" value={Number(settings.maxTradesPerDay ?? 2)} onChange={(e) => update("maxTradesPerDay", Number(e.target.value))} /></Field>
-                  <Field label="Daily loss limit %"><Input type="number" step="0.1" value={Number(settings.maxDailyLossPercent ?? 0.3)} onChange={(e) => update("maxDailyLossPercent", Number(e.target.value))} /></Field>
+                  <Field label="Stop loss %"><Input type="number" step="0.01" value={Number(settings.stopLossPercent ?? 0.75)} onChange={(e) => update("stopLossPercent", Number(e.target.value))} /></Field>
+                  <Field label="Rollback loss %"><Input type="number" step="0.01" value={Number(settings.rollbackLossPercent ?? 0.6)} onChange={(e) => update("rollbackLossPercent", Number(e.target.value))} /></Field>
+                  <Field label="Take profit %"><Input type="number" step="0.01" value={Number(settings.takeProfitPercent ?? 1.5)} onChange={(e) => update("takeProfitPercent", Number(e.target.value))} /></Field>
+                  <Field label="Trailing %"><Input type="number" step="0.01" value={Number(settings.trailingTakeProfitPercent ?? 0.45)} onChange={(e) => update("trailingTakeProfitPercent", Number(e.target.value))} /></Field>
+                  <Field label="Max trades/day"><Input type="number" step="1" value={Number(settings.maxTradesPerDay ?? 50)} onChange={(e) => update("maxTradesPerDay", Number(e.target.value))} /></Field>
+                  <Field label="Daily loss limit %"><Input type="number" step="0.1" value={Number(settings.maxDailyLossPercent ?? 2.0)} onChange={(e) => update("maxDailyLossPercent", Number(e.target.value))} /></Field>
                   <Field label="Cooldown seconds"><Input type="number" step="30" value={Number(settings.cooldownSeconds ?? 180)} onChange={(e) => update("cooldownSeconds", Number(e.target.value))} /></Field>
                 </div>
               </div>
@@ -2116,7 +2116,12 @@ function ConfigPanel({ envMode, status, debug, intelligence, settings, setSettin
                 <Toggle label="ATR trailing second half" checked={Boolean(settings.useAtrTrailingSecondHalf ?? true)} onChange={(value) => update("useAtrTrailingSecondHalf", value)} />
                 <Toggle label="Exit on opposite score" checked={Boolean(settings.exitOnStrongOppositeScore ?? true)} onChange={(value) => update("exitOnStrongOppositeScore", value)} />
                 <Toggle label="ATR dynamic risk targets" checked={Boolean(settings.useAtrRiskTargets ?? false)} onChange={(value) => update("useAtrRiskTargets", value)} />
-                <Toggle label="Webhook risk overrides" checked={Boolean(settings.useWebhookRiskOverrides ?? false)} onChange={(value) => update("useWebhookRiskOverrides", value)} />
+                <Toggle
+                  label="Webhook risk overrides"
+                  checked={Boolean(settings.useWebhookRiskOverrides ?? false)}
+                  onChange={(value) => update("useWebhookRiskOverrides", value)}
+                  note="ON: SL/TP/trailing/rollback come from the TradingView webhook payload when present. OFF (default): always uses the saved values above. Leverage is never overridden by this toggle."
+                />
               </div>
               <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
                 Old MACD/RSI weighted scoring, symbol-performance penalty, aggressive AI modes, dynamic confidence overrides, UT Bot defaults, and indicator influence sliders are hidden and ignored for this profile.
@@ -3516,8 +3521,16 @@ function baseFieldLabel(key: keyof FutureTradeSettings) {
   return labels[key] ?? key;
 }
 
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
-  return <div className="flex items-center justify-between rounded-md border px-3 py-2"><span className="text-sm">{label}</span><Switch checked={checked} onCheckedChange={onChange} /></div>;
+function Toggle({ label, checked, onChange, note }: { label: string; checked: boolean; onChange: (value: boolean) => void; note?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2" title={note}>
+      <div className="flex flex-col">
+        <span className="text-sm">{label}</span>
+        {note ? <span className="text-[11px] text-muted-foreground">{note}</span> : null}
+      </div>
+      <Switch checked={checked} onCheckedChange={onChange} />
+    </div>
+  );
 }
 
 function Row({ label, value }: { label: string; value: string }) {
