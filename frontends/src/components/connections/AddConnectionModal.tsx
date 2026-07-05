@@ -30,6 +30,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { AssetClassToggle } from '@/components/trading/AssetClassToggle';
+import { useProviderCatalog, type AssetClass } from '@/hooks/useProviderCatalog';
 
 const connectionSchema = z.object({
   name: z.string().min(1, 'Name is required').max(50),
@@ -49,16 +51,6 @@ interface AddConnectionModalProps {
   isLoading?: boolean;
 }
 
-const exchanges = [
-  { id: 'binance', name: 'Binance', logo: 'BN', requiresPassphrase: false },
-  { id: 'metal_broker', name: 'Metal Broker', logo: 'MB', requiresPassphrase: false },
-  { id: 'coinbase', name: 'Coinbase Pro', logo: 'CB', requiresPassphrase: true },
-  { id: 'kraken', name: 'Kraken', logo: 'KR', requiresPassphrase: false },
-  { id: 'bybit', name: 'Bybit', logo: 'BB', requiresPassphrase: false },
-  { id: 'okx', name: 'OKX', logo: 'OK', requiresPassphrase: true },
-  { id: 'kucoin', name: 'KuCoin', logo: 'KC', requiresPassphrase: true },
-];
-
 export function AddConnectionModal({
   open,
   onOpenChange,
@@ -68,6 +60,9 @@ export function AddConnectionModal({
   const [showApiKey, setShowApiKey] = useState(false);
   const [showApiSecret, setShowApiSecret] = useState(false);
   const [showPassphrase, setShowPassphrase] = useState(false);
+  const [assetClass, setAssetClass] = useState<AssetClass>('CRYPTO');
+  const catalog = useProviderCatalog();
+  const exchanges = catalog.byAssetClass(assetClass);
 
   const form = useForm<ConnectionFormData>({
     resolver: zodResolver(connectionSchema),
@@ -82,7 +77,7 @@ export function AddConnectionModal({
   });
 
   const selectedProvider = form.watch('provider');
-  const selectedExchange = exchanges.find(e => e.id === selectedProvider);
+  const selectedExchange = exchanges.find(e => e.key === selectedProvider);
 
   const handleSubmit = (data: ConnectionFormData) => {
     onSubmit(data);
@@ -109,25 +104,34 @@ export function AddConnectionModal({
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+            <div>
+              <FormLabel>Asset class</FormLabel>
+              <AssetClassToggle
+                value={assetClass}
+                onChange={(next) => {
+                  setAssetClass(next);
+                  form.setValue('provider', '');
+                }}
+                className="mt-1"
+              />
+            </div>
+
             <FormField
               control={form.control}
               name="provider"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Exchange</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <FormLabel>{assetClass === 'CRYPTO' ? 'Exchange' : 'Broker'}</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select an exchange" />
+                        <SelectValue placeholder={assetClass === 'CRYPTO' ? 'Select an exchange' : 'Select a broker'} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
                       {exchanges.map((exchange) => (
-                        <SelectItem key={exchange.id} value={exchange.id}>
-                          <div className="flex items-center gap-2">
-                            <span>{exchange.logo}</span>
-                            <span>{exchange.name}</span>
-                          </div>
+                        <SelectItem key={exchange.key} value={exchange.key}>
+                          {exchange.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -210,7 +214,7 @@ export function AddConnectionModal({
               )}
             />
 
-            {selectedExchange?.requiresPassphrase && (
+            {selectedExchange?.requires_passphrase && (
               <FormField
                 control={form.control}
                 name="passphrase"
@@ -236,7 +240,7 @@ export function AddConnectionModal({
                       </div>
                     </FormControl>
                     <FormDescription>
-                      Required for {selectedExchange.name}
+                      Required for {selectedExchange.label}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

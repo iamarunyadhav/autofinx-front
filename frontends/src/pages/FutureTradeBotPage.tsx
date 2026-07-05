@@ -4,6 +4,7 @@ import { AppShell } from "@/components/layout";
 import { ExecutionSafetyControls, type ExecutionSafetyValues } from "@/components/trading/ExecutionSafetyControls";
 import { FutureTradeProChart } from "@/components/future-trade/FutureTradeProChart";
 import { RobotLiveChart, type ChartMarker } from "@/components/trading/RobotLiveChart";
+import { AssetClassToggle } from "@/components/trading/AssetClassToggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -853,6 +854,18 @@ export default function FutureTradeBotPage() {
             </CardContent>
           </Card>
         ) : null}
+
+        <Card>
+          <CardContent className="flex flex-col gap-2 pt-4">
+            <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Asset class</div>
+            <AssetClassToggle
+              value="CRYPTO"
+              onChange={() => {}}
+              disabledClasses={["FOREX"]}
+              disabledNote="Coming soon — futures execution (leverage/margin/funding) isn't adapted for a forex/CFD broker yet. Use Quick Trade or Robot Trade for Forex."
+            />
+          </CardContent>
+        </Card>
 
         <WebhookCommandCenter
           settings={settings}
