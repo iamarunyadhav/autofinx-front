@@ -32,6 +32,9 @@ import { useQuickTradeCandleFeed } from "@/hooks/useQuickTradeCandleFeed";
 import { runtimeIsRed, useRuntimeHealth } from "@/hooks/useRuntimeHealth";
 import { useRuntimeSafetySettings, useUpdateRuntimeSafetySettings } from "@/hooks/useRuntimeSafetySettings";
 import type { ChartMarker } from "@/components/trading/RobotLiveChart";
+import { AssetClassToggle } from "@/components/trading/AssetClassToggle";
+import { ProviderSelect } from "@/components/trading/ProviderSelect";
+import type { AssetClass } from "@/hooks/useProviderCatalog";
 import { cn } from "@/lib/utils";
 
 function useCountdown(expiresAt: string | undefined) {
@@ -206,6 +209,7 @@ export default function QuickTradePage() {
   const [indicatorSet, setIndicatorSet] = useState<string[]>(["RSI", "MACD"]);
   const [selectedProvider, setSelectedProvider] = useState("binance");
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("auto");
+  const [assetClass, setAssetClass] = useState<AssetClass>("CRYPTO");
   const [safetyValues, setSafetyValues] = useState<ExecutionSafetyValues>({
     liveFeedMaxAgeSeconds: 3,
     webhookMaxSignalLatencyMs: 4000,
@@ -213,14 +217,18 @@ export default function QuickTradePage() {
 
   const tradingState = metadata?.trading_state;
   const activeMode = tradingState?.mode ?? "paper";
-  const providerCatalog = Object.values(tradingState?.provider_catalog ?? {});
+  const providerCatalogAll = Object.values(tradingState?.provider_catalog ?? {});
+  const providerCatalog = providerCatalogAll.filter((p) => (p.asset_class ?? "CRYPTO") === assetClass);
   const providerIntegrations = (tradingState?.active_integrations ?? []).filter(
     (i) => i.provider_key === selectedProvider
+  );
+  const symbolsForClass = (metadata?.symbols ?? []).filter((o) =>
+    assetClass === "CRYPTO" ? o.asset_class === "CRYPTO" : o.asset_class !== "CRYPTO"
   );
 
   useEffect(() => {
     if (!metadata) return;
-    if (!metadata.symbols.some((o) => o.symbol === symbol)) setSymbol(metadata.symbols[0]?.symbol ?? "");
+    if (!symbolsForClass.some((o) => o.symbol === symbol)) setSymbol(symbolsForClass[0]?.symbol ?? "");
     if (!metadata.timeframes.some((o) => o.key === timeframe)) setTimeframe(metadata.timeframes[0]?.key ?? metadata.quick_trade.default_timeframe);
     if (!metadata.durations.some((o) => o.seconds === duration)) setDuration(metadata.durations[0]?.seconds ?? metadata.quick_trade.default_duration);
     const allowed = new Set(metadata.quick_trade.allowed_indicators);
@@ -228,9 +236,13 @@ export default function QuickTradePage() {
       const f = cur.filter((i) => allowed.has(i));
       return f.length > 0 ? f : (metadata.quick_trade.allowed_indicators ?? []).slice(0, 2);
     });
-    setSelectedProvider(tradingState?.preferred_provider ?? metadata.quick_trade.default_provider ?? "binance");
-    setSelectedIntegrationId(tradingState?.preferred_integration_id ?? "auto");
-  }, [duration, metadata, symbol, timeframe, tradingState]);
+    const preferredForClass = providerCatalog.find((p) => p.key === tradingState?.preferred_provider)?.key;
+    const nextProvider = preferredForClass ?? providerCatalog[0]?.key ?? (assetClass === "CRYPTO" ? "binance" : "metal_broker");
+    setSelectedProvider(nextProvider);
+    setSelectedIntegrationId(
+      nextProvider === tradingState?.preferred_provider ? (tradingState?.preferred_integration_id ?? "auto") : "auto"
+    );
+  }, [assetClass, duration, metadata, symbol, timeframe, tradingState]);
 
   // Robot Trade signal analysis — refreshes every 5 s
   const chartQuery = useQuickTradeChart({
@@ -442,7 +454,7 @@ export default function QuickTradePage() {
                     : "Paper wallet · no real funds at risk"}
                 </div>
               </div>
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 md:grid-cols-4">
                 <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">
                   <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Mode</div>
                   <div className="grid grid-cols-2 gap-2">
@@ -451,20 +463,22 @@ export default function QuickTradePage() {
                   </div>
                 </div>
                 <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">
+                  <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Asset class</div>
+                  <AssetClassToggle value={assetClass} onChange={setAssetClass} />
+                </div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">
                   <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Provider</div>
-                  <Select value={selectedProvider} onValueChange={(v) => {
-                    const next = (tradingState?.active_integrations ?? []).find((i) => i.provider_key === v)?.id;
-                    setSelectedProvider(v);
-                    setSelectedIntegrationId(next ?? "auto");
-                    updateMode(activeMode, v, next ?? "auto");
-                  }}>
-                    <SelectTrigger className="border-slate-800 bg-slate-950 text-slate-100 h-9"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {(providerCatalog.length > 0 ? providerCatalog : [{ key: "binance", label: "Binance" }]).map((p: any) => (
-                        <SelectItem key={p.key} value={p.key}>{p.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <ProviderSelect
+                    providers={providerCatalog}
+                    value={selectedProvider}
+                    onChange={(v) => {
+                      const next = (tradingState?.active_integrations ?? []).find((i) => i.provider_key === v)?.id;
+                      setSelectedProvider(v);
+                      setSelectedIntegrationId(next ?? "auto");
+                      updateMode(activeMode, v, next ?? "auto");
+                    }}
+                    className="border-slate-800 bg-slate-950 text-slate-100 h-9"
+                  />
                 </div>
                 <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">
                   <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Account</div>
@@ -585,7 +599,7 @@ export default function QuickTradePage() {
                     <Select value={symbol} onValueChange={setSymbol}>
                       <SelectTrigger className="border-slate-800 bg-slate-900 text-slate-100"><SelectValue placeholder="Choose symbol" /></SelectTrigger>
                       <SelectContent>
-                        {(metadata?.symbols ?? []).map((o) => <SelectItem key={o.symbol} value={o.symbol}>{o.display}</SelectItem>)}
+                        {symbolsForClass.map((o) => <SelectItem key={o.symbol} value={o.symbol}>{o.display}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>

@@ -35,6 +35,9 @@ import { useRepairRuntime, useRuntimeHealth } from "@/hooks/useRuntimeHealth";
 import { useRuntimeSafetySettings, useUpdateRuntimeSafetySettings } from "@/hooks/useRuntimeSafetySettings";
 import { type CandleData, useRobotCandleFeed } from "@/hooks/useRobotCandleFeed";
 import { RobotLiveChart } from "@/components/trading/RobotLiveChart";
+import { AssetClassToggle } from "@/components/trading/AssetClassToggle";
+import { ProviderSelect } from "@/components/trading/ProviderSelect";
+import type { AssetClass } from "@/hooks/useProviderCatalog";
 
 const MIN_ROBOT_STAKE = 20;
 
@@ -83,6 +86,7 @@ export default function RobotTradingPage() {
   const [selectedProvider, setSelectedProvider] = useState("binance");
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("auto");
   const [botMode, setBotMode] = useState<"candle_direction" | "timed_expiry">("candle_direction");
+  const [assetClass, setAssetClass] = useState<AssetClass>("CRYPTO");
   const [stopLossPct, setStopLossPct] = useState(12);
   const [takeProfitPct, setTakeProfitPct] = useState<number | "">("");
   const [cooldownSeconds, setCooldownSeconds] = useState(600);
@@ -101,7 +105,8 @@ export default function RobotTradingPage() {
   const tradingState = metadata?.trading_state;
   const activeMode = tradingState?.mode ?? "paper";
   const liveReady = Boolean(tradingState?.live_ready);
-  const providerCatalog = Object.values(tradingState?.provider_catalog ?? {});
+  const providerCatalogAll = Object.values(tradingState?.provider_catalog ?? {});
+  const providerCatalog = providerCatalogAll.filter((provider) => (provider.asset_class ?? "CRYPTO") === assetClass);
   const providerIntegrations = (tradingState?.active_integrations ?? []).filter(
     (integration) => integration.provider_key === selectedProvider
   );
@@ -552,10 +557,31 @@ export default function RobotTradingPage() {
               </div>
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">
+                <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Asset class</div>
+                <AssetClassToggle
+                  value={assetClass}
+                  onChange={(nextClass) => {
+                    setAssetClass(nextClass);
+                    const nextProvider = providerCatalogAll.find(
+                      (provider) => (provider.asset_class ?? "CRYPTO") === nextClass
+                    );
+                    const providerKey = nextProvider?.key ?? (nextClass === "CRYPTO" ? "binance" : "metal_broker");
+                    const nextIntegration = (tradingState?.active_integrations ?? []).find(
+                      (integration) => integration.provider_key === providerKey
+                    )?.id;
+                    setSelectedProvider(providerKey);
+                    setSelectedIntegrationId(nextIntegration ?? "auto");
+                    updateMode(activeMode, providerKey, nextIntegration ?? "auto");
+                  }}
+                />
+              </div>
+
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">
                 <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Provider</div>
-                <Select
+                <ProviderSelect
+                  providers={providerCatalog}
                   value={selectedProvider}
-                  onValueChange={(value) => {
+                  onChange={(value) => {
                     const nextIntegration = (tradingState?.active_integrations ?? []).find(
                       (integration) => integration.provider_key === value
                     )?.id;
@@ -563,18 +589,7 @@ export default function RobotTradingPage() {
                     setSelectedIntegrationId(nextIntegration ?? "auto");
                     updateMode(activeMode, value, nextIntegration ?? "auto");
                   }}
-                >
-                  <SelectTrigger className="border-slate-800 bg-slate-950 text-slate-100">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(providerCatalog.length > 0 ? providerCatalog : [{ key: "binance", label: "Binance" }]).map((provider: any) => (
-                      <SelectItem key={provider.key} value={provider.key}>
-                        {provider.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               </div>
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">

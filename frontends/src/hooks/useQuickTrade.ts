@@ -76,6 +76,7 @@ export interface QuickTradeMetadata {
       {
         key: string;
         label: string;
+        asset_class?: "CRYPTO" | "FOREX" | string;
         live_supported: boolean;
         default_market_type?: string;
         supports_short?: boolean;
