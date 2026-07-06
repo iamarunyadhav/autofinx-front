@@ -15,17 +15,10 @@ import {
   TrendingUp,
   Zap,
 } from "lucide-react";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/layout";
+import { RobotLiveChart } from "@/components/trading/RobotLiveChart";
+import { useRatioBotCandleFeed } from "@/hooks/useRatioBotCandleFeed";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,7 +38,6 @@ import { cn } from "@/lib/utils";
 type JsonRecord = Record<string, unknown>;
 
 const EMPTY_BOTS: RatioBotConfig[] = [];
-const EMPTY_CANDLES: CandleRecord[] = [];
 const EMPTY_INTEGRATIONS: IntegrationRecord[] = [];
 const EMPTY_DECISIONS: RatioDecision[] = [];
 const EMPTY_EVENTS: RatioEvent[] = [];
@@ -288,15 +280,6 @@ interface RuntimeSnapshot {
   last_order?: OrderRecord | null;
   position?: PositionRecord | null;
   pnl?: PnlSummary | null;
-}
-
-interface CandleRecord {
-  ts?: number | string | null;
-  open?: number | string | null;
-  high?: number | string | null;
-  low?: number | string | null;
-  close?: number | string | null;
-  volume?: number | string | null;
 }
 
 interface IntegrationRecord {
@@ -804,7 +787,6 @@ async function invalidateBotQueries(queryClient: ReturnType<typeof useQueryClien
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-last-order", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-position", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-pnl", botId] }),
-    queryClient.invalidateQueries({ queryKey: ["ratio-bot-candles", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-snapshot", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-ratio", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-decisions", botId] }),
@@ -1075,17 +1057,6 @@ export default function RatioBotPage() {
     refetchInterval: runtimePollingMs,
   });
 
-  const candlesQuery = useQuery({
-    queryKey: ["ratio-bot-candles", selectedBotId],
-    queryFn: async () => {
-      if (!selectedBotId) return [] as CandleRecord[];
-      const response = await api.get<CandleRecord[]>(`/ratio-bots/${selectedBotId}/candles?limit=120`);
-      return response.data;
-    },
-    enabled: !!selectedBotId && !isCreating,
-    refetchInterval: runtimePollingMs,
-  });
-
   const snapshotQuery = useQuery({
     queryKey: ["ratio-bot-snapshot", selectedBotId],
     queryFn: async () => {
@@ -1320,14 +1291,14 @@ export default function RatioBotPage() {
   const currentPosition = (positionQuery.data && Object.keys(positionQuery.data).length > 0 ? positionQuery.data : snapshotQuery.data?.position) || null;
   const currentPnl = pnlQuery.data || snapshotQuery.data?.pnl || null;
   const currentRatio = ratioQuery.data || null;
-  const candles = (candlesQuery.data ?? EMPTY_CANDLES).map((candle) => ({
-    ts: candle.ts,
-    label: candle.ts ? new Date(Number(candle.ts)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "--",
-    open: toNumber(candle.open) || 0,
-    high: toNumber(candle.high) || 0,
-    low: toNumber(candle.low) || 0,
-    close: toNumber(candle.close) || 0,
-  }));
+  const liveFeed = useRatioBotCandleFeed(
+    selectedBot?.symbol || form.symbol,
+    selectedBot?.timeframe || form.timeframe,
+    !!selectedBotId && !isCreating,
+    selectedBotId || undefined,
+    selectedMarketType === "futures" ? "futures" : "spot",
+  );
+  const liveCandles = liveFeed.candles;
 
   const connectionOptions = connections as Array<{ id: string; name?: string; provider?: string; is_enabled?: boolean }>;
   const integrationOptions = integrationsQuery.data ?? EMPTY_INTEGRATIONS;
@@ -1569,48 +1540,25 @@ export default function RatioBotPage() {
                         <div>
                           <CardTitle>Live Candle Snapshot</CardTitle>
                           <p className="text-sm text-muted-foreground">
-                            {selectedBot?.symbol || form.symbol} · {selectedBot?.timeframe || form.timeframe} · websocket-first chart bootstrap
+                            {selectedBot?.symbol || form.symbol} · {selectedBot?.timeframe || form.timeframe} ·{" "}
+                            {liveFeed.source === "ws" ? "live Binance WS" : liveFeed.source === "sse" ? "backend feed" : "connecting…"}
                           </p>
                         </div>
-                        <Badge variant="outline">{candles.length} candles</Badge>
+                        <Badge variant="outline">{liveCandles.length} candles</Badge>
                       </CardHeader>
                       <CardContent className="space-y-4">
                         <div className="h-[340px]">
-                          {candles.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
-                              <AreaChart data={candles}>
-                                <defs>
-                                  <linearGradient id="ratioBotChart" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
-                                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.04} />
-                                  </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                                <XAxis dataKey="label" minTickGap={32} />
-                                <YAxis domain={["auto", "auto"]} tickFormatter={(value) => formatNumber(value, 2)} />
-                                <Tooltip
-                                  formatter={(value: number) => [formatNumber(value, 4), "Close"]}
-                                  labelFormatter={(value) => `Time ${value}`}
-                                />
-                                <Area
-                                  type="monotone"
-                                  dataKey="close"
-                                  stroke="hsl(var(--primary))"
-                                  fillOpacity={1}
-                                  fill="url(#ratioBotChart)"
-                                  strokeWidth={2}
-                                />
-                              </AreaChart>
-                            </ResponsiveContainer>
+                          {liveCandles.length > 0 ? (
+                            <RobotLiveChart candles={liveCandles} height={340} />
                           ) : (
                             <div className="flex h-full items-center justify-center rounded-2xl border border-dashed text-sm text-muted-foreground">
-                              No candles cached yet. Start the feed worker and wait for market data ingestion.
+                              {liveFeed.connected ? "Waiting for the first candle…" : "Connecting to live feed…"}
                             </div>
                           )}
                         </div>
 
                         <div className="grid gap-3 md:grid-cols-3">
-                          <DetailRow label="Latest close" value={formatNumber(candles[candles.length - 1]?.close, 6)} />
+                          <DetailRow label="Latest close" value={formatNumber(liveCandles[liveCandles.length - 1]?.close, 6)} />
                           <DetailRow label="Last signal" value={prettyLabel(currentStatus?.last_signal || currentSignal?.decision)} />
                           <DetailRow label="Cooldown until" value={formatDateTime(currentStatus?.cooldown_until || selectedBot?.state?.cooldown_until)} />
                         </div>
