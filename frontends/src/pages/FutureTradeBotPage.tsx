@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Activity, AlertTriangle, Bot, Brain, Download, FileSpreadsheet, Lightbulb, Power, RefreshCw, Save, ShieldAlert, Square, Trash2, Upload, Wallet } from "lucide-react";
 import { AppShell } from "@/components/layout";
 import { ExecutionSafetyControls, type ExecutionSafetyValues } from "@/components/trading/ExecutionSafetyControls";
+import { FutureTradeAiGatePanel } from "@/components/future-trade/FutureTradeAiGatePanel";
 import { FutureTradeProChart } from "@/components/future-trade/FutureTradeProChart";
 import { RobotLiveChart, type ChartMarker } from "@/components/trading/RobotLiveChart";
 import { AssetClassToggle } from "@/components/trading/AssetClassToggle";
@@ -978,6 +979,7 @@ export default function FutureTradeBotPage() {
               closeBusy={bot.closePosition.isPending}
               onClose={closeOpenTrade}
             />
+            <FutureTradeAiGatePanel workspaceId={currentWorkspace?.id} />
             <DynamicRuntimeTracker logs={bot.logs.data ?? []} />
             <RuntimeDiagnosticsPanel
               diagnostics={diagnostics}
