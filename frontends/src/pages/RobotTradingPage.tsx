@@ -2,6 +2,7 @@
 import { AppShell } from "@/components/layout";
 import { ExecutionSafetyControls, type ExecutionSafetyValues } from "@/components/trading/ExecutionSafetyControls";
 import { MobileTradeNav } from "@/components/trading/MobileTradeNav";
+import { NearTermForecastCard } from "@/components/trading/NearTermForecastCard";
 import { TradeDealList } from "@/components/trading/TradeDealList";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -275,14 +276,6 @@ export default function RobotTradingPage() {
       : trustState === "warning"
         ? "border-amber-500/25 bg-amber-500/10 text-amber-200"
         : "border-rose-500/25 bg-rose-500/10 text-rose-200";
-  const forecastBias = liveStats?.forecast?.bias ?? "NEUTRAL";
-  const forecastTone =
-    forecastBias === "BUY"
-      ? "text-emerald-300"
-      : forecastBias === "SELL"
-        ? "text-rose-300"
-        : "text-slate-300";
-
   const recentTrades = sessionStatus.data?.recent_trades ?? [];
   const exportRobotDealsCsv = () => {
     const rows = recentTrades.map((trade) => ({
@@ -1046,36 +1039,7 @@ export default function RobotTradingPage() {
                       )}
                     </div>
 
-                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <div className="text-xs uppercase tracking-wide text-slate-500">Near-term forecast</div>
-                          <div className={`text-lg font-bold ${forecastTone}`}>{forecastBias}</div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 text-right md:grid-cols-4">
-                          <div>
-                            <div className="text-xs text-slate-500">Confidence</div>
-                            <div className="text-sm font-semibold text-slate-200">{liveStats?.forecast?.confidence?.toFixed(0) ?? "-"}%</div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-slate-500">Expected</div>
-                            <div className="text-sm font-semibold text-slate-200">{liveStats?.forecast?.expected_mid_price ?? "-"}</div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-slate-500">Range low</div>
-                            <div className="text-sm font-semibold text-rose-200">{liveStats?.forecast?.expected_low ?? "-"}</div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-slate-500">Range high</div>
-                            <div className="text-sm font-semibold text-emerald-200">{liveStats?.forecast?.expected_high ?? "-"}</div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="mt-2 text-xs leading-relaxed text-slate-400">
-                        {liveStats?.forecast?.summary ?? "Forecast waits for fresh candle and decision data."}
-                        {liveStats?.forecast?.horizon_seconds ? ` Horizon ${Math.round(liveStats.forecast.horizon_seconds / 60)}m, ATR ${liveStats.forecast.atr_pct?.toFixed(3)}%.` : ""}
-                      </div>
-                    </div>
+                    <NearTermForecastCard forecast={liveStats?.forecast} />
 
                     {chartLivePosition ? (
                       <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">

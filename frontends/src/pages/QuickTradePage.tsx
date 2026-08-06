@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout";
 import { ExecutionSafetyControls, type ExecutionSafetyValues } from "@/components/trading/ExecutionSafetyControls";
 import { MobileTradeNav } from "@/components/trading/MobileTradeNav";
+import { NearTermForecastCard } from "@/components/trading/NearTermForecastCard";
+import { ProfitCalculatorCard } from "@/components/trading/ProfitCalculatorCard";
 import { RobotLiveChart } from "@/components/trading/RobotLiveChart";
 import { SignalSummaryCard } from "@/components/trading/SignalSummaryCard";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +24,7 @@ import {
   usePlaceQuickTrade,
   useQuickTradeActive,
   useQuickTradeChart,
+  useQuickTradeForecast,
   useQuickTradeHistory,
   useQuickTradeMetadata,
   useSettleQuickTrades,
@@ -380,6 +383,22 @@ export default function QuickTradePage() {
     setStake((current) => Math.min(maxStake, Math.max(minStake, Number(current || 0))));
   }, [maxStake, minStake]);
 
+  // Debounce the free-typed stake before it drives a forecast request.
+  const [debouncedStake, setDebouncedStake] = useState(stake);
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedStake(stake), 350);
+    return () => window.clearTimeout(t);
+  }, [stake]);
+  const effectiveStake = Math.min(maxStake, Math.max(minStake, debouncedStake));
+
+  const forecastQuery = useQuickTradeForecast({
+    candles: chartCandles,
+    signal,
+    timeframe,
+    expirySeconds: duration,
+    stakeAmount: effectiveStake,
+  });
+
   const integrationLabel =
     providerIntegrations.find((i) => i.id === selectedIntegrationId)?.display_name ??
     tradingState?.preferred_integration_label ?? "Auto";
@@ -431,7 +450,6 @@ export default function QuickTradePage() {
   const activeForSymbol = allActiveTrades.filter((t) => t.symbol === symbol && t.status === "open");
   const activeOther = allActiveTrades.filter((t) => t.symbol !== symbol && t.status === "open");
   const estimatedQuantity = currentPrice ? Math.max(minStake, stake) / currentPrice : null;
-  const feeEstimate = activeMode === "live" ? Math.max(minStake, stake) * 0.0008 : 0;
 
   return (
     <AppShell>
@@ -587,6 +605,12 @@ export default function QuickTradePage() {
             </div>
           </div>
 
+          {/* ── Near-term forecast + profit calculator (shared with Robot Trade) ── */}
+          <div className="grid gap-5 lg:grid-cols-2">
+            <NearTermForecastCard forecast={forecastQuery.data?.forecast} />
+            <ProfitCalculatorCard netEdge={forecastQuery.data?.net_edge} />
+          </div>
+
           {/* ── Main grid ── */}
           <div className="grid gap-5 xl:grid-cols-[1.3fr_0.7fr]">
             <div className="space-y-5">
@@ -703,7 +727,9 @@ export default function QuickTradePage() {
                           Qty {estimatedQuantity ? estimatedQuantity.toFixed(6) : "waiting"}
                         </div>
                         <div className="rounded-xl bg-slate-900 px-3 py-2 md:col-span-2">
-                          Fee estimate ~{feeEstimate.toFixed(4)} USDT round trip. Final PnL uses exchange fills when available.
+                          Fee estimate ~{(forecastQuery.data?.net_edge?.actual_cost_usdt ?? 0).toFixed(4)} USDT round trip
+                          (~{(forecastQuery.data?.net_edge?.round_trip_fee_pct ?? 0).toFixed(4)}% fee + {(forecastQuery.data?.net_edge?.slippage_buffer_pct ?? 0).toFixed(4)}% slippage buffer).
+                          Final PnL uses exchange fills when available.
                         </div>
                       </div>
                     )}

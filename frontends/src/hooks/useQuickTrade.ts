@@ -136,6 +136,46 @@ export interface QuickTradeChartPayload {
   signal_preview: SignalPreview;
 }
 
+export interface ForecastPayload {
+  available: boolean;
+  horizon_seconds?: number;
+  horizon_candles?: number;
+  bias?: "BUY" | "SELL" | "NEUTRAL";
+  confidence?: number;
+  current_price?: number;
+  expected_mid_price?: number;
+  expected_low?: number;
+  expected_high?: number;
+  atr_pct?: number;
+  recent_bull_candles?: number;
+  recent_bear_candles?: number;
+  drift_pct?: number;
+  summary?: string;
+}
+
+export interface NetEdgePayload {
+  tradeable: boolean;
+  stake: number;
+  atr_pct: number;
+  expected_move_pct: number;
+  fee_rate: number;
+  round_trip_fee_pct: number;
+  slippage_buffer_pct: number;
+  required_move_pct: number;
+  expected_gross_usdt: number;
+  required_cost_usdt: number;
+  expected_net_usdt: number;
+  min_expected_net_usdt: number;
+  actual_cost_usdt: number;
+  expected_net_usdt_actual: number;
+  reason?: string;
+}
+
+export interface QuickTradeForecastPayload {
+  forecast: ForecastPayload;
+  net_edge: NetEdgePayload;
+}
+
 export interface QuickTradeRecord {
   id: string;
   workspace_id: string;
@@ -246,6 +286,49 @@ export function useQuickTradeChart(params: {
     ],
     queryFn: async () => authorizedFetch(`/quick-trade/chart?${search.toString()}`) as Promise<QuickTradeChartPayload>,
     enabled: !!params.symbol,
+    refetchInterval: 5000,
+  });
+}
+
+export interface ForecastCandle {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+export function useQuickTradeForecast(params: {
+  candles: ForecastCandle[];
+  signal?: SignalPreview;
+  timeframe: string;
+  expirySeconds: number;
+  stakeAmount: number;
+}) {
+  const candleCount = params.candles?.length ?? 0;
+  const lastClose = candleCount > 0 ? params.candles[candleCount - 1]?.close : null;
+
+  return useQuery({
+    queryKey: [
+      "quick-trade-forecast",
+      lastClose,
+      candleCount,
+      params.timeframe,
+      params.expirySeconds,
+      params.stakeAmount,
+      params.signal?.direction,
+      params.signal?.confidence,
+    ],
+    queryFn: async () =>
+      authorizedFetch("/quick-trade/forecast", "POST", {
+        candles: params.candles,
+        signal: params.signal
+          ? { direction: params.signal.direction, confidence: params.signal.confidence }
+          : undefined,
+        timeframe: params.timeframe,
+        expiry_seconds: params.expirySeconds,
+        stake_amount: params.stakeAmount,
+      }) as Promise<QuickTradeForecastPayload>,
+    enabled: candleCount >= 10 && params.stakeAmount > 0,
     refetchInterval: 5000,
   });
 }
