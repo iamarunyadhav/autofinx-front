@@ -12,19 +12,20 @@ interface TimelineItem {
 }
 
 interface PayoutTimelineProps {
+  title?: string;
   reference?: string;
   status?: string;
   events?: TimelineItem[];
 }
 
-export function PayoutTimeline({ reference, status, events = [] }: PayoutTimelineProps) {
+export function PayoutTimeline({ title = 'Payout Status', reference, status, events = [] }: PayoutTimelineProps) {
   const badgeVariant = status === 'succeeded' ? 'running' : status === 'failed' ? 'destructive' : 'outline';
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <div>
-          <CardTitle className="text-base">Payout Status</CardTitle>
+          <CardTitle className="text-base">{title}</CardTitle>
           {reference && <p className="text-xs text-muted-foreground">Ref: {reference}</p>}
         </div>
         {status && <Badge variant={badgeVariant}>{status}</Badge>}

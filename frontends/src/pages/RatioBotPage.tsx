@@ -17,8 +17,18 @@ import {
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/layout";
-import { RobotLiveChart } from "@/components/trading/RobotLiveChart";
+import { RobotLiveChart, type ChartMarker } from "@/components/trading/RobotLiveChart";
+import { SignalSummaryCard } from "@/components/trading/SignalSummaryCard";
+import { NearTermForecastCard } from "@/components/trading/NearTermForecastCard";
+import { PayoutTimeline } from "@/components/wallet/PayoutTimeline";
+import { RatioBotCapitalCard } from "@/components/trading/RatioBotCapitalCard";
+import { RatioBotStageTracker } from "@/components/trading/RatioBotStageTracker";
+import { RatioBotEconomicsCard } from "@/components/trading/RatioBotEconomicsCard";
+import { RatioBotStrategyManagerCard, type StrategyManagerSnapshot } from "@/components/trading/RatioBotStrategyManagerCard";
+import { RatioBotRecoveryCard } from "@/components/trading/RatioBotRecoveryCard";
+import { RatioBotTradeLedger } from "@/components/trading/RatioBotTradeLedger";
 import { useRatioBotCandleFeed } from "@/hooks/useRatioBotCandleFeed";
+import type { SignalPreview, ForecastPayload } from "@/hooks/useQuickTrade";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -86,6 +96,14 @@ interface RatioBotState {
   entry_price?: string | null;
   unrealized_pnl?: string | null;
   last_runtime_error?: string | null;
+  reserve_tranches_remaining?: number | null;
+  reserve_quote_remaining?: string | number | null;
+  // V2
+  sell_tranches_remaining?: number | null;
+  realized_pnl?: string | number | null;
+  recovery_mode?: string | null;
+  recovery_started_at?: string | null;
+  recovery_review_at?: string | null;
 }
 
 interface RatioBotConfig {
@@ -97,6 +115,8 @@ interface RatioBotConfig {
   enabled?: boolean;
   market_type?: "spot" | "futures" | string | null;
   algorithm?: string | null;
+  brain_enabled?: boolean | null;
+  brain_min_confidence?: number | null;
   timeframe?: string | null;
   side_mode?: string | null;
   mode?: string | null;
@@ -105,6 +125,8 @@ interface RatioBotConfig {
   connection_id?: string | null;
   integration_id?: string | null;
   base_quote_amount?: string | number | null;
+  initial_entry_pct?: string | number | null;
+  reserve_tranche_count?: number | null;
   base_asset_budget?: string | number | null;
   quote_asset_budget?: string | number | null;
   order_size_mode?: string | null;
@@ -163,6 +185,16 @@ interface RatioBotConfig {
   strategy_params?: JsonRecord | null;
   state?: RatioBotState | null;
   snapshot?: RuntimeSnapshot | null;
+  // V2 (gated behind v2_enabled — default false, never auto-enabled)
+  v2_enabled?: boolean | null;
+  sell_tranche_count?: number | null;
+  initial_exit_pct?: string | number | null;
+  reserve_mode?: "manual" | "dynamic" | string | null;
+  reserve_min_pct?: string | number | null;
+  reserve_max_pct?: string | number | null;
+  recovery_enabled?: boolean | null;
+  recovery_timeout_minutes?: number | null;
+  max_entry_price_drift_bps?: string | number | null;
 }
 
 interface RatioDisplay {
@@ -187,6 +219,8 @@ interface RatioDisplay {
   pending_trigger_side?: string | null;
   pending_trigger_updates?: number | null;
   pending_trigger_ratio?: string | null;
+  reserve_tranches_remaining?: number | null;
+  reserve_quote_remaining?: number | null;
 }
 
 interface RatioDecision {
@@ -194,10 +228,26 @@ interface RatioDecision {
   decision?: string | null;
   execution_status?: string | null;
   evaluated_price?: string | null;
+  executed_price?: string | number | null;
+  executed_qty?: string | number | null;
   computed_ratio?: string | null;
   reason?: string | null;
   price_source?: string | null;
   decided_at?: string | null;
+  executed_at?: string | null;
+  metadata?: {
+    trigger?: string | null;
+    guard?: string | null;
+    risk_block?: { code?: string | null; detail?: string | null } | null;
+    audit?: { strategy_manager?: StrategyManagerSnapshot | null } | null;
+    staged_sell?: {
+      stage_realized_pnl?: number | null;
+      remaining_qty?: number | null;
+      sell_tranches_remaining?: number | null;
+    } | null;
+    recovery_mode?: string | null;
+    recovery_review?: { outcome?: string | null; reason?: string | null } | null;
+  } | null;
 }
 
 interface RatioEvent {
@@ -282,6 +332,13 @@ interface RuntimeSnapshot {
   pnl?: PnlSummary | null;
 }
 
+interface BrainSnapshotPayload {
+  enabled: boolean;
+  evaluated_at?: string | null;
+  signal: SignalPreview | null;
+  forecast: ForecastPayload | null;
+}
+
 interface IntegrationRecord {
   id: string;
   display_name?: string | null;
@@ -302,7 +359,9 @@ type BotForm = {
   symbol: string;
   market_type: "spot" | "futures";
   algorithm: "ratio_threshold" | "trailing_ratio" | "ma_crossover" | "rsi" | "breakout";
-  timeframe: "1m" | "3m" | "5m" | "15m";
+  timeframe: "1m" | "3m" | "5m" | "15m" | "1h" | "4h";
+  brain_enabled: boolean;
+  brain_min_confidence: string;
   side_mode: "buy_sell" | "long_only" | "short_only" | "both";
   mode: "advisor" | "manual_approval" | "restricted_auto";
   execution_mode: "sandbox" | "live";
@@ -310,6 +369,8 @@ type BotForm = {
   connection_id: string;
   integration_id: string;
   base_quote_amount: string;
+  initial_entry_pct: string;
+  reserve_tranche_count: string;
   base_asset_budget: string;
   quote_asset_budget: string;
   order_size_mode: "fixed_quote" | "fixed_base" | "percent_of_balance";
@@ -366,6 +427,16 @@ type BotForm = {
   max_daily_loss: string;
   max_consecutive_losses: string;
   strategy_params_json: string;
+  // V2
+  v2_enabled: boolean;
+  sell_tranche_count: string;
+  initial_exit_pct: string;
+  reserve_mode: "manual" | "dynamic";
+  reserve_min_pct: string;
+  reserve_max_pct: string;
+  recovery_enabled: boolean;
+  recovery_timeout_minutes: string;
+  max_entry_price_drift_bps: string;
 };
 
 const STRATEGY_DEFAULTS: Record<BotForm["algorithm"], JsonRecord> = {
@@ -403,6 +474,8 @@ const INITIAL_FORM: BotForm = {
   market_type: "spot",
   algorithm: "ratio_threshold",
   timeframe: "1m",
+  brain_enabled: false,
+  brain_min_confidence: "65",
   side_mode: "buy_sell",
   mode: "manual_approval",
   execution_mode: "sandbox",
@@ -410,6 +483,8 @@ const INITIAL_FORM: BotForm = {
   connection_id: "none",
   integration_id: "none",
   base_quote_amount: "25",
+  initial_entry_pct: "1",
+  reserve_tranche_count: "0",
   base_asset_budget: "",
   quote_asset_budget: "250",
   order_size_mode: "fixed_quote",
@@ -466,6 +541,15 @@ const INITIAL_FORM: BotForm = {
   max_daily_loss: "50",
   max_consecutive_losses: "3",
   strategy_params_json: JSON.stringify(STRATEGY_DEFAULTS.ratio_threshold, null, 2),
+  v2_enabled: false,
+  sell_tranche_count: "0",
+  initial_exit_pct: "1",
+  reserve_mode: "manual",
+  reserve_min_pct: "",
+  reserve_max_pct: "",
+  recovery_enabled: false,
+  recovery_timeout_minutes: "",
+  max_entry_price_drift_bps: "50",
 };
 
 function formatDateTime(value?: string | number | null) {
@@ -567,6 +651,8 @@ function buildFormFromConfig(config: RatioBotConfig): BotForm {
     market_type: normalizeMarketType(config.market_type),
     algorithm,
     timeframe: normalizeTimeframe(config.timeframe),
+    brain_enabled: !!config.brain_enabled,
+    brain_min_confidence: stringifyValue(config.brain_min_confidence) || INITIAL_FORM.brain_min_confidence,
     side_mode: normalizeSideMode(config.side_mode, config.market_type),
     mode: normalizeMode(config.mode),
     execution_mode: normalizeExecutionMode(config.execution_mode, config.market_type),
@@ -574,6 +660,8 @@ function buildFormFromConfig(config: RatioBotConfig): BotForm {
     connection_id: config.connection_id || "none",
     integration_id: config.integration_id || "none",
     base_quote_amount: stringifyValue(config.base_quote_amount),
+    initial_entry_pct: stringifyValue(config.initial_entry_pct) || INITIAL_FORM.initial_entry_pct,
+    reserve_tranche_count: stringifyValue(config.reserve_tranche_count) || INITIAL_FORM.reserve_tranche_count,
     base_asset_budget: stringifyValue(config.base_asset_budget),
     quote_asset_budget: stringifyValue(config.quote_asset_budget),
     order_size_mode: normalizeOrderSizeMode(config.order_size_mode),
@@ -630,6 +718,15 @@ function buildFormFromConfig(config: RatioBotConfig): BotForm {
     max_daily_loss: stringifyValue(config.max_daily_loss),
     max_consecutive_losses: stringifyValue(config.max_consecutive_losses),
     strategy_params_json: formatJson(config.strategy_params ?? STRATEGY_DEFAULTS[algorithm]),
+    v2_enabled: !!config.v2_enabled,
+    sell_tranche_count: stringifyValue(config.sell_tranche_count) || INITIAL_FORM.sell_tranche_count,
+    initial_exit_pct: stringifyValue(config.initial_exit_pct) || INITIAL_FORM.initial_exit_pct,
+    reserve_mode: config.reserve_mode === "dynamic" ? "dynamic" : "manual",
+    reserve_min_pct: stringifyValue(config.reserve_min_pct),
+    reserve_max_pct: stringifyValue(config.reserve_max_pct),
+    recovery_enabled: !!config.recovery_enabled,
+    recovery_timeout_minutes: stringifyValue(config.recovery_timeout_minutes),
+    max_entry_price_drift_bps: stringifyValue(config.max_entry_price_drift_bps) || INITIAL_FORM.max_entry_price_drift_bps,
   };
 }
 
@@ -649,7 +746,7 @@ function normalizeAlgorithm(value?: string | null): BotForm["algorithm"] {
 }
 
 function normalizeTimeframe(value?: string | null): BotForm["timeframe"] {
-  if (value === "3m" || value === "5m" || value === "15m") return value;
+  if (value === "3m" || value === "5m" || value === "15m" || value === "1h" || value === "4h") return value;
   return "1m";
 }
 
@@ -706,6 +803,8 @@ function buildPayload(form: BotForm) {
     market_type: form.market_type,
     algorithm: form.algorithm,
     timeframe: form.timeframe,
+    brain_enabled: form.brain_enabled,
+    brain_min_confidence: parseNullableInteger(form.brain_min_confidence),
     side_mode: isFutures ? form.side_mode : "buy_sell",
     mode: form.mode,
     execution_mode: isFutures ? "sandbox" : form.execution_mode,
@@ -713,6 +812,8 @@ function buildPayload(form: BotForm) {
     connection_id: isFutures ? null : parseNullableUuid(form.connection_id),
     integration_id: isFutures ? parseNullableUuid(form.integration_id) : null,
     base_quote_amount: parseNullableNumber(form.base_quote_amount),
+    initial_entry_pct: parseNullableNumber(form.initial_entry_pct),
+    reserve_tranche_count: parseNullableInteger(form.reserve_tranche_count),
     base_asset_budget: parseNullableNumber(form.base_asset_budget),
     quote_asset_budget: parseNullableNumber(form.quote_asset_budget),
     order_size_mode: form.order_size_mode,
@@ -769,6 +870,15 @@ function buildPayload(form: BotForm) {
     max_daily_loss: isFutures ? parseNullableNumber(form.max_daily_loss) : null,
     max_consecutive_losses: isFutures ? parseNullableInteger(form.max_consecutive_losses) : null,
     strategy_params: strategy.data,
+    v2_enabled: form.v2_enabled,
+    sell_tranche_count: parseNullableInteger(form.sell_tranche_count),
+    initial_exit_pct: parseNullableNumber(form.initial_exit_pct),
+    reserve_mode: form.reserve_mode,
+    reserve_min_pct: parseNullableNumber(form.reserve_min_pct),
+    reserve_max_pct: parseNullableNumber(form.reserve_max_pct),
+    recovery_enabled: form.recovery_enabled,
+    recovery_timeout_minutes: parseNullableInteger(form.recovery_timeout_minutes),
+    max_entry_price_drift_bps: parseNullableNumber(form.max_entry_price_drift_bps),
   };
 }
 
@@ -788,6 +898,7 @@ async function invalidateBotQueries(queryClient: ReturnType<typeof useQueryClien
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-position", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-pnl", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-snapshot", botId] }),
+    queryClient.invalidateQueries({ queryKey: ["ratio-bot-brain-snapshot", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-ratio", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-decisions", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-events", botId] }),
@@ -1067,6 +1178,18 @@ export default function RatioBotPage() {
     refetchInterval: runtimePollingMs,
   });
 
+  const brainSnapshotQuery = useQuery({
+    queryKey: ["ratio-bot-brain-snapshot", selectedBotId],
+    queryFn: async () => {
+      if (!selectedBotId) return null as BrainSnapshotPayload | null;
+      return fetchBotResource<BrainSnapshotPayload>(selectedBotId, "brain-snapshot");
+    },
+    enabled: !!selectedBotId && !isCreating && !!(selectedBotQuery.data?.brain_enabled ?? selectedFromList?.brain_enabled),
+    // Brain only refreshes once per bot timeframe (1h/4h/etc.) server-side —
+    // no need to poll as fast as the tick-driven runtime queries above.
+    refetchInterval: 30000,
+  });
+
   const decisionsQuery = useQuery({
     queryKey: ["ratio-bot-decisions", selectedBotId],
     queryFn: async () => {
@@ -1291,6 +1414,7 @@ export default function RatioBotPage() {
   const currentPosition = (positionQuery.data && Object.keys(positionQuery.data).length > 0 ? positionQuery.data : snapshotQuery.data?.position) || null;
   const currentPnl = pnlQuery.data || snapshotQuery.data?.pnl || null;
   const currentRatio = ratioQuery.data || null;
+  const currentBrainSnapshot = brainSnapshotQuery.data || null;
   const liveFeed = useRatioBotCandleFeed(
     selectedBot?.symbol || form.symbol,
     selectedBot?.timeframe || form.timeframe,
@@ -1299,6 +1423,96 @@ export default function RatioBotPage() {
     selectedMarketType === "futures" ? "futures" : "spot",
   );
   const liveCandles = liveFeed.candles;
+
+  // ---------------------------------------------------------------------
+  // V2 derived view state (staged sell / strategy manager / recovery) —
+  // all sourced from fields the existing config/state/decision endpoints
+  // already return; no new backend calls needed.
+  // ---------------------------------------------------------------------
+  const positionState = selectedBot?.state?.position_state || "idle";
+  const hasOpenPosition = ["holding", "partial_holding", "partial_sold"].includes(positionState);
+  const isPartiallySold = positionState === "partial_sold";
+  const isRecovering = positionState === "recovery_monitoring" || positionState === "cash_recovery_monitoring";
+  const buyStaged = selectedMarketType === "spot"
+    && (selectedBot?.algorithm || "ratio_threshold") === "ratio_threshold"
+    && (toNumber(selectedBot?.initial_entry_pct) ?? 1) < 1
+    && (selectedBot?.reserve_tranche_count ?? 0) > 0;
+  const sellStaged = !!selectedBot?.v2_enabled
+    && selectedMarketType === "spot"
+    && (selectedBot?.algorithm || "ratio_threshold") === "ratio_threshold"
+    && (toNumber(selectedBot?.initial_exit_pct) ?? 1) < 1
+    && (selectedBot?.sell_tranche_count ?? 0) > 0;
+  const costBasis = toNumber(selectedBot?.state?.last_buy_price);
+  const realizedPnl = toNumber(selectedBot?.state?.realized_pnl);
+  const strategyManagerSnapshot: StrategyManagerSnapshot | null = currentSignal?.metadata?.audit?.strategy_manager ?? null;
+  const positionQty = toNumber(currentStatus?.current_position_qty ?? currentPosition?.qty ?? currentPosition?.quantity ?? selectedBot?.state?.last_position_qty) ?? 0;
+  const latestPrice = liveCandles[liveCandles.length - 1]?.close ?? toNumber(currentRatio?.current_price) ?? null;
+
+  const lastRecoveryReview = (() => {
+    const fromDecision = (decisionsQuery.data ?? EMPTY_DECISIONS).find((d) => d.metadata?.recovery_review)?.metadata?.recovery_review;
+    if (fromDecision) return fromDecision;
+    const fromEvent = (eventsQuery.data ?? EMPTY_EVENTS).find((e) => e.event_type === "recovery_review_completed");
+    if (fromEvent?.context) {
+      return { outcome: (fromEvent.context as JsonRecord).outcome as string, reason: (fromEvent.context as JsonRecord).reason as string };
+    }
+    return null;
+  })();
+
+  const stopLossPct = toNumber(selectedBot?.stop_loss_pct);
+  const takeProfitPct = toNumber(selectedBot?.take_profit_pct);
+  const chartSide: "BUY" | "SELL" | null = hasOpenPosition ? "BUY" : null;
+  const chartEntryPrice = hasOpenPosition ? costBasis : null;
+  const chartStopPrice = hasOpenPosition && costBasis && stopLossPct ? costBasis * (1 - stopLossPct) : null;
+  const chartTakeProfitPrice = hasOpenPosition && costBasis && takeProfitPct ? costBasis * (1 + takeProfitPct) : null;
+  const chartPnl = hasOpenPosition && costBasis && latestPrice
+    ? { side: "BUY" as const, pct: ((latestPrice / costBasis) - 1) * 100, value: (latestPrice - costBasis) * positionQty }
+    : null;
+  const chartMarkers: ChartMarker[] = (decisionsQuery.data ?? EMPTY_DECISIONS)
+    .filter((d) => (d.decision === "BUY" || d.decision === "SELL") && ["filled", "partially_filled"].includes((d.execution_status || "").toLowerCase()))
+    .map((d) => {
+      const at = d.executed_at || d.decided_at;
+      const time = at ? Math.floor(new Date(at).getTime() / 1000) : 0;
+      return { time, side: d.decision as "BUY" | "SELL", text: d.decision === "BUY" ? "BUY" : "SELL" };
+    })
+    .filter((m) => m.time > 0);
+
+  const timelineItems = (() => {
+    type Item = { title: string; body?: string; status: "pending" | "success" | "error"; at?: string; ts: number };
+    const items: Item[] = [];
+
+    (decisionsQuery.data ?? EMPTY_DECISIONS).forEach((d) => {
+      const side = (d.decision || "").toUpperCase();
+      const status = (d.execution_status || "").toLowerCase();
+      const at = d.executed_at || d.decided_at || undefined;
+      const isTrade = side === "BUY" || side === "SELL";
+      const isFilled = status === "filled" || status === "partially_filled";
+      const isBlocked = side === "BLOCK" || status === "skipped" || status === "duplicate_blocked" || status === "failed";
+      items.push({
+        title: isTrade && isFilled ? `${side} filled` : isBlocked ? `${side || "Blocked"}` : `${side || "Hold"}`,
+        body: d.reason || undefined,
+        status: isFilled ? "success" : isBlocked ? "error" : "pending",
+        at,
+        ts: at ? new Date(at).getTime() : 0,
+      });
+    });
+
+    (eventsQuery.data ?? EMPTY_EVENTS).forEach((e) => {
+      const type = e.event_type || "event";
+      const isError = ["blocked", "order_failure", "error_review_required", "feed_stale"].includes(type);
+      items.push({
+        title: prettyLabel(type),
+        body: e.context ? JSON.stringify(e.context) : undefined,
+        status: isError ? "error" : type === "unblocked" || type === "order_filled" || type === "resumed" ? "success" : "pending",
+        at: e.occurred_at || undefined,
+        ts: e.occurred_at ? new Date(e.occurred_at).getTime() : 0,
+      });
+    });
+
+    return items
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, 40)
+      .map(({ title, body, status, at }) => ({ title, body, status, at }));
+  })();
 
   const connectionOptions = connections as Array<{ id: string; name?: string; provider?: string; is_enabled?: boolean }>;
   const integrationOptions = integrationsQuery.data ?? EMPTY_INTEGRATIONS;
@@ -1540,16 +1754,37 @@ export default function RatioBotPage() {
                         <div>
                           <CardTitle>Live Candle Snapshot</CardTitle>
                           <p className="text-sm text-muted-foreground">
-                            {selectedBot?.symbol || form.symbol} · {selectedBot?.timeframe || form.timeframe} ·{" "}
-                            {liveFeed.source === "ws" ? "live Binance WS" : liveFeed.source === "sse" ? "backend feed" : "connecting…"}
+                            {selectedBot?.symbol || form.symbol} · {selectedBot?.timeframe || form.timeframe}
                           </p>
                         </div>
-                        <Badge variant="outline">{liveCandles.length} candles</Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            className={
+                              liveFeed.connected
+                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
+                                : "bg-muted text-muted-foreground"
+                            }
+                          >
+                            {liveFeed.connected
+                              ? `${liveFeed.source === "ws" ? "LIVE WS" : "SSE"} · ${Math.round(liveFeed.latencyMs)}ms`
+                              : "connecting…"}
+                          </Badge>
+                          <Badge variant="outline">{liveCandles.length} candles</Badge>
+                        </div>
                       </CardHeader>
                       <CardContent className="space-y-4">
                         <div className="h-[340px]">
                           {liveCandles.length > 0 ? (
-                            <RobotLiveChart candles={liveCandles} height={340} />
+                            <RobotLiveChart
+                              candles={liveCandles}
+                              height={340}
+                              entryPrice={chartEntryPrice}
+                              stopPrice={chartStopPrice}
+                              takeProfitPrice={chartTakeProfitPrice}
+                              side={chartSide}
+                              markers={chartMarkers}
+                              pnl={chartPnl}
+                            />
                           ) : (
                             <div className="flex h-full items-center justify-center rounded-2xl border border-dashed text-sm text-muted-foreground">
                               {liveFeed.connected ? "Waiting for the first candle…" : "Connecting to live feed…"}
@@ -1591,8 +1826,25 @@ export default function RatioBotPage() {
                           <DetailRow label="Buy ratio" value={formatRatioPercent(currentRatio?.buy_ratio)} />
                           <DetailRow label="Pending trigger" value={prettyLabel(currentRatio?.pending_trigger_side)} />
                           <DetailRow label="Signal distance" value={currentRatio?.sell_distance_pct !== null && currentRatio?.sell_distance_pct !== undefined ? `${formatNumber(currentRatio.sell_distance_pct, 2)}% / ${formatNumber(currentRatio.buy_distance_pct, 2)}%` : "None"} />
+                          {(selectedBot?.reserve_tranche_count ?? 0) > 0 ? (
+                            <>
+                              <DetailRow label="Reserve tranches remaining" value={currentRatio?.reserve_tranches_remaining ?? 0} />
+                              <DetailRow label="Reserve USDT remaining" value={formatNumber(currentRatio?.reserve_quote_remaining, 4)} />
+                            </>
+                          ) : null}
                         </CardContent>
                       </Card>
+
+                      {selectedBot?.brain_enabled ? (
+                        <>
+                          <SignalSummaryCard signal={currentBrainSnapshot?.signal ?? undefined} />
+                          <Card>
+                            <CardContent className="pt-6">
+                              <NearTermForecastCard forecast={currentBrainSnapshot?.forecast ?? undefined} />
+                            </CardContent>
+                          </Card>
+                        </>
+                      ) : null}
 
                       {selectedMarketType === "futures" ? (
                         <Card>
@@ -1609,6 +1861,62 @@ export default function RatioBotPage() {
                       ) : null}
                     </div>
                   </div>
+
+                  {isRecovering ? (
+                    <RatioBotRecoveryCard
+                      recoveryMode={selectedBot?.state?.recovery_mode}
+                      recoveryStartedAt={selectedBot?.state?.recovery_started_at}
+                      recoveryReviewAt={selectedBot?.state?.recovery_review_at}
+                      costBasis={costBasis}
+                      strategyAnchor={selectedBot?.state?.active_anchor_price}
+                      lastReview={lastRecoveryReview}
+                    />
+                  ) : null}
+
+                  {selectedMarketType === "spot" && (selectedBot?.algorithm || "ratio_threshold") === "ratio_threshold" ? (
+                    <div className="grid gap-6 xl:grid-cols-2">
+                      <RatioBotCapitalCard
+                        baseQuoteAmount={toNumber(selectedBot?.base_quote_amount) ?? 0}
+                        initialEntryPct={toNumber(selectedBot?.initial_entry_pct) ?? 1}
+                        reserveTrancheCount={selectedBot?.reserve_tranche_count ?? 0}
+                        reserveTranchesRemaining={selectedBot?.state?.reserve_tranches_remaining ?? 0}
+                        reserveQuoteRemaining={toNumber(selectedBot?.state?.reserve_quote_remaining) ?? 0}
+                        hasOpenPosition={hasOpenPosition}
+                        positionQty={positionQty}
+                        currentPrice={latestPrice}
+                      />
+                      <RatioBotEconomicsCard
+                        sellThresholdRatio={toNumber(selectedBot?.sell_threshold_ratio) ?? 0}
+                        feeBps={toNumber(selectedBot?.fee_bps) ?? 0}
+                        maxSlippageBps={toNumber(selectedBot?.max_slippage_bps) ?? 0}
+                        minNetProfitBps={toNumber(selectedBot?.min_net_profit_bps) ?? 0}
+                        costBasis={hasOpenPosition ? costBasis : null}
+                        currentPrice={latestPrice}
+                        positionQty={positionQty}
+                        realizedPnl={selectedBot?.v2_enabled ? realizedPnl : null}
+                      />
+                    </div>
+                  ) : null}
+
+                  {selectedMarketType === "spot" && (selectedBot?.algorithm || "ratio_threshold") === "ratio_threshold" ? (
+                    <RatioBotStageTracker
+                      buyTrancheCount={selectedBot?.reserve_tranche_count ?? 0}
+                      buyTranchesRemaining={selectedBot?.state?.reserve_tranches_remaining ?? 0}
+                      buyStaged={buyStaged}
+                      hasOpenPosition={hasOpenPosition}
+                      sellTrancheCount={selectedBot?.sell_tranche_count ?? 0}
+                      sellTranchesRemaining={selectedBot?.state?.sell_tranches_remaining ?? 0}
+                      sellStaged={sellStaged}
+                      isPartiallySold={isPartiallySold}
+                    />
+                  ) : null}
+
+                  {selectedBot?.v2_enabled ? (
+                    <div className="grid gap-6 xl:grid-cols-2">
+                      <RatioBotStrategyManagerCard snapshot={strategyManagerSnapshot} />
+                      <RatioBotTradeLedger decisions={decisionsQuery.data ?? EMPTY_DECISIONS} />
+                    </div>
+                  ) : null}
                 </TabsContent>
 
                 <TabsContent value="runtime" className="space-y-6">
@@ -1730,9 +2038,34 @@ export default function RatioBotPage() {
                               <SelectItem value="3m">3m</SelectItem>
                               <SelectItem value="5m">5m</SelectItem>
                               <SelectItem value="15m">15m</SelectItem>
+                              <SelectItem value="1h">1h</SelectItem>
+                              <SelectItem value="4h">4h</SelectItem>
                             </SelectContent>
                           </Select>
                         </Field>
+                        <Field
+                          label="Master Brain confirmation"
+                          hint="Uses the same Robot Signal + Near-term Forecast engine as Quick Trade, horizon-matched to the timeframe above. Confirmation-only — it never blocks a trade, it can only ask for one extra confirmation tick when it strongly disagrees."
+                        >
+                          <div className="flex items-center gap-3">
+                            <Switch
+                              checked={form.brain_enabled}
+                              onCheckedChange={(checked) => setForm((current) => ({ ...current, brain_enabled: checked }))}
+                            />
+                            <span className="text-sm text-muted-foreground">{form.brain_enabled ? "Enabled" : "Disabled"}</span>
+                          </div>
+                        </Field>
+                        {form.brain_enabled ? (
+                          <Field label="Brain min confidence to delay a trade" hint="0-100. Brain must disagree at or above this confidence to add one extra confirmation tick.">
+                            <Input
+                              type="number"
+                              min={0}
+                              max={100}
+                              value={form.brain_min_confidence}
+                              onChange={(event) => setForm((current) => ({ ...current, brain_min_confidence: event.target.value }))}
+                            />
+                          </Field>
+                        ) : null}
                         <Field label="Side mode">
                           <Select value={form.side_mode} onValueChange={(value: BotForm["side_mode"]) => setForm((current) => ({ ...current, side_mode: value }))}>
                             <SelectTrigger>
@@ -1827,6 +2160,30 @@ export default function RatioBotPage() {
                         <Field label="Base quote amount">
                           <Input type="number" step="0.0001" value={form.base_quote_amount} onChange={(event) => setForm((current) => ({ ...current, base_quote_amount: event.target.value }))} />
                         </Field>
+                        {form.market_type === "spot" && form.algorithm === "ratio_threshold" ? (
+                          <>
+                            <Field label="Initial entry %" hint="Fraction of the base quote amount spent on the first buy. 1 = today's single-shot behavior. e.g. 0.6 = 60% now, 40% held back as reserve tranches.">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min={0.01}
+                                max={1}
+                                value={form.initial_entry_pct}
+                                onChange={(event) => setForm((current) => ({ ...current, initial_entry_pct: event.target.value }))}
+                              />
+                            </Field>
+                            <Field label="Reserve tranches" hint="How many additional buys the leftover reserve splits into. 0 = disabled (all capital deploys on the first buy, exactly like today).">
+                              <Input
+                                type="number"
+                                step="1"
+                                min={0}
+                                max={10}
+                                value={form.reserve_tranche_count}
+                                onChange={(event) => setForm((current) => ({ ...current, reserve_tranche_count: event.target.value }))}
+                              />
+                            </Field>
+                          </>
+                        ) : null}
                         <Field label="Order size mode">
                           <Select value={form.order_size_mode} onValueChange={(value: BotForm["order_size_mode"]) => setForm((current) => ({ ...current, order_size_mode: value }))}>
                             <SelectTrigger>
@@ -1853,6 +2210,74 @@ export default function RatioBotPage() {
                         </Field>
                       </CardContent>
                     </Card>
+
+                    {form.market_type === "spot" && form.algorithm === "ratio_threshold" ? (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Adaptive V2 Engine</CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            Staged sell, regime-aware thresholds, dynamic reserve, and stuck-position recovery. Off by default —
+                            nothing here changes behavior until you turn it on.
+                          </p>
+                        </CardHeader>
+                        <CardContent className="grid gap-4 md:grid-cols-2">
+                          <Field label="Enable V2 engine" hint="Master switch for everything below. Existing bots keep today's behavior until this is turned on.">
+                            <div className="flex h-10 items-center justify-between rounded-md border px-3">
+                              <span className="text-sm">{form.v2_enabled ? "Enabled" : "Disabled"}</span>
+                              <Switch checked={form.v2_enabled} onCheckedChange={(checked) => setForm((current) => ({ ...current, v2_enabled: checked }))} />
+                            </div>
+                          </Field>
+                          <Field label="Pre-submit price-drift guard (bps)" hint="Blocks a live order if the price moved more than this since the decision. 0 disables.">
+                            <Input type="number" step="1" min={0} value={form.max_entry_price_drift_bps} onChange={(event) => setForm((current) => ({ ...current, max_entry_price_drift_bps: event.target.value }))} />
+                          </Field>
+
+                          {form.v2_enabled ? (
+                            <>
+                              <Field label="Sell stages" hint="How many additional sell fills a full exit splits into. 0 = single-shot sell (today's behavior).">
+                                <Input type="number" step="1" min={0} max={10} value={form.sell_tranche_count} onChange={(event) => setForm((current) => ({ ...current, sell_tranche_count: event.target.value }))} />
+                              </Field>
+                              <Field label="Initial exit %" hint="Fraction of the position sold on the first sell stage. 1 = sells everything at once.">
+                                <Input type="number" step="0.01" min={0.01} max={1} value={form.initial_exit_pct} onChange={(event) => setForm((current) => ({ ...current, initial_exit_pct: event.target.value }))} />
+                              </Field>
+
+                              <Field label="Reserve mode" hint="Dynamic lets the Strategy Manager's regime read adjust reserve % within your min/max bounds.">
+                                <Select value={form.reserve_mode} onValueChange={(value: BotForm["reserve_mode"]) => setForm((current) => ({ ...current, reserve_mode: value }))}>
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="manual">manual</SelectItem>
+                                    <SelectItem value="dynamic">dynamic</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </Field>
+                              {form.reserve_mode === "dynamic" ? (
+                                <div className="grid grid-cols-2 gap-4">
+                                  <Field label="Reserve min %">
+                                    <Input type="number" step="0.01" min={0} max={1} value={form.reserve_min_pct} onChange={(event) => setForm((current) => ({ ...current, reserve_min_pct: event.target.value }))} />
+                                  </Field>
+                                  <Field label="Reserve max %">
+                                    <Input type="number" step="0.01" min={0} max={1} value={form.reserve_max_pct} onChange={(event) => setForm((current) => ({ ...current, reserve_max_pct: event.target.value }))} />
+                                  </Field>
+                                </div>
+                              ) : null}
+
+                              <Field label="Recovery monitoring" hint="If the bot gets stuck (no profitable sell / reserve exhausted, or fully sold with price running away), watch and periodically review instead of forcing a loss-sell or chasing price.">
+                                <div className="flex h-10 items-center justify-between rounded-md border px-3">
+                                  <span className="text-sm">{form.recovery_enabled ? "Enabled" : "Disabled"}</span>
+                                  <Switch checked={form.recovery_enabled} onCheckedChange={(checked) => setForm((current) => ({ ...current, recovery_enabled: checked }))} />
+                                </div>
+                              </Field>
+                              {form.recovery_enabled ? (
+                                <Field label="Recovery timeout (minutes)" hint="How long stuck before entering recovery monitoring.">
+                                  <Input type="number" step="1" min={1} value={form.recovery_timeout_minutes} onChange={(event) => setForm((current) => ({ ...current, recovery_timeout_minutes: event.target.value }))} />
+                                </Field>
+                              ) : null}
+                            </>
+                          ) : null}
+                        </CardContent>
+                      </Card>
+                    ) : null}
 
                     <Card>
                       <CardHeader>
@@ -2223,6 +2648,8 @@ export default function RatioBotPage() {
                 </TabsContent>
 
                 <TabsContent value="audit" className="space-y-6">
+                  <PayoutTimeline title="Decision Timeline" reference={selectedBot?.symbol} status={positionState} events={timelineItems} />
+
                   <div className="grid gap-6 xl:grid-cols-2">
                     <Card>
                       <CardHeader>
