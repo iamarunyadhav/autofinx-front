@@ -18,6 +18,11 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/layout";
 import { RobotLiveChart, type ChartMarker } from "@/components/trading/RobotLiveChart";
+import {
+  ExecutionSafetyControls,
+  type ExecutionSafetyValues,
+  type ExecutionSafetyTelemetry,
+} from "@/components/trading/ExecutionSafetyControls";
 import { SignalSummaryCard } from "@/components/trading/SignalSummaryCard";
 import { NearTermForecastCard } from "@/components/trading/NearTermForecastCard";
 import { PayoutTimeline } from "@/components/wallet/PayoutTimeline";
@@ -219,6 +224,7 @@ interface RatioDisplay {
   pending_trigger_side?: string | null;
   pending_trigger_updates?: number | null;
   pending_trigger_ratio?: string | null;
+  pending_trigger_price?: number | null;
   reserve_tranches_remaining?: number | null;
   reserve_quote_remaining?: number | null;
 }
@@ -287,6 +293,19 @@ interface RuntimeStatus {
   cooldown_until?: string | null;
   kill_switch?: boolean | null;
   error_state?: string | null;
+  last_price_timestamp?: string | null;
+  last_evaluated_at?: string | null;
+  daily_loss_total?: string | number | null;
+  consecutive_losses?: number | null;
+  consecutive_order_failures?: number | null;
+  block_reason_code?: string | null;
+  block_reason_detail?: string | null;
+  market_health?: {
+    feed_status?: string | null;
+    latency_ms?: number | null;
+    price_age_seconds?: number | null;
+    price_source?: string | null;
+  } | null;
 }
 
 interface OrderRecord extends JsonRecord {
@@ -474,7 +493,7 @@ const INITIAL_FORM: BotForm = {
   market_type: "spot",
   algorithm: "ratio_threshold",
   timeframe: "1m",
-  brain_enabled: false,
+  brain_enabled: true,
   brain_min_confidence: "65",
   side_mode: "buy_sell",
   mode: "manual_approval",
@@ -1476,6 +1495,108 @@ export default function RatioBotPage() {
     })
     .filter((m) => m.time > 0);
 
+  // ---------------------------------------------------------------------
+  // Execution Safety panel + Decision Trust Chain. Reuses Robot Trade's
+  // ExecutionSafetyControls component, but wired to Ratio Bot's OWN guard
+  // fields (stale_feed_timeout_seconds / strategy_params.max_api_latency_ms)
+  // and per-tick telemetry already computed by RatioBotRealtimeEngine —
+  // NOT the global cross-module `runtime_safety` settings Robot Trade uses,
+  // which Ratio Bot's engine never reads.
+  // ---------------------------------------------------------------------
+  const parsedStrategyParams = safeParseStrategyParams(form.strategy_params_json);
+  const maxApiLatencyMs = toNumber((parsedStrategyParams.data as JsonRecord | null)?.max_api_latency_ms as string | number | null | undefined) ?? 0;
+
+  const setMaxApiLatencyMs = (value: number) => {
+    const base = (parsedStrategyParams.data as JsonRecord | null) ?? {};
+    setForm((current) => ({ ...current, strategy_params_json: formatJson({ ...base, max_api_latency_ms: value }) }));
+  };
+
+  const feedAgeSeconds = toNumber(currentStatus?.market_health?.price_age_seconds)
+    ?? (currentStatus?.last_price_timestamp ? (Date.now() - new Date(currentStatus.last_price_timestamp).getTime()) / 1000 : null);
+  const workerAgeSeconds = currentStatus?.last_evaluated_at
+    ? (Date.now() - new Date(currentStatus.last_evaluated_at).getTime()) / 1000
+    : null;
+
+  const safetyValues: ExecutionSafetyValues = {
+    liveFeedMaxAgeSeconds: toNumber(form.stale_feed_timeout_seconds) || 45,
+    webhookMaxSignalLatencyMs: maxApiLatencyMs,
+  };
+  const safetyTelemetry: ExecutionSafetyTelemetry = {
+    feedAgeSeconds,
+    feedState: currentStatus?.market_health?.feed_status ?? currentFeed?.state_feed_status ?? null,
+    feedReason: currentStatus?.block_reason_detail ?? null,
+    truthSource: "binance_ws_cache",
+    lastTickAt: currentStatus?.last_evaluated_at ?? null,
+    evaluatorAgeSeconds: workerAgeSeconds,
+    evaluatorState: workerAgeSeconds == null ? null : workerAgeSeconds <= 120 ? "green" : "red",
+    webhookSignalLatencyMs: toNumber(currentStatus?.market_health?.latency_ms),
+    chartLatencyMs: liveFeed.connected ? liveFeed.latencyMs : null,
+    serverNow: new Date().toISOString(),
+  };
+
+  const handleSafetyChange = (next: ExecutionSafetyValues) => {
+    setForm((current) => ({ ...current, stale_feed_timeout_seconds: String(next.liveFeedMaxAgeSeconds) }));
+    setMaxApiLatencyMs(next.webhookMaxSignalLatencyMs);
+  };
+
+  const maxDailyLoss = toNumber(selectedBot?.max_daily_loss);
+  const dailyLossTotal = toNumber(currentStatus?.daily_loss_total);
+  const maxConsecutiveLosses = toNumber(selectedBot?.max_consecutive_losses);
+  const pendingTriggerSide = (currentRatio?.pending_trigger_side || "").toLowerCase();
+
+  const trustChecks = [
+    {
+      key: "running",
+      label: "Bot running",
+      ok: !!selectedBot?.enabled,
+      detail: selectedBot?.enabled ? "Config enabled" : "Config idle",
+    },
+    {
+      key: "feed",
+      label: "Feed fresh",
+      ok: feedAgeSeconds == null ? true : feedAgeSeconds <= safetyValues.liveFeedMaxAgeSeconds,
+      detail: feedAgeSeconds == null ? "No price sample yet" : `${Math.round(feedAgeSeconds)}s old`,
+    },
+    {
+      key: "cooldown",
+      label: "Cooldown clear",
+      ok: !currentStatus?.cooldown_until || new Date(currentStatus.cooldown_until).getTime() <= Date.now(),
+      detail: currentStatus?.cooldown_until ? `Until ${formatDateTime(currentStatus.cooldown_until)}` : "No cooldown",
+    },
+    {
+      key: "daily_loss",
+      label: "Daily loss clear",
+      ok: !(maxDailyLoss && maxDailyLoss > 0 && dailyLossTotal !== null && dailyLossTotal >= maxDailyLoss),
+      detail: `${formatNumber(currentStatus?.daily_loss_total, 4)} / ${maxDailyLoss && maxDailyLoss > 0 ? formatNumber(maxDailyLoss, 4) : "no limit"}`,
+    },
+    {
+      key: "consecutive_losses",
+      label: "Loss streak clear",
+      ok: !(maxConsecutiveLosses && maxConsecutiveLosses > 0 && (currentStatus?.consecutive_losses ?? 0) >= maxConsecutiveLosses),
+      detail: `${currentStatus?.consecutive_losses ?? 0} in a row`,
+    },
+    {
+      key: "decision",
+      label: "Decision available",
+      ok: !!currentStatus?.last_signal,
+      detail: currentStatus?.last_signal ? prettyLabel(currentStatus.last_signal) : "No decision yet",
+    },
+  ];
+  const overallBlocked = !!currentStatus?.block_reason_code || !!currentStatus?.kill_switch;
+  const overallBlockDetail = currentStatus?.kill_switch ? "Kill switch is active." : currentStatus?.block_reason_detail;
+
+  const chartExtraLines = !hasOpenPosition
+    ? [
+        { key: "anchor", price: toNumber(currentRatio?.active_anchor_price), color: "#a855f7", title: "Anchor" },
+        {
+          key: "trigger",
+          price: toNumber(currentRatio?.pending_trigger_price),
+          color: pendingTriggerSide === "sell" ? "#f43f5e" : "#22c55e",
+          title: currentRatio?.pending_trigger_side ? `${prettyLabel(pendingTriggerSide)} trigger` : "Trigger",
+        },
+      ]
+    : [];
+
   const timelineItems = (() => {
     type Item = { title: string; body?: string; status: "pending" | "success" | "error"; at?: string; ts: number };
     const items: Item[] = [];
@@ -1721,6 +1842,33 @@ export default function RatioBotPage() {
                 </TabsList>
 
                 <TabsContent value="overview" className="space-y-6">
+                  <ExecutionSafetyControls
+                    title="Ratio Bot Execution Safety"
+                    moduleLabel="Ratio Bot"
+                    values={safetyValues}
+                    telemetry={safetyTelemetry}
+                    onChange={handleSafetyChange}
+                    onSave={() => saveMutation.mutate()}
+                    busy={isBusy}
+                    primaryGuardLabel="Live feed guard"
+                    primaryGuardOptions={[10, 20, 30, 45, 60, 90].map((value) => ({ value, label: `${value}s` }))}
+                    secondaryGuardLabel="Price latency guard"
+                    secondaryGuardName="Price latency"
+                    secondaryGuardOptions={[
+                      { value: 0, label: "Off" },
+                      { value: 100, label: "100ms" },
+                      { value: 250, label: "250ms" },
+                      { value: 500, label: "500ms" },
+                      { value: 1000, label: "1s" },
+                      { value: 2000, label: "2s" },
+                    ]}
+                  />
+                  {overallBlocked ? (
+                    <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-300">
+                      Blocked: {overallBlockDetail || "See block reason in Audit."}
+                    </div>
+                  ) : null}
+
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <MetricCard
                       title="Bot Status"
@@ -1784,6 +1932,7 @@ export default function RatioBotPage() {
                               side={chartSide}
                               markers={chartMarkers}
                               pnl={chartPnl}
+                              extraLines={chartExtraLines}
                             />
                           ) : (
                             <div className="flex h-full items-center justify-center rounded-2xl border border-dashed text-sm text-muted-foreground">
@@ -1832,6 +1981,31 @@ export default function RatioBotPage() {
                               <DetailRow label="Reserve USDT remaining" value={formatNumber(currentRatio?.reserve_quote_remaining, 4)} />
                             </>
                           ) : null}
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Decision Trust Chain</CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            {overallBlocked ? `Blocked: ${overallBlockDetail || "see Audit"}` : "All checks clear — ready to trade."}
+                          </p>
+                        </CardHeader>
+                        <CardContent className="grid gap-2 sm:grid-cols-2">
+                          {trustChecks.map((check) => (
+                            <div key={check.key} className="flex items-start gap-2 rounded-lg border border-border/60 px-3 py-2">
+                              <span
+                                className={cn(
+                                  "mt-1 h-2 w-2 shrink-0 rounded-full",
+                                  check.ok ? "bg-emerald-500" : "bg-rose-500",
+                                )}
+                              />
+                              <div>
+                                <div className="text-sm font-medium">{check.label}</div>
+                                <div className="text-xs text-muted-foreground">{check.detail}</div>
+                              </div>
+                            </div>
+                          ))}
                         </CardContent>
                       </Card>
 
@@ -2196,9 +2370,6 @@ export default function RatioBotPage() {
                             </SelectContent>
                           </Select>
                         </Field>
-                        <Field label="Base asset budget">
-                          <Input type="number" step="0.0001" value={form.base_asset_budget} onChange={(event) => setForm((current) => ({ ...current, base_asset_budget: event.target.value }))} />
-                        </Field>
                         <Field label="Quote asset budget">
                           <Input type="number" step="0.0001" value={form.quote_asset_budget} onChange={(event) => setForm((current) => ({ ...current, quote_asset_budget: event.target.value }))} />
                         </Field>
@@ -2334,15 +2505,6 @@ export default function RatioBotPage() {
                             <Switch checked={form.use_candle_close_confirmation} onCheckedChange={(value) => setForm((current) => ({ ...current, use_candle_close_confirmation: value }))} />
                           </div>
                         </Field>
-                        <Field label="Advisory filter">
-                          <div className="flex h-10 items-center justify-between rounded-md border px-3">
-                            <span className="text-sm text-muted-foreground">Require advisory gate</span>
-                            <Switch checked={form.use_advisory_filter} onCheckedChange={(value) => setForm((current) => ({ ...current, use_advisory_filter: value }))} />
-                          </div>
-                        </Field>
-                        <Field label="Advisory mode">
-                          <Input value={form.advisory_mode} onChange={(event) => setForm((current) => ({ ...current, advisory_mode: event.target.value }))} />
-                        </Field>
                       </CardContent>
                     </Card>
 
@@ -2363,20 +2525,8 @@ export default function RatioBotPage() {
                         <Field label="Min net profit bps">
                           <Input type="number" step="0.01" value={form.min_net_profit_bps} onChange={(event) => setForm((current) => ({ ...current, min_net_profit_bps: event.target.value }))} />
                         </Field>
-                        <Field label="Stale feed max age seconds">
-                          <Input type="number" step="1" value={form.stale_feed_max_age_seconds} onChange={(event) => setForm((current) => ({ ...current, stale_feed_max_age_seconds: event.target.value }))} />
-                        </Field>
                         <Field label="Stale feed timeout seconds">
                           <Input type="number" step="1" value={form.stale_feed_timeout_seconds} onChange={(event) => setForm((current) => ({ ...current, stale_feed_timeout_seconds: event.target.value }))} />
-                        </Field>
-                        <Field label="Daily loss limit pct">
-                          <Input type="number" step="0.0001" value={form.daily_loss_limit_pct} onChange={(event) => setForm((current) => ({ ...current, daily_loss_limit_pct: event.target.value }))} />
-                        </Field>
-                        <Field label="Max drawdown pct">
-                          <Input type="number" step="0.0001" value={form.max_drawdown_pct} onChange={(event) => setForm((current) => ({ ...current, max_drawdown_pct: event.target.value }))} />
-                        </Field>
-                        <Field label="Max open orders">
-                          <Input type="number" step="1" value={form.max_open_orders} onChange={(event) => setForm((current) => ({ ...current, max_open_orders: event.target.value }))} />
                         </Field>
                         <Field label="Max position pct">
                           <Input type="number" step="0.0001" value={form.max_position_pct} onChange={(event) => setForm((current) => ({ ...current, max_position_pct: event.target.value }))} />
@@ -2394,12 +2544,6 @@ export default function RatioBotPage() {
                           <div className="flex h-10 items-center justify-between rounded-md border px-3">
                             <span className="text-sm text-muted-foreground">Use exchange health gate</span>
                             <Switch checked={form.pause_on_exchange_unhealthy} onCheckedChange={(value) => setForm((current) => ({ ...current, pause_on_exchange_unhealthy: value }))} />
-                          </div>
-                        </Field>
-                        <Field label="Pause on slippage spike">
-                          <div className="flex h-10 items-center justify-between rounded-md border px-3">
-                            <span className="text-sm text-muted-foreground">Guard extreme moves</span>
-                            <Switch checked={form.pause_on_slippage_spike} onCheckedChange={(value) => setForm((current) => ({ ...current, pause_on_slippage_spike: value }))} />
                           </div>
                         </Field>
                       </CardContent>

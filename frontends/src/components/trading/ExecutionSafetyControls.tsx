@@ -25,6 +25,8 @@ export interface ExecutionSafetyTelemetry {
 
 const LIVE_FEED_GUARD_OPTIONS = [1, 3, 5, 10] as const;
 const WEBHOOK_LATENCY_GUARD_OPTIONS = [1000, 3000, 4000, 5000, 10000] as const;
+const DEFAULT_PRIMARY_OPTIONS = LIVE_FEED_GUARD_OPTIONS.map((value) => ({ value, label: `${value}s` }));
+const DEFAULT_SECONDARY_OPTIONS = WEBHOOK_LATENCY_GUARD_OPTIONS.map((value) => ({ value, label: `${value / 1000}s` }));
 
 export function ExecutionSafetyControls({
   title = "Execution Safety",
@@ -35,6 +37,11 @@ export function ExecutionSafetyControls({
   onSave,
   busy,
   className,
+  primaryGuardLabel = "Live feed guard",
+  primaryGuardOptions = DEFAULT_PRIMARY_OPTIONS,
+  secondaryGuardLabel = "Webhook latency guard",
+  secondaryGuardName = "TradingView webhook",
+  secondaryGuardOptions = DEFAULT_SECONDARY_OPTIONS,
 }: {
   title?: string;
   moduleLabel: string;
@@ -44,11 +51,23 @@ export function ExecutionSafetyControls({
   onSave: () => void;
   busy?: boolean;
   className?: string;
+  /** Label above the 1st guard's button group. Defaults keep Robot Trade/Future Trade unchanged. */
+  primaryGuardLabel?: string;
+  /** Button options for the 1st (feed staleness) guard, in seconds. */
+  primaryGuardOptions?: Array<{ value: number; label: string }>;
+  /** Label above the 2nd guard's button group. Defaults keep Robot Trade/Future Trade unchanged. */
+  secondaryGuardLabel?: string;
+  /** Row name for the 2nd guard in the check table. */
+  secondaryGuardName?: string;
+  /** Button options for the 2nd guard. A `value` of 0 renders as an explicit "Off" state. */
+  secondaryGuardOptions?: Array<{ value: number; label: string }>;
 }) {
   const feedAge = telemetry?.feedAgeSeconds ?? null;
   const webhookLatency = telemetry?.webhookSignalLatencyMs ?? null;
   const feedOk = feedAge == null ? false : feedAge <= values.liveFeedMaxAgeSeconds;
-  const webhookOk = webhookLatency == null ? true : webhookLatency <= values.webhookMaxSignalLatencyMs;
+  // A limit of 0 means the guard is disabled — never block, regardless of the sample.
+  const webhookGuardOff = values.webhookMaxSignalLatencyMs <= 0;
+  const webhookOk = webhookGuardOff || webhookLatency == null ? true : webhookLatency <= values.webhookMaxSignalLatencyMs;
   const rows = [
     {
       key: "feed",
@@ -61,9 +80,9 @@ export function ExecutionSafetyControls({
     },
     {
       key: "webhook",
-      name: "TradingView webhook",
+      name: secondaryGuardName,
       current: webhookLatency == null ? "-" : `${round(webhookLatency)}ms`,
-      limit: `${values.webhookMaxSignalLatencyMs}ms`,
+      limit: webhookGuardOff ? "off" : `${values.webhookMaxSignalLatencyMs}ms`,
       state: webhookOk ? "Allowed" : "Blocks BUY/SELL",
       detail: webhookLatency == null ? "No recent latency sample" : "Latest signal latency",
       ok: webhookOk,
@@ -99,15 +118,15 @@ export function ExecutionSafetyControls({
       <CardContent className="space-y-4 text-sm">
         <div className="grid gap-3 sm:grid-cols-2">
           <GuardOptionGroup
-            label="Live feed guard"
+            label={primaryGuardLabel}
             value={values.liveFeedMaxAgeSeconds}
-            options={LIVE_FEED_GUARD_OPTIONS.map((value) => ({ value, label: `${value}s` }))}
+            options={primaryGuardOptions}
             onChange={(value) => onChange({ ...values, liveFeedMaxAgeSeconds: value })}
           />
           <GuardOptionGroup
-            label="Webhook latency guard"
+            label={secondaryGuardLabel}
             value={values.webhookMaxSignalLatencyMs}
-            options={WEBHOOK_LATENCY_GUARD_OPTIONS.map((value) => ({ value, label: `${value / 1000}s` }))}
+            options={secondaryGuardOptions}
             onChange={(value) => onChange({ ...values, webhookMaxSignalLatencyMs: value })}
           />
         </div>

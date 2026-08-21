@@ -30,6 +30,12 @@ interface RobotLiveChartProps {
   /** Live unrealized PnL overlay shown on top of the chart. */
   pnl?: { side: "BUY" | "SELL"; pct: number; value: number } | null;
   height?: number;
+  /**
+   * Additional dotted price lines beyond the entry/stop/take-profit set above —
+   * e.g. a ratio bot's anchor price or pending buy/sell trigger level while flat.
+   * Keyed so callers can add/remove/update lines independently of each other.
+   */
+  extraLines?: Array<{ key: string; price: number | null | undefined; color: string; title: string }>;
 }
 
 function normalizeBars(candles: CandleData[]): CandlestickData<Time>[] {
@@ -87,11 +93,13 @@ export function RobotLiveChart({
   markers,
   pnl,
   height = 360,
+  extraLines,
 }: RobotLiveChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const linesRef = useRef<Record<string, IPriceLine | null>>({ entry: null, stop: null, tp: null });
+  const extraLinesRef = useRef<Record<string, IPriceLine>>({});
   const lastViewportKeyRef = useRef<string | null>(null);
 
   // Create the chart once.
@@ -148,6 +156,7 @@ export function RobotLiveChart({
       seriesRef.current = null;
       lastViewportKeyRef.current = null;
       linesRef.current = { entry: null, stop: null, tp: null };
+      extraLinesRef.current = {};
     };
   }, [height]);
 
@@ -213,6 +222,43 @@ export function RobotLiveChart({
     sync("stop", stopPrice, "#f43f5e", "Stop");
     sync("tp", takeProfitPrice, "#22c55e", "Take profit");
   }, [entryPrice, stopPrice, takeProfitPrice, side]);
+
+  // Sync any extra (e.g. ratio-bot anchor/trigger) price lines, keyed independently.
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+
+    const next = extraLines ?? [];
+    const nextKeys = new Set(next.map((line) => line.key));
+    for (const key of Object.keys(extraLinesRef.current)) {
+      if (!nextKeys.has(key)) {
+        series.removePriceLine(extraLinesRef.current[key]);
+        delete extraLinesRef.current[key];
+      }
+    }
+
+    for (const line of next) {
+      const existing = extraLinesRef.current[line.key];
+      if (line.price && line.price > 0) {
+        const opts = {
+          price: line.price,
+          color: line.color,
+          lineWidth: 1 as const,
+          lineStyle: LineStyle.Dotted,
+          axisLabelVisible: true,
+          title: line.title,
+        };
+        if (existing) {
+          existing.applyOptions(opts);
+        } else {
+          extraLinesRef.current[line.key] = series.createPriceLine(opts);
+        }
+      } else if (existing) {
+        series.removePriceLine(existing);
+        delete extraLinesRef.current[line.key];
+      }
+    }
+  }, [extraLines]);
 
   // Buy / sell entry markers.
   useEffect(() => {
