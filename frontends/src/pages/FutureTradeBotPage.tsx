@@ -1319,6 +1319,7 @@ function ExecutionSafetyPanel({
   const webhookMax = Number(settings.webhookMaxSignalLatencyMs ?? 4000);
   return (
     <ExecutionSafetyControls
+      title="Global Execution Safety"
       moduleLabel="Future Trade"
       values={{ liveFeedMaxAgeSeconds: liveFeedMax, webhookMaxSignalLatencyMs: webhookMax }}
       telemetry={{

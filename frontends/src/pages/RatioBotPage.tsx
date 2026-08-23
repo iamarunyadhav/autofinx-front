@@ -45,6 +45,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useConnections } from "@/hooks/useConnections";
+import { useRuntimeHealth } from "@/hooks/useRuntimeHealth";
+import { useRuntimeSafetySettings, useUpdateRuntimeSafetySettings } from "@/hooks/useRuntimeSafetySettings";
 import { useToast } from "@/hooks/use-toast";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { api } from "@/lib/api";
@@ -1056,6 +1058,13 @@ export default function RatioBotPage() {
   const [anchorBuyQty, setAnchorBuyQty] = useState("");
   const [anchorSellPrice, setAnchorSellPrice] = useState("");
   const [anchorSellQty, setAnchorSellQty] = useState("");
+  const [safetyValues, setSafetyValues] = useState<ExecutionSafetyValues>({
+    liveFeedMaxAgeSeconds: 3,
+    webhookMaxSignalLatencyMs: 4000,
+  });
+  const runtimeHealth = useRuntimeHealth(workspaceId);
+  const runtimeSafety = useRuntimeSafetySettings(workspaceId);
+  const updateRuntimeSafety = useUpdateRuntimeSafetySettings(workspaceId);
 
   const botsQuery = useQuery({
     queryKey: ["ratio-bots", workspaceId],
@@ -1088,6 +1097,14 @@ export default function RatioBotPage() {
   const bots = botsQuery.data ?? EMPTY_BOTS;
   const selectedFromList = bots.find((bot) => bot.id === selectedBotId) || null;
   const selectedMarketType = isCreating ? form.market_type : normalizeMarketType(selectedFromList?.market_type);
+
+  useEffect(() => {
+    if (!runtimeSafety.data) return;
+    setSafetyValues({
+      liveFeedMaxAgeSeconds: Number(runtimeSafety.data.live_feed_max_age_seconds ?? 3),
+      webhookMaxSignalLatencyMs: Number(runtimeSafety.data.webhook_max_signal_latency_ms ?? 4000),
+    });
+  }, [runtimeSafety.data]);
 
   const futuresReadinessQuery = useQuery({
     queryKey: ["futures-readiness", workspaceId],
@@ -1503,40 +1520,37 @@ export default function RatioBotPage() {
   // NOT the global cross-module `runtime_safety` settings Robot Trade uses,
   // which Ratio Bot's engine never reads.
   // ---------------------------------------------------------------------
-  const parsedStrategyParams = safeParseStrategyParams(form.strategy_params_json);
-  const maxApiLatencyMs = toNumber((parsedStrategyParams.data as JsonRecord | null)?.max_api_latency_ms as string | number | null | undefined) ?? 0;
-
-  const setMaxApiLatencyMs = (value: number) => {
-    const base = (parsedStrategyParams.data as JsonRecord | null) ?? {};
-    setForm((current) => ({ ...current, strategy_params_json: formatJson({ ...base, max_api_latency_ms: value }) }));
-  };
-
-  const feedAgeSeconds = toNumber(currentStatus?.market_health?.price_age_seconds)
+  const runtimeFeedDetail = (runtimeHealth.data?.future_trade?.live_feed_detail ?? {}) as JsonRecord;
+  const feedAgeSeconds = toNumber(runtimeFeedDetail.age_seconds as string | number | null | undefined)
+    ?? toNumber(runtimeHealth.data?.future_trade?.live_feed_age_seconds)
+    ?? toNumber(currentStatus?.market_health?.price_age_seconds)
     ?? (currentStatus?.last_price_timestamp ? (Date.now() - new Date(currentStatus.last_price_timestamp).getTime()) / 1000 : null);
   const workerAgeSeconds = currentStatus?.last_evaluated_at
     ? (Date.now() - new Date(currentStatus.last_evaluated_at).getTime()) / 1000
     : null;
 
-  const safetyValues: ExecutionSafetyValues = {
-    liveFeedMaxAgeSeconds: toNumber(form.stale_feed_timeout_seconds) || 45,
-    webhookMaxSignalLatencyMs: maxApiLatencyMs,
-  };
   const safetyTelemetry: ExecutionSafetyTelemetry = {
     feedAgeSeconds,
-    feedState: currentStatus?.market_health?.feed_status ?? currentFeed?.state_feed_status ?? null,
-    feedReason: currentStatus?.block_reason_detail ?? null,
-    truthSource: "binance_ws_cache",
-    lastTickAt: currentStatus?.last_evaluated_at ?? null,
+    feedState: runtimeHealth.data?.future_trade?.live_feed ?? currentStatus?.market_health?.feed_status ?? currentFeed?.state_feed_status ?? null,
+    feedReason: String(runtimeFeedDetail.reason ?? currentStatus?.block_reason_detail ?? ""),
+    truthSource: String(runtimeFeedDetail.truth_source ?? runtimeFeedDetail.source ?? "binance_ws_cache"),
+    lastTickAt: String(runtimeFeedDetail.last_tick_at ?? currentStatus?.last_evaluated_at ?? ""),
     evaluatorAgeSeconds: workerAgeSeconds,
     evaluatorState: workerAgeSeconds == null ? null : workerAgeSeconds <= 120 ? "green" : "red",
-    webhookSignalLatencyMs: toNumber(currentStatus?.market_health?.latency_ms),
+    webhookSignalLatencyMs: null,
     chartLatencyMs: liveFeed.connected ? liveFeed.latencyMs : null,
-    serverNow: new Date().toISOString(),
+    serverNow: runtimeHealth.data?.generated_at ?? new Date().toISOString(),
   };
 
   const handleSafetyChange = (next: ExecutionSafetyValues) => {
-    setForm((current) => ({ ...current, stale_feed_timeout_seconds: String(next.liveFeedMaxAgeSeconds) }));
-    setMaxApiLatencyMs(next.webhookMaxSignalLatencyMs);
+    setSafetyValues(next);
+  };
+
+  const saveRuntimeSafety = () => {
+    updateRuntimeSafety.mutate({
+      live_feed_max_age_seconds: safetyValues.liveFeedMaxAgeSeconds,
+      webhook_max_signal_latency_ms: safetyValues.webhookMaxSignalLatencyMs,
+    });
   };
 
   const maxDailyLoss = toNumber(selectedBot?.max_daily_loss);
@@ -1843,25 +1857,16 @@ export default function RatioBotPage() {
 
                 <TabsContent value="overview" className="space-y-6">
                   <ExecutionSafetyControls
-                    title="Ratio Bot Execution Safety"
+                    title="Global Execution Safety"
                     moduleLabel="Ratio Bot"
                     values={safetyValues}
                     telemetry={safetyTelemetry}
                     onChange={handleSafetyChange}
-                    onSave={() => saveMutation.mutate()}
-                    busy={isBusy}
+                    onSave={saveRuntimeSafety}
+                    busy={updateRuntimeSafety.isPending}
                     primaryGuardLabel="Live feed guard"
-                    primaryGuardOptions={[10, 20, 30, 45, 60, 90].map((value) => ({ value, label: `${value}s` }))}
-                    secondaryGuardLabel="Price latency guard"
-                    secondaryGuardName="Price latency"
-                    secondaryGuardOptions={[
-                      { value: 0, label: "Off" },
-                      { value: 100, label: "100ms" },
-                      { value: 250, label: "250ms" },
-                      { value: 500, label: "500ms" },
-                      { value: 1000, label: "1s" },
-                      { value: 2000, label: "2s" },
-                    ]}
+                    secondaryGuardLabel="Webhook latency guard"
+                    secondaryGuardName="Webhook / signal"
                   />
                   {overallBlocked ? (
                     <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-300">

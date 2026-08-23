@@ -805,7 +805,7 @@ export default function QuickTradePage() {
               <SignalSummaryCard signal={signal} />
 
               <ExecutionSafetyControls
-                title="Quick Trade Execution Safety"
+                title="Global Execution Safety"
                 moduleLabel="Quick Trade"
                 values={safetyValues}
                 telemetry={{

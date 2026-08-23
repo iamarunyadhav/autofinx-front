@@ -617,7 +617,7 @@ export default function RobotTradingPage() {
 
             <div className="mt-4">
               <ExecutionSafetyControls
-                title="Robot Execution Safety"
+                title="Global Execution Safety"
                 moduleLabel="Robot Trade"
                 values={safetyValues}
                 telemetry={{
