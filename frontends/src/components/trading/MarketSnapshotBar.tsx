@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { useBalances } from "@/hooks/useWallet";
 import { cn } from "@/lib/utils";
 
-const DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"];
+export const DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"];
 const FRESH_MAX_AGE_SECONDS = 15;
 
 interface MarketPricePayload {

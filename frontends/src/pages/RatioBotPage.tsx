@@ -32,7 +32,7 @@ import { RatioBotEconomicsCard } from "@/components/trading/RatioBotEconomicsCar
 import { RatioBotStrategyManagerCard, type StrategyManagerSnapshot } from "@/components/trading/RatioBotStrategyManagerCard";
 import { RatioBotRecoveryCard } from "@/components/trading/RatioBotRecoveryCard";
 import { RatioBotTradeLedger } from "@/components/trading/RatioBotTradeLedger";
-import { MarketSnapshotBar } from "@/components/trading/MarketSnapshotBar";
+import { MarketSnapshotBar, DEFAULT_SYMBOLS as DEFAULT_MARKET_SNAPSHOT_SYMBOLS } from "@/components/trading/MarketSnapshotBar";
 import { useRatioBotCandleFeed } from "@/hooks/useRatioBotCandleFeed";
 import type { SignalPreview, ForecastPayload } from "@/hooks/useQuickTrade";
 import { Badge } from "@/components/ui/badge";
@@ -1874,7 +1874,14 @@ export default function RatioBotPage() {
                 </TabsList>
 
                 <TabsContent value="overview" className="space-y-6">
-                  <MarketSnapshotBar workspaceId={workspaceId} />
+                  <MarketSnapshotBar
+                    workspaceId={workspaceId}
+                    symbols={
+                      selectedBot?.symbol && !DEFAULT_MARKET_SNAPSHOT_SYMBOLS.includes(selectedBot.symbol)
+                        ? [selectedBot.symbol, ...DEFAULT_MARKET_SNAPSHOT_SYMBOLS]
+                        : undefined
+                    }
+                  />
                   <ExecutionSafetyControls
                     title="Global Execution Safety"
                     moduleLabel="Ratio Bot"
@@ -1909,12 +1916,12 @@ export default function RatioBotPage() {
                     <MetricCard
                       title="Position"
                       value={prettyLabel(currentStatus?.current_position_side || selectedBot?.state?.last_position_side || "flat")}
-                      hint={`Qty ${formatNumber(currentStatus?.current_position_qty || currentPosition?.qty || currentPosition?.quantity || selectedBot?.state?.last_position_qty, 6)}`}
+                      hint={`Qty ${formatNumber(currentStatus?.current_position_qty ?? currentPosition?.qty ?? currentPosition?.quantity ?? selectedBot?.state?.last_position_qty, 6)}`}
                       icon={selectedMarketType === "futures" ? <TrendingUp className="h-5 w-5" /> : <Target className="h-5 w-5" />}
                     />
                     <MetricCard
                       title="Unrealized PnL"
-                      value={formatNumber(currentStatus?.unrealized_pnl || currentPnl?.unrealized_pnl || selectedBot?.state?.unrealized_pnl, 6)}
+                      value={formatNumber(currentStatus?.unrealized_pnl ?? currentPnl?.unrealized_pnl ?? selectedBot?.state?.unrealized_pnl, 6)}
                       hint={currentStatus?.last_order_status ? `Last order ${prettyLabel(currentStatus.last_order_status)}` : "No fill data yet"}
                       icon={<TrendingDown className="h-5 w-5" />}
                     />
@@ -2157,8 +2164,8 @@ export default function RatioBotPage() {
                       </CardHeader>
                       <CardContent className="space-y-3">
                         <DetailRow label="Side" value={<Badge variant={statusVariant(currentPosition?.position_side || currentPosition?.side || currentStatus?.current_position_side)}>{prettyLabel(currentPosition?.position_side || currentPosition?.side || currentStatus?.current_position_side || "flat")}</Badge>} />
-                        <DetailRow label="Quantity" value={formatNumber(currentPosition?.qty || currentPosition?.quantity || currentPnl?.current_position_qty, 6)} />
-                        <DetailRow label="Entry price" value={formatNumber(currentPosition?.entry_price || selectedBot?.state?.entry_price, 6)} />
+                        <DetailRow label="Quantity" value={formatNumber(currentPosition?.qty ?? currentPosition?.quantity ?? currentPnl?.current_position_qty, 6)} />
+                        <DetailRow label="Entry price" value={formatNumber(currentPosition?.entry_price ?? selectedBot?.state?.entry_price, 6)} />
                         <DetailRow label="Mark price" value={formatNumber(currentPosition?.mark_price, 6)} />
                         <DetailRow label="Liquidation" value={formatNumber(currentPosition?.liquidation_price, 6)} />
                         <DetailRow label="Updated" value={formatDateTime(currentPosition?.updated_at)} />
@@ -2171,9 +2178,9 @@ export default function RatioBotPage() {
                       </CardHeader>
                       <CardContent className="space-y-3">
                         <DetailRow label="Today realized" value={formatNumber(currentPnl?.today_realized_pnl, 6)} />
-                        <DetailRow label="Unrealized" value={formatNumber(currentPnl?.unrealized_pnl || currentStatus?.unrealized_pnl, 6)} />
+                        <DetailRow label="Unrealized" value={formatNumber(currentPnl?.unrealized_pnl ?? currentStatus?.unrealized_pnl, 6)} />
                         <DetailRow label="Current side" value={prettyLabel(currentPnl?.current_position_side || currentStatus?.current_position_side)} />
-                        <DetailRow label="Current qty" value={formatNumber(currentPnl?.current_position_qty || currentStatus?.current_position_qty, 6)} />
+                        <DetailRow label="Current qty" value={formatNumber(currentPnl?.current_position_qty ?? currentStatus?.current_position_qty, 6)} />
                         <DetailRow label="Kill switch" value={form.kill_switch ? "Enabled" : "Off"} />
                         <DetailRow label="Runtime error" value={currentStatus?.error_state || selectedBot?.state?.last_runtime_error || "None"} />
                       </CardContent>
@@ -2812,7 +2819,7 @@ export default function RatioBotPage() {
                       <DetailRow label="Buy armed" value={formatBoolean(!!currentRatio?.buy_armed || !!selectedBot?.state?.buy_armed)} />
                       <DetailRow label="Pending trigger side" value={prettyLabel(currentRatio?.pending_trigger_side || selectedBot?.state?.pending_trigger_side)} />
                       <DetailRow label="Pending trigger ratio" value={formatRatioPercent(currentRatio?.pending_trigger_ratio || selectedBot?.state?.pending_trigger_ratio)} />
-                      <DetailRow label="Pending trigger updates" value={formatNumber(currentRatio?.pending_trigger_updates || selectedBot?.state?.pending_trigger_updates, 0)} />
+                      <DetailRow label="Pending trigger updates" value={formatNumber(currentRatio?.pending_trigger_updates ?? selectedBot?.state?.pending_trigger_updates, 0)} />
                     </CardContent>
                   </Card>
                 </TabsContent>

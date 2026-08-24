@@ -128,6 +128,7 @@ export function RobotLiveChart({
     high: ISeriesApi<"Line"> | null;
   }>({ mid: null, low: null, high: null });
   const lastViewportKeyRef = useRef<string | null>(null);
+  const lastBarTimeRef = useRef<number | null>(null);
 
   // Create the chart once.
   useEffect(() => {
@@ -195,6 +196,7 @@ export function RobotLiveChart({
       chartRef.current = null;
       seriesRef.current = null;
       lastViewportKeyRef.current = null;
+      lastBarTimeRef.current = null;
       linesRef.current = { entry: null, stop: null, tp: null };
       extraLinesRef.current = {};
       forecastSeriesRef.current = { mid: null, low: null, high: null };
@@ -208,6 +210,7 @@ export function RobotLiveChart({
     if (candles.length === 0) {
       series.setData([]);
       lastViewportKeyRef.current = null;
+      lastBarTimeRef.current = null;
       return;
     }
     const bars = normalizeBars(candles);
@@ -221,10 +224,16 @@ export function RobotLiveChart({
 
     if (lastViewportKeyRef.current === null) {
       timeScale.fitContent();
+    } else if (lastBarTimeRef.current !== null && lastTime > lastBarTimeRef.current) {
+      // Only re-snap to the live edge when a genuinely NEW bar just closed —
+      // every other poll only updates the still-open last bar's OHLC values
+      // and must not yank the viewport back if the operator panned away to
+      // review history.
+      timeScale.scrollToPosition(8, false);
     }
 
     lastViewportKeyRef.current = viewportKey;
-    timeScale.scrollToPosition(8, false);
+    lastBarTimeRef.current = lastTime;
   }, [candles]);
 
   // Sync the entry / stop / take-profit price lines.
