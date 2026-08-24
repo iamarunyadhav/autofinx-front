@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Square,
   Target,
+  Trash2,
   TrendingDown,
   TrendingUp,
   Zap,
@@ -1403,6 +1404,33 @@ export default function RatioBotPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (botId: string) => {
+      await api.delete(`/ratio-bots/${botId}`);
+      return { botId };
+    },
+    onSuccess: async ({ botId }) => {
+      toast({ title: "Bot deleted", description: "Config, decisions, events, and snapshots were all removed." });
+      setSelectedBotId(null);
+      setHydratedBotId(null);
+      setIsCreating(false);
+      queryClient.removeQueries({ queryKey: ["ratio-bot", botId] });
+      await queryClient.invalidateQueries({ queryKey: ["ratio-bots", workspaceId] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleDeleteBot = () => {
+    if (!selectedBotId || !selectedBot) return;
+    const confirmed = window.confirm(
+      `Delete "${selectedBot.name || selectedBot.symbol}"? This permanently removes the bot and its full history (decisions, events, snapshots). This cannot be undone.`
+    );
+    if (!confirmed) return;
+    deleteMutation.mutate(selectedBotId);
+  };
+
   const anchorMutation = useMutation({
     mutationFn: async ({
       botId,
@@ -1699,7 +1727,7 @@ export default function RatioBotPage() {
     });
   };
 
-  const isBusy = saveMutation.isPending || lifecycleMutation.isPending || killSwitchMutation.isPending || anchorMutation.isPending;
+  const isBusy = saveMutation.isPending || lifecycleMutation.isPending || killSwitchMutation.isPending || anchorMutation.isPending || deleteMutation.isPending;
 
   return (
     <AppShell>
@@ -1856,6 +1884,10 @@ export default function RatioBotPage() {
                           >
                             <ShieldAlert className="mr-2 h-4 w-4" />
                             {form.kill_switch ? "Clear kill switch" : "Emergency kill switch"}
+                          </Button>
+                          <Button type="button" variant="destructive" onClick={handleDeleteBot} disabled={isBusy}>
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete bot
                           </Button>
                         </>
                       ) : null}

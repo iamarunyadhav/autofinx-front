@@ -59,6 +59,15 @@ interface RobotLiveChartProps {
   forecast?: ChartForecast | null;
 }
 
+/** Median of a small window centered on `index`, not the whole series — see normalizeBars(). */
+function localMedian(values: number[], index: number, windowSize: number): number {
+  const half = Math.floor(windowSize / 2);
+  const start = Math.max(0, index - half);
+  const end = Math.min(values.length, index + half + 1);
+  const windowSorted = values.slice(start, end).sort((a, b) => a - b);
+  return windowSorted[Math.floor(windowSorted.length / 2)] || 0;
+}
+
 function normalizeBars(candles: CandleData[]): CandlestickData<Time>[] {
   const byTime = new Map<number, CandlestickData<Time>>();
 
@@ -89,13 +98,20 @@ function normalizeBars(candles: CandleData[]): CandlestickData<Time>[] {
   const sorted = [...byTime.values()].sort((a, b) => Number(a.time) - Number(b.time));
   if (sorted.length < 8) return sorted;
 
-  const closes = sorted.map((bar) => bar.close).sort((a, b) => a - b);
-  const median = closes[Math.floor(closes.length / 2)] || 0;
-  if (median <= 0) return sorted;
+  // Compare each bar against a LOCAL median (its own neighborhood), not one
+  // fixed median for the entire visible window. A single whole-window median
+  // stays put during a real trend, so the newest/most volatile bars — the
+  // ones an operator most needs to see — end up furthest from it and get
+  // filtered out entirely. A rolling local reference moves with the trend
+  // instead, so genuine directional candles survive while a true single-tick
+  // data glitch (one bar wildly off from its own neighbors) still gets caught.
+  const closes = sorted.map((bar) => bar.close);
+  return sorted.filter((bar, index) => {
+    const localRef = localMedian(closes, index, 21);
+    if (localRef <= 0) return true;
 
-  return sorted.filter((bar) => {
-    const rangePct = ((bar.high - bar.low) / median) * 100;
-    const closeDeviationPct = (Math.abs(bar.close - median) / median) * 100;
+    const rangePct = ((bar.high - bar.low) / localRef) * 100;
+    const closeDeviationPct = (Math.abs(bar.close - localRef) / localRef) * 100;
 
     return rangePct <= 12 && closeDeviationPct <= 35;
   });
