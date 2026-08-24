@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 
 function fmt(value: number, digits = 2) {
@@ -16,6 +17,8 @@ export interface RatioBotCapitalCardProps {
   positionQty: number;
   currentPrice?: number | null;
   quoteAsset?: string;
+  /** "sandbox" | "live" — every figure on this card is real money only when this is "live". */
+  executionMode?: string | null;
 }
 
 /**
@@ -33,7 +36,9 @@ export function RatioBotCapitalCard({
   positionQty,
   currentPrice,
   quoteAsset = "USDT",
+  executionMode,
 }: RatioBotCapitalCardProps) {
+  const isLive = (executionMode || "").toLowerCase() === "live";
   const wallet = Math.max(0, baseQuoteAmount || 0);
   const staged = reserveTrancheCount > 0 && initialEntryPct < 1;
   const reserveInitial = staged ? wallet * (1 - initialEntryPct) : 0;
@@ -48,13 +53,20 @@ export function RatioBotCapitalCard({
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex-row items-center justify-between space-y-0">
         <CardTitle>Capital Breakdown</CardTitle>
+        {executionMode ? (
+          <Badge className={isLive ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}>
+            {isLive ? "🟢 LIVE — real funds" : "🧪 SANDBOX — simulated"}
+          </Badge>
+        ) : null}
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div className="rounded-lg border border-border/60 px-3 py-2">
-            <div className="text-xs text-muted-foreground">Wallet capital</div>
+            <div className="text-xs text-muted-foreground">
+              Wallet capital {executionMode ? `(${isLive ? "live" : "sandbox"})` : ""}
+            </div>
             <div className="text-lg font-semibold">{fmt(wallet)} {quoteAsset}</div>
           </div>
           <div className="rounded-lg border border-border/60 px-3 py-2">

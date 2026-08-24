@@ -32,6 +32,7 @@ import { RatioBotEconomicsCard } from "@/components/trading/RatioBotEconomicsCar
 import { RatioBotStrategyManagerCard, type StrategyManagerSnapshot } from "@/components/trading/RatioBotStrategyManagerCard";
 import { RatioBotRecoveryCard } from "@/components/trading/RatioBotRecoveryCard";
 import { RatioBotTradeLedger } from "@/components/trading/RatioBotTradeLedger";
+import { MarketSnapshotBar } from "@/components/trading/MarketSnapshotBar";
 import { useRatioBotCandleFeed } from "@/hooks/useRatioBotCandleFeed";
 import type { SignalPreview, ForecastPayload } from "@/hooks/useQuickTrade";
 import { Badge } from "@/components/ui/badge";
@@ -1512,6 +1513,23 @@ export default function RatioBotPage() {
     })
     .filter((m) => m.time > 0);
 
+  // Master Brain's near-term forecast, drawn as a dotted trend-line cone
+  // running off the right edge of the candle chart (TradingView-style
+  // projection) instead of only showing as text in the forecast card.
+  const forecastPayload = currentBrainSnapshot?.forecast;
+  const forecastFromTime = liveCandles.length > 0 ? liveCandles[liveCandles.length - 1].time : null;
+  const chartForecast = forecastPayload?.available && forecastFromTime && forecastPayload.horizon_seconds
+    ? {
+        fromTime: forecastFromTime,
+        fromPrice: forecastPayload.current_price || latestPrice || 0,
+        horizonSeconds: forecastPayload.horizon_seconds,
+        mid: forecastPayload.expected_mid_price || 0,
+        low: forecastPayload.expected_low,
+        high: forecastPayload.expected_high,
+        bias: forecastPayload.bias,
+      }
+    : null;
+
   // ---------------------------------------------------------------------
   // Execution Safety panel + Decision Trust Chain. Reuses Robot Trade's
   // ExecutionSafetyControls component, but wired to Ratio Bot's OWN guard
@@ -1856,6 +1874,7 @@ export default function RatioBotPage() {
                 </TabsList>
 
                 <TabsContent value="overview" className="space-y-6">
+                  <MarketSnapshotBar workspaceId={workspaceId} />
                   <ExecutionSafetyControls
                     title="Global Execution Safety"
                     moduleLabel="Ratio Bot"
@@ -1938,6 +1957,7 @@ export default function RatioBotPage() {
                               markers={chartMarkers}
                               pnl={chartPnl}
                               extraLines={chartExtraLines}
+                              forecast={chartForecast}
                             />
                           ) : (
                             <div className="flex h-full items-center justify-center rounded-2xl border border-dashed text-sm text-muted-foreground">
@@ -2063,6 +2083,7 @@ export default function RatioBotPage() {
                         hasOpenPosition={hasOpenPosition}
                         positionQty={positionQty}
                         currentPrice={latestPrice}
+                        executionMode={selectedBot?.execution_mode}
                       />
                       <RatioBotEconomicsCard
                         sellThresholdRatio={toNumber(selectedBot?.sell_threshold_ratio) ?? 0}

@@ -8,6 +8,7 @@ import {
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
+  type LineData,
   type SeriesMarker,
   type Time,
   type UTCTimestamp,
@@ -18,6 +19,24 @@ export interface ChartMarker {
   time: number; // unix seconds
   side: "BUY" | "SELL";
   text?: string;
+}
+
+/**
+ * A single forward-looking projection (Master Brain's near-term forecast, a
+ * TradingView-style trend call, etc.) drawn as dotted lines running from the
+ * last known price out to a future point in time. `low`/`high` sketch the
+ * expected range as a cone around the `mid` line; omit either to draw a
+ * single line only.
+ */
+export interface ChartForecast {
+  fromTime: number; // unix seconds — usually the latest candle's time
+  fromPrice: number;
+  horizonSeconds: number;
+  mid: number;
+  low?: number | null;
+  high?: number | null;
+  bias?: string | null; // "buy" | "sell" | "neutral" — colors the mid line
+  label?: string;
 }
 
 interface RobotLiveChartProps {
@@ -36,6 +55,8 @@ interface RobotLiveChartProps {
    * Keyed so callers can add/remove/update lines independently of each other.
    */
   extraLines?: Array<{ key: string; price: number | null | undefined; color: string; title: string }>;
+  /** Dotted forward-looking projection lines (see ChartForecast). Null/undefined clears them. */
+  forecast?: ChartForecast | null;
 }
 
 function normalizeBars(candles: CandleData[]): CandlestickData<Time>[] {
@@ -94,12 +115,18 @@ export function RobotLiveChart({
   pnl,
   height = 360,
   extraLines,
+  forecast,
 }: RobotLiveChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const linesRef = useRef<Record<string, IPriceLine | null>>({ entry: null, stop: null, tp: null });
   const extraLinesRef = useRef<Record<string, IPriceLine>>({});
+  const forecastSeriesRef = useRef<{
+    mid: ISeriesApi<"Line"> | null;
+    low: ISeriesApi<"Line"> | null;
+    high: ISeriesApi<"Line"> | null;
+  }>({ mid: null, low: null, high: null });
   const lastViewportKeyRef = useRef<string | null>(null);
 
   // Create the chart once.
@@ -145,6 +172,19 @@ export function RobotLiveChart({
     chartRef.current = chart;
     seriesRef.current = series;
 
+    const forecastLineOptions = {
+      lineWidth: 1 as const,
+      lineStyle: LineStyle.Dotted,
+      lastValueVisible: false,
+      priceLineVisible: false,
+      crosshairMarkerVisible: false,
+    };
+    forecastSeriesRef.current = {
+      mid: chart.addLineSeries({ ...forecastLineOptions, color: "#94a3b8", lineWidth: 2 }),
+      low: chart.addLineSeries({ ...forecastLineOptions, color: "rgba(148,163,184,0.5)" }),
+      high: chart.addLineSeries({ ...forecastLineOptions, color: "rgba(148,163,184,0.5)" }),
+    };
+
     const handleResize = () => chart.applyOptions({ width: container.clientWidth });
     const observer = new ResizeObserver(handleResize);
     observer.observe(container);
@@ -157,6 +197,7 @@ export function RobotLiveChart({
       lastViewportKeyRef.current = null;
       linesRef.current = { entry: null, stop: null, tp: null };
       extraLinesRef.current = {};
+      forecastSeriesRef.current = { mid: null, low: null, high: null };
     };
   }, [height]);
 
@@ -273,6 +314,34 @@ export function RobotLiveChart({
     }));
     series.setMarkers(mapped);
   }, [markers]);
+
+  // Sync the Master Brain / trend forecast cone (mid + optional low/high dotted lines).
+  useEffect(() => {
+    const { mid, low, high } = forecastSeriesRef.current;
+    if (!mid || !low || !high) return;
+
+    if (!forecast || !(forecast.fromPrice > 0) || !(forecast.mid > 0) || !(forecast.horizonSeconds > 0)) {
+      mid.setData([]);
+      low.setData([]);
+      high.setData([]);
+      return;
+    }
+
+    const bias = (forecast.bias ?? "").toLowerCase();
+    mid.applyOptions({ color: bias === "buy" ? "#22c55e" : bias === "sell" ? "#f43f5e" : "#94a3b8" });
+
+    const start = forecast.fromTime as UTCTimestamp;
+    const end = (forecast.fromTime + forecast.horizonSeconds) as UTCTimestamp;
+
+    const line = (from: number, to: number): LineData<Time>[] => [
+      { time: start, value: from },
+      { time: end, value: to },
+    ];
+
+    mid.setData(line(forecast.fromPrice, forecast.mid));
+    low.setData(forecast.low && forecast.low > 0 ? line(forecast.fromPrice, forecast.low) : []);
+    high.setData(forecast.high && forecast.high > 0 ? line(forecast.fromPrice, forecast.high) : []);
+  }, [forecast]);
 
   const pnlUp = (pnl?.pct ?? 0) >= 0;
 
