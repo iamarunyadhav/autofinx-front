@@ -33,6 +33,9 @@ import { RatioBotEconomicsCard } from "@/components/trading/RatioBotEconomicsCar
 import { RatioBotStrategyManagerCard, type StrategyManagerSnapshot } from "@/components/trading/RatioBotStrategyManagerCard";
 import { RatioBotRecoveryCard } from "@/components/trading/RatioBotRecoveryCard";
 import { RatioBotTradeLedger } from "@/components/trading/RatioBotTradeLedger";
+import { RatioBotLotList } from "@/components/trading/RatioBotLotList";
+import { RatioBotStartupChecklist, type StartupChecklist } from "@/components/trading/RatioBotStartupChecklist";
+import { RatioBotReversalWatchCard } from "@/components/trading/RatioBotReversalWatchCard";
 import { MarketSnapshotBar, DEFAULT_SYMBOLS as DEFAULT_MARKET_SNAPSHOT_SYMBOLS } from "@/components/trading/MarketSnapshotBar";
 import { useRatioBotCandleFeed } from "@/hooks/useRatioBotCandleFeed";
 import type { SignalPreview, ForecastPayload } from "@/hooks/useQuickTrade";
@@ -59,6 +62,7 @@ type JsonRecord = Record<string, unknown>;
 const EMPTY_BOTS: RatioBotConfig[] = [];
 const EMPTY_INTEGRATIONS: IntegrationRecord[] = [];
 const EMPTY_DECISIONS: RatioDecision[] = [];
+const EMPTY_LOTS: LotRecord[] = [];
 const EMPTY_EVENTS: RatioEvent[] = [];
 
 type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
@@ -204,6 +208,15 @@ interface RatioBotConfig {
   recovery_enabled?: boolean | null;
   recovery_timeout_minutes?: number | null;
   max_entry_price_drift_bps?: string | number | null;
+  stage_buy_allocations?: number[] | null;
+  stage_buy_drops?: number[] | null;
+  stage_sell_allocations?: number[] | null;
+  stage_sell_rises?: number[] | null;
+  strategy_reserve_pct?: string | number | null;
+  starting_entry?: "BUY" | "SELL" | string | null;
+  recovery_buy_drop_pct?: string | number | null;
+  recovery_sell_rise_pct?: string | number | null;
+  no_trade_alert_minutes?: number | null;
 }
 
 interface RatioDisplay {
@@ -238,6 +251,7 @@ interface RatioDecision {
   decision?: string | null;
   execution_status?: string | null;
   evaluated_price?: string | null;
+  anchor_price?: string | number | null;
   executed_price?: string | number | null;
   executed_qty?: string | number | null;
   computed_ratio?: string | null;
@@ -257,6 +271,14 @@ interface RatioDecision {
     } | null;
     recovery_mode?: string | null;
     recovery_review?: { outcome?: string | null; reason?: string | null } | null;
+    recovery?: boolean | null;
+    stage?: { side?: string | null; index?: number | null; type?: string | null } | null;
+    buy_trough_ratio?: number | null;
+    buy_trough_price?: number | null;
+    rebound_from_trough_ratio?: number | null;
+    sell_peak_ratio?: number | null;
+    sell_peak_price?: number | null;
+    pullback_from_peak_ratio?: number | null;
   } | null;
 }
 
@@ -310,6 +332,15 @@ interface RuntimeStatus {
     price_age_seconds?: number | null;
     price_source?: string | null;
   } | null;
+  strategy_health_status?: string | null;
+  market_regime?: string | null;
+  range_status?: string | null;
+  current_stage_side?: string | null;
+  current_stage_index?: number | null;
+  used_buy_allocation_pct?: string | number | null;
+  used_sell_allocation_pct?: string | number | null;
+  observed_low_price?: string | number | null;
+  observed_high_price?: string | number | null;
 }
 
 interface OrderRecord extends JsonRecord {
@@ -344,6 +375,10 @@ interface PnlSummary {
   unrealized_pnl?: number | null;
   current_position_qty?: number | null;
   current_position_side?: string | null;
+  realized_pnl?: number | null;
+  estimated_slippage_cost?: number | null;
+  total_fees?: number | null;
+  net_realized_pnl?: number | null;
 }
 
 interface RuntimeSnapshot {
@@ -353,6 +388,7 @@ interface RuntimeSnapshot {
   last_order?: OrderRecord | null;
   position?: PositionRecord | null;
   pnl?: PnlSummary | null;
+  stage_plan?: JsonRecord | null;
 }
 
 interface BrainSnapshotPayload {
@@ -360,6 +396,78 @@ interface BrainSnapshotPayload {
   evaluated_at?: string | null;
   signal: SignalPreview | null;
   forecast: ForecastPayload | null;
+}
+
+interface LotRecord {
+  id: string;
+  stage?: number | null;
+  lot_type?: "NORMAL" | "RECOVERY" | string | null;
+  buy_price?: number | null;
+  original_qty?: number | null;
+  remaining_qty?: number | null;
+  spent_quote?: number | null;
+  allocation_pct?: number | null;
+  status?: "open" | "closed" | string | null;
+  realized_pnl?: number | null;
+  bought_at?: string | null;
+  closed_at?: string | null;
+}
+
+interface WalletAssetBalance {
+  asset?: string | null;
+  balance?: number | null;
+  available?: number | null;
+}
+
+interface WalletBalances {
+  symbol?: string | null;
+  base_asset?: string | null;
+  quote_asset?: string | null;
+  mode?: string | null;
+  environment?: string | null;
+  base?: WalletAssetBalance | null;
+  quote?: WalletAssetBalance | null;
+  error?: string | null;
+}
+
+interface ReadinessResult {
+  ready: boolean;
+  checked: boolean;
+  reason?: string | null;
+  asset?: string | null;
+  available?: number | null;
+}
+
+interface EffectiveFeedStatus {
+  status?: string | null;
+  reason?: string | null;
+  fresh?: boolean | null;
+  price_source?: string | null;
+  last_price_timestamp?: string | null;
+  max_age_seconds?: number | null;
+  age_seconds?: number | null;
+}
+
+interface PendingApproval {
+  id: string;
+  decision?: "BUY" | "SELL" | string | null;
+  evaluated_price?: number | null;
+  anchor_price?: number | null;
+  computed_ratio?: number | null;
+  reason?: string | null;
+  decided_at?: string | null;
+  expires_at?: string | null;
+  metadata?: JsonRecord | null;
+}
+
+interface DailyReportRow {
+  date: string;
+  trades: number;
+  buy_count: number;
+  sell_count: number;
+  fees: number;
+  recovery: boolean;
+  net_pnl: number;
 }
 
 interface IntegrationRecord {
@@ -460,6 +568,15 @@ type BotForm = {
   recovery_enabled: boolean;
   recovery_timeout_minutes: string;
   max_entry_price_drift_bps: string;
+  stage_buy_allocations: string;
+  stage_buy_drops: string;
+  stage_sell_allocations: string;
+  stage_sell_rises: string;
+  strategy_reserve_pct: string;
+  starting_entry: "none" | "BUY" | "SELL";
+  recovery_buy_drop_pct: string;
+  recovery_sell_rise_pct: string;
+  no_trade_alert_minutes: string;
 };
 
 const STRATEGY_DEFAULTS: Record<BotForm["algorithm"], JsonRecord> = {
@@ -541,8 +658,11 @@ const INITIAL_FORM: BotForm = {
   use_advisory_filter: false,
   advisory_mode: "off",
   trigger_mode: "threshold",
-  selling_loss_ratio: "",
-  buying_loss_ratio: "",
+  // Also the reversal-confirmation size for every stage-plan BUY/SELL
+  // (normal Stage 1-3 and Stage 4 Recovery) — required for a stage-plan
+  // bot to ever fire; without it, eligibility just arms and waits forever.
+  selling_loss_ratio: "0.02",
+  buying_loss_ratio: "0.02",
   trigger_confirm_seconds: "0",
   trigger_confirm_updates: "1",
   use_candle_close_confirmation: false,
@@ -570,9 +690,23 @@ const INITIAL_FORM: BotForm = {
   reserve_mode: "manual",
   reserve_min_pct: "",
   reserve_max_pct: "",
-  recovery_enabled: false,
-  recovery_timeout_minutes: "",
+  recovery_enabled: true,
+  recovery_timeout_minutes: "120",
   max_entry_price_drift_bps: "50",
+  // Phase 1 capital model: Stage 1-3 use only the 80% normal pool, the
+  // remaining 20% is the Stage 4 Recovery Reserve (strategy_reserve_pct).
+  // This is only the pre-filled default for a BRAND NEW bot — existing bots
+  // always load their own persisted values via buildFormFromConfig(),
+  // never rewritten by this default.
+  stage_buy_allocations: "40,20,20",
+  stage_buy_drops: "10,5,5",
+  stage_sell_allocations: "20,20,40",
+  stage_sell_rises: "5,5,10",
+  strategy_reserve_pct: "20",
+  starting_entry: "BUY",
+  recovery_buy_drop_pct: "5",
+  recovery_sell_rise_pct: "2",
+  no_trade_alert_minutes: "120",
 };
 
 function formatDateTime(value?: string | number | null) {
@@ -744,18 +878,41 @@ function buildFormFromConfig(config: RatioBotConfig): BotForm {
     v2_enabled: !!config.v2_enabled,
     sell_tranche_count: stringifyValue(config.sell_tranche_count) || INITIAL_FORM.sell_tranche_count,
     initial_exit_pct: stringifyValue(config.initial_exit_pct) || INITIAL_FORM.initial_exit_pct,
+    stage_buy_allocations: stringifyNumberList(config.stage_buy_allocations) || INITIAL_FORM.stage_buy_allocations,
+    stage_buy_drops: stringifyNumberList(config.stage_buy_drops) || INITIAL_FORM.stage_buy_drops,
+    stage_sell_allocations: stringifyNumberList(config.stage_sell_allocations) || INITIAL_FORM.stage_sell_allocations,
+    stage_sell_rises: stringifyNumberList(config.stage_sell_rises) || INITIAL_FORM.stage_sell_rises,
+    strategy_reserve_pct: stringifyValue(config.strategy_reserve_pct) || INITIAL_FORM.strategy_reserve_pct,
     reserve_mode: config.reserve_mode === "dynamic" ? "dynamic" : "manual",
     reserve_min_pct: stringifyValue(config.reserve_min_pct),
     reserve_max_pct: stringifyValue(config.reserve_max_pct),
     recovery_enabled: !!config.recovery_enabled,
     recovery_timeout_minutes: stringifyValue(config.recovery_timeout_minutes),
     max_entry_price_drift_bps: stringifyValue(config.max_entry_price_drift_bps) || INITIAL_FORM.max_entry_price_drift_bps,
+    starting_entry: config.starting_entry === "BUY" || config.starting_entry === "SELL" ? config.starting_entry : "none",
+    recovery_buy_drop_pct: stringifyValue(config.recovery_buy_drop_pct) || INITIAL_FORM.recovery_buy_drop_pct,
+    recovery_sell_rise_pct: stringifyValue(config.recovery_sell_rise_pct) || INITIAL_FORM.recovery_sell_rise_pct,
+    no_trade_alert_minutes: stringifyValue(config.no_trade_alert_minutes),
   };
 }
 
 function stringifyValue(value?: string | number | null) {
   if (value === null || value === undefined) return "";
   return String(value);
+}
+
+function stringifyNumberList(value?: number[] | null) {
+  if (!Array.isArray(value)) return "";
+  return value.map((item) => String(item)).join(",");
+}
+
+function parseNumberList(value: string) {
+  const items = value
+    .split(",")
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isFinite(item) && item > 0);
+
+  return items.length > 0 ? items : null;
 }
 
 function normalizeMarketType(value?: string | null): BotForm["market_type"] {
@@ -896,12 +1053,21 @@ function buildPayload(form: BotForm) {
     v2_enabled: form.v2_enabled,
     sell_tranche_count: parseNullableInteger(form.sell_tranche_count),
     initial_exit_pct: parseNullableNumber(form.initial_exit_pct),
+    stage_buy_allocations: form.v2_enabled ? parseNumberList(form.stage_buy_allocations) : null,
+    stage_buy_drops: form.v2_enabled ? parseNumberList(form.stage_buy_drops) : null,
+    stage_sell_allocations: form.v2_enabled ? parseNumberList(form.stage_sell_allocations) : null,
+    stage_sell_rises: form.v2_enabled ? parseNumberList(form.stage_sell_rises) : null,
+    strategy_reserve_pct: parseNullableNumber(form.strategy_reserve_pct),
     reserve_mode: form.reserve_mode,
     reserve_min_pct: parseNullableNumber(form.reserve_min_pct),
     reserve_max_pct: parseNullableNumber(form.reserve_max_pct),
     recovery_enabled: form.recovery_enabled,
     recovery_timeout_minutes: parseNullableInteger(form.recovery_timeout_minutes),
     max_entry_price_drift_bps: parseNullableNumber(form.max_entry_price_drift_bps),
+    starting_entry: form.starting_entry === "none" ? null : form.starting_entry,
+    recovery_buy_drop_pct: parseNullableNumber(form.recovery_buy_drop_pct),
+    recovery_sell_rise_pct: parseNullableNumber(form.recovery_sell_rise_pct),
+    no_trade_alert_minutes: parseNullableInteger(form.no_trade_alert_minutes),
   };
 }
 
@@ -925,6 +1091,13 @@ async function invalidateBotQueries(queryClient: ReturnType<typeof useQueryClien
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-ratio", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-decisions", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-events", botId] }),
+    queryClient.invalidateQueries({ queryKey: ["ratio-bot-lots", botId] }),
+    queryClient.invalidateQueries({ queryKey: ["ratio-bot-wallet", botId] }),
+    queryClient.invalidateQueries({ queryKey: ["ratio-bot-readiness", botId] }),
+    queryClient.invalidateQueries({ queryKey: ["ratio-bot-startup-checklist", botId] }),
+    queryClient.invalidateQueries({ queryKey: ["ratio-bot-effective-feed-status", botId] }),
+    queryClient.invalidateQueries({ queryKey: ["ratio-bot-daily-report", botId] }),
+    queryClient.invalidateQueries({ queryKey: ["ratio-bot-pending-approval", botId] }),
   ]);
 }
 
@@ -1060,6 +1233,8 @@ export default function RatioBotPage() {
   const [anchorBuyQty, setAnchorBuyQty] = useState("");
   const [anchorSellPrice, setAnchorSellPrice] = useState("");
   const [anchorSellQty, setAnchorSellQty] = useState("");
+  const [startingInvPrice, setStartingInvPrice] = useState("");
+  const [startingInvQty, setStartingInvQty] = useState("");
   const [safetyValues, setSafetyValues] = useState<ExecutionSafetyValues>({
     liveFeedMaxAgeSeconds: 3,
     webhookMaxSignalLatencyMs: 4000,
@@ -1250,6 +1425,89 @@ export default function RatioBotPage() {
     refetchInterval: 12000,
   });
 
+  const lotsQuery = useQuery({
+    queryKey: ["ratio-bot-lots", selectedBotId],
+    queryFn: async () => {
+      if (!selectedBotId) return [] as LotRecord[];
+      return fetchBotResource<LotRecord[]>(selectedBotId, "lots");
+    },
+    enabled: !!selectedBotId && !isCreating,
+    refetchInterval: 12000,
+  });
+
+  const walletQuery = useQuery({
+    queryKey: ["ratio-bot-wallet", selectedBotId],
+    queryFn: async () => {
+      if (!selectedBotId) return null as WalletBalances | null;
+      return fetchBotResource<WalletBalances>(selectedBotId, "wallet");
+    },
+    enabled: !!selectedBotId && !isCreating,
+    refetchInterval: 15000,
+  });
+
+  const readinessQuery = useQuery({
+    queryKey: ["ratio-bot-readiness", selectedBotId],
+    queryFn: async () => {
+      if (!selectedBotId) return null as ReadinessResult | null;
+      return fetchBotResource<ReadinessResult>(selectedBotId, "readiness");
+    },
+    enabled: !!selectedBotId && !isCreating,
+    refetchInterval: 15000,
+  });
+
+  const startupChecklistQuery = useQuery({
+    queryKey: ["ratio-bot-startup-checklist", selectedBotId],
+    queryFn: async () => {
+      if (!selectedBotId) return null as StartupChecklist | null;
+      return fetchBotResource<StartupChecklist>(selectedBotId, "startup-checklist");
+    },
+    enabled: !!selectedBotId && !isCreating,
+    // Two of the six checks (wallet balance, exchange filters) hit the live
+    // exchange API — auto-polling this like the tick-driven runtime queries
+    // above would multiply real API calls per open bot tab for no benefit.
+    // Once a bot is actually running (enabled), this checklist is a
+    // pre-Start diagnostic, not a live monitor — the evaluation loop's own
+    // gates are what matter then, so auto-polling stops entirely (the
+    // Re-check button still works anytime). While still deciding whether to
+    // Start, poll adaptively: fast for a single bot, backed off the more
+    // bots are open, so total API load across tabs stays bounded regardless
+    // of how many bots the operator is running.
+    refetchInterval: selectedFromList?.enabled
+      ? false
+      : (bots.length <= 1 ? 30_000 : bots.length <= 3 ? 90_000 : 180_000),
+  });
+
+  const effectiveFeedStatusQuery = useQuery({
+    queryKey: ["ratio-bot-effective-feed-status", selectedBotId],
+    queryFn: async () => {
+      if (!selectedBotId) return null as EffectiveFeedStatus | null;
+      return fetchBotResource<EffectiveFeedStatus>(selectedBotId, "effective-feed-status");
+    },
+    enabled: !!selectedBotId && !isCreating,
+    refetchInterval: 10000,
+  });
+
+  const pendingApprovalQuery = useQuery({
+    queryKey: ["ratio-bot-pending-approval", selectedBotId],
+    queryFn: async () => {
+      if (!selectedBotId) return null as PendingApproval | null;
+      const result = await fetchBotResource<PendingApproval | Record<string, never>>(selectedBotId, "pending-approval");
+      return result && "id" in result ? (result as PendingApproval) : null;
+    },
+    enabled: !!selectedBotId && !isCreating && form.mode !== "restricted_auto",
+    refetchInterval: 10000,
+  });
+
+  const dailyReportQuery = useQuery({
+    queryKey: ["ratio-bot-daily-report", selectedBotId],
+    queryFn: async () => {
+      if (!selectedBotId) return { days: [] as DailyReportRow[] };
+      return fetchBotResource<{ days: DailyReportRow[]; note?: string }>(selectedBotId, "daily-report");
+    },
+    enabled: !!selectedBotId && !isCreating,
+    refetchInterval: 60000,
+  });
+
   useEffect(() => {
     if (!workspaceId) {
       setSelectedBotId(null);
@@ -1379,6 +1637,40 @@ export default function RatioBotPage() {
     },
   });
 
+  const recalculateResumeMutation = useMutation({
+    mutationFn: async (botId: string) => {
+      const payload = buildPayload(form);
+      const response = await api.post<JsonRecord>(`/ratio-bots/${botId}/recalculate-resume`, {
+        stage_buy_allocations: payload.stage_buy_allocations,
+        stage_buy_drops: payload.stage_buy_drops,
+        stage_sell_allocations: payload.stage_sell_allocations,
+        stage_sell_rises: payload.stage_sell_rises,
+        strategy_reserve_pct: payload.strategy_reserve_pct,
+        min_net_profit_bps: payload.min_net_profit_bps,
+        trigger_confirm_seconds: payload.trigger_confirm_seconds,
+        trigger_confirm_updates: payload.trigger_confirm_updates,
+        min_price_stability_seconds: payload.min_price_stability_seconds,
+        max_spike_deviation_bps: payload.max_spike_deviation_bps,
+        apply_mode: "next_stage",
+      });
+      return { data: response.data, botId };
+    },
+    onSuccess: async ({ data, botId }) => {
+      toast({
+        title: "Recalculated and resumed",
+        description: (data.message as string) || "Future stages updated without rewriting fills.",
+      });
+      await invalidateBotQueries(queryClient, workspaceId, botId);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Recalculate failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const killSwitchMutation = useMutation({
     mutationFn: async ({ botId, nextValue }: { botId: string; nextValue: boolean }) => {
       const response = await api.post<JsonRecord>(`/ratio-bots/${botId}/kill-switch`, {
@@ -1472,14 +1764,81 @@ export default function RatioBotPage() {
     },
   });
 
+  const startingInventoryMutation = useMutation({
+    mutationFn: async ({ botId, costBasisPrice, quantity }: { botId: string; costBasisPrice: string; quantity: string }) => {
+      const response = await api.post<JsonRecord>(`/ratio-bots/${botId}/anchor-starting-inventory`, {
+        cost_basis_price: Number(costBasisPrice),
+        quantity: Number(quantity),
+      });
+      return { data: response.data, botId };
+    },
+    onSuccess: async ({ botId }) => {
+      toast({ title: "Starting inventory recorded", description: "Normal and recovery lots have been seeded from this position." });
+      setStartingInvPrice("");
+      setStartingInvQty("");
+      await invalidateBotQueries(queryClient, workspaceId, botId);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Starting inventory failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const approvalMutation = useMutation({
+    mutationFn: async ({ botId, decisionId, action }: { botId: string; decisionId: string; action: "approve" | "reject" }) => {
+      const response = await api.post<JsonRecord>(`/ratio-bots/${botId}/decisions/${decisionId}/${action}`);
+      return { data: response.data, botId, action };
+    },
+    onSuccess: async ({ botId, action }) => {
+      toast({ title: action === "approve" ? "Suggestion approved" : "Suggestion rejected", description: action === "approve" ? "Sent through the execution safety pipeline." : "Won't be acted on." });
+      await invalidateBotQueries(queryClient, workspaceId, botId);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Action failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const currentStatus = statusQuery.data || null;
   const currentFeed = (feedQuery.data && Object.keys(feedQuery.data).length > 0 ? feedQuery.data : snapshotQuery.data?.feed) || null;
   const currentSignal = (lastSignalQuery.data && Object.keys(lastSignalQuery.data).length > 0 ? lastSignalQuery.data : snapshotQuery.data?.last_signal) || null;
   const currentOrder = (lastOrderQuery.data && Object.keys(lastOrderQuery.data).length > 0 ? lastOrderQuery.data : snapshotQuery.data?.last_order) || null;
   const currentPosition = (positionQuery.data && Object.keys(positionQuery.data).length > 0 ? positionQuery.data : snapshotQuery.data?.position) || null;
   const currentPnl = pnlQuery.data || snapshotQuery.data?.pnl || null;
+  const currentStagePlan = snapshotQuery.data?.stage_plan || null;
   const currentRatio = ratioQuery.data || null;
   const currentBrainSnapshot = brainSnapshotQuery.data || null;
+
+  const reversalWatch = (() => {
+    const trigger = currentSignal?.metadata?.trigger || "";
+    const isRecovery = !!currentSignal?.metadata?.recovery;
+    const stageIndex = currentSignal?.metadata?.stage?.index ?? currentStatus?.current_stage_index ?? null;
+    const stageLabel = isRecovery ? "Recovery" : stageIndex ? `Stage ${stageIndex}` : undefined;
+
+    if (trigger === "stage_buy_reversal_watch" || trigger === "recovery_reversal_watch") {
+      return {
+        side: "BUY" as const,
+        armed: true,
+        stageLabel,
+        anchorPrice: currentSignal?.anchor_price,
+        extremePrice: currentSignal?.metadata?.buy_trough_price,
+        progressRatio: currentSignal?.metadata?.rebound_from_trough_ratio,
+        requiredRatio: toNumber(form.buying_loss_ratio),
+        reason: currentSignal?.reason,
+      };
+    }
+    if (trigger === "stage_sell_reversal_watch" || trigger === "recovery_sell_watch") {
+      return {
+        side: "SELL" as const,
+        armed: true,
+        stageLabel,
+        anchorPrice: currentSignal?.anchor_price,
+        extremePrice: currentSignal?.metadata?.sell_peak_price,
+        progressRatio: currentSignal?.metadata?.pullback_from_peak_ratio,
+        requiredRatio: toNumber(form.selling_loss_ratio),
+        reason: currentSignal?.reason,
+      };
+    }
+    return null;
+  })();
   const liveFeed = useRatioBotCandleFeed(
     selectedBot?.symbol || form.symbol,
     selectedBot?.timeframe || form.timeframe,
@@ -1695,7 +2054,12 @@ export default function RatioBotPage() {
       .map(({ title, body, status, at }) => ({ title, body, status, at }));
   })();
 
-  const connectionOptions = connections as Array<{ id: string; name?: string; provider?: string; is_enabled?: boolean }>;
+  const connectionOptions = connections as Array<{ id: string; name?: string; provider?: string; is_enabled?: boolean; is_testnet?: boolean }>;
+  const selectedConnection = connectionOptions.find((connection) => connection.id === selectedBot?.connection_id);
+  // Distinct from execution_mode (sandbox/live): a "live" bot can still be
+  // pointed at a testnet exchange connection — this is the actual real-vs-fake-money
+  // signal, never conflate the two labels (spec §5: "never make Testnet visually resemble Live").
+  const isLiveOnTestnet = (selectedBot?.execution_mode || "").toLowerCase() === "live" && !!selectedConnection?.is_testnet;
   const integrationOptions = integrationsQuery.data ?? EMPTY_INTEGRATIONS;
 
   const handleCreateNew = () => {
@@ -1727,7 +2091,7 @@ export default function RatioBotPage() {
     });
   };
 
-  const isBusy = saveMutation.isPending || lifecycleMutation.isPending || killSwitchMutation.isPending || anchorMutation.isPending || deleteMutation.isPending;
+  const isBusy = saveMutation.isPending || lifecycleMutation.isPending || recalculateResumeMutation.isPending || killSwitchMutation.isPending || anchorMutation.isPending || deleteMutation.isPending;
 
   return (
     <AppShell>
@@ -1838,6 +2202,16 @@ export default function RatioBotPage() {
                       ) : null}
                     </div>
 
+                    {!isCreating && selectedBotId && readinessQuery.data && !readinessQuery.data.ready ? (
+                      <div className="flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-300">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        <span>
+                          <strong>BOT NOT READY</strong> — {readinessQuery.data.reason || "insufficient balance for the configured starting entry"}
+                          {readinessQuery.data.asset ? ` (${readinessQuery.data.asset})` : ""}.
+                        </span>
+                      </div>
+                    ) : null}
+
                     <div className="flex flex-wrap gap-2">
                       <Button
                         type="button"
@@ -1856,7 +2230,12 @@ export default function RatioBotPage() {
                       </Button>
                       {!isCreating && selectedBotId ? (
                         <>
-                          <Button type="button" variant="secondary" onClick={() => triggerLifecycle("start")} disabled={isBusy}>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => triggerLifecycle("start")}
+                            disabled={isBusy || (readinessQuery.data ? !readinessQuery.data.ready : false)}
+                          >
                             <Play className="mr-2 h-4 w-4" />
                             Start
                           </Button>
@@ -1867,6 +2246,10 @@ export default function RatioBotPage() {
                           <Button type="button" variant="secondary" onClick={() => triggerLifecycle("resume")} disabled={isBusy}>
                             <ShieldCheck className="mr-2 h-4 w-4" />
                             Resume
+                          </Button>
+                          <Button type="button" variant="outline" onClick={() => selectedBotId && recalculateResumeMutation.mutate(selectedBotId)} disabled={!selectedBotId || isBusy}>
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                            Recalculate & Resume
                           </Button>
                           <Button type="button" variant="outline" onClick={() => triggerLifecycle("evaluate")} disabled={isBusy}>
                             <ActivitySquare className="mr-2 h-4 w-4" />
@@ -1932,6 +2315,67 @@ export default function RatioBotPage() {
                     </div>
                   ) : null}
 
+                  {form.mode !== "restricted_auto" && pendingApprovalQuery.data ? (
+                    <Card className="border-amber-500/40 bg-amber-500/5">
+                      <CardHeader>
+                        <CardTitle>Suggested Action — Approval Needed</CardTitle>
+                        <p className="text-sm text-muted-foreground">
+                          Same decision engine as Automatic mode — mode &quot;{form.mode}&quot; just waits for your approval before executing.
+                          {pendingApprovalQuery.data.expires_at ? ` Expires ${formatDateTime(pendingApprovalQuery.data.expires_at)}.` : ""}
+                        </p>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <DetailRow
+                            label="Suggested"
+                            value={<Badge variant={statusVariant(pendingApprovalQuery.data.decision)}>{prettyLabel(pendingApprovalQuery.data.decision)}</Badge>}
+                          />
+                          <DetailRow label="Price" value={formatNumber(pendingApprovalQuery.data.evaluated_price, 4)} />
+                          <DetailRow label="Ratio" value={formatRatioPercent(pendingApprovalQuery.data.computed_ratio)} />
+                        </div>
+                        <p className="text-sm text-muted-foreground">{pendingApprovalQuery.data.reason}</p>
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            onClick={() => selectedBotId && pendingApprovalQuery.data && approvalMutation.mutate({ botId: selectedBotId, decisionId: pendingApprovalQuery.data.id, action: "approve" })}
+                            disabled={isBusy || approvalMutation.isPending}
+                          >
+                            Approve &amp; Execute
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => selectedBotId && pendingApprovalQuery.data && approvalMutation.mutate({ botId: selectedBotId, decisionId: pendingApprovalQuery.data.id, action: "reject" })}
+                            disabled={isBusy || approvalMutation.isPending}
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ) : null}
+
+                  {!isCreating && selectedBotId ? (
+                    <RatioBotStartupChecklist
+                      checklist={startupChecklistQuery.data}
+                      isLoading={startupChecklistQuery.isFetching}
+                      onRefresh={() => startupChecklistQuery.refetch()}
+                    />
+                  ) : null}
+
+                  {reversalWatch ? (
+                    <RatioBotReversalWatchCard
+                      side={reversalWatch.side}
+                      armed={reversalWatch.armed}
+                      stageLabel={reversalWatch.stageLabel}
+                      anchorPrice={reversalWatch.anchorPrice}
+                      extremePrice={reversalWatch.extremePrice}
+                      progressRatio={reversalWatch.progressRatio}
+                      requiredRatio={reversalWatch.requiredRatio}
+                      reason={reversalWatch.reason}
+                    />
+                  ) : null}
+
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <MetricCard
                       title="Bot Status"
@@ -1956,6 +2400,24 @@ export default function RatioBotPage() {
                       value={formatNumber(currentStatus?.unrealized_pnl ?? currentPnl?.unrealized_pnl ?? selectedBot?.state?.unrealized_pnl, 6)}
                       hint={currentStatus?.last_order_status ? `Last order ${prettyLabel(currentStatus.last_order_status)}` : "No fill data yet"}
                       icon={<TrendingDown className="h-5 w-5" />}
+                    />
+                    <MetricCard
+                      title="Strategy Health"
+                      value={<Badge variant={statusVariant(currentStatus?.strategy_health_status || String(currentStagePlan?.strategy_health_status || ""))}>{prettyLabel(currentStatus?.strategy_health_status || String(currentStagePlan?.strategy_health_status || "healthy"))}</Badge>}
+                      hint={currentStatus?.range_status || String(currentStagePlan?.range_status || "Inside configured range")}
+                      icon={<ShieldCheck className="h-5 w-5" />}
+                    />
+                    <MetricCard
+                      title="Current Stage"
+                      value={`${currentStatus?.current_stage_side || currentStagePlan?.current_stage_side || "BUY"} ${currentStatus?.current_stage_index || currentStagePlan?.current_stage_index || "-"}`}
+                      hint={`Buy ${currentStagePlan?.buy_stages_filled ?? 0}/${currentStagePlan?.buy_stages_total ?? 0} · Sell ${currentStagePlan?.sell_stages_completed ?? 0}/${currentStagePlan?.sell_stages_total ?? 0}`}
+                      icon={<Target className="h-5 w-5" />}
+                    />
+                    <MetricCard
+                      title="Used Allocation"
+                      value={`${formatNumber(currentStatus?.used_buy_allocation_pct ?? currentStagePlan?.used_buy_allocation_pct, 2)}% / ${formatNumber(currentStatus?.used_sell_allocation_pct ?? currentStagePlan?.used_sell_allocation_pct, 2)}%`}
+                      hint={`Reserve ${formatNumber(currentStagePlan?.reserve_pct, 2)}% · Deployable ${formatNumber(currentStagePlan?.deployable_quote, 4)} USDT`}
+                      icon={<ActivitySquare className="h-5 w-5" />}
                     />
                   </div>
 
@@ -2017,8 +2479,20 @@ export default function RatioBotPage() {
                       <Card>
                         <CardHeader>
                           <CardTitle>Feed Health</CardTitle>
+                          <p className="text-xs text-muted-foreground">
+                            Effective status uses the same freshness gate execution blocks on — it can never say Fresh while a trade would actually be blocked.
+                          </p>
                         </CardHeader>
                         <CardContent className="space-y-3">
+                          <DetailRow
+                            label="Effective status"
+                            value={
+                              <Badge variant={effectiveFeedStatusQuery.data?.fresh ? "default" : "destructive"}>
+                                {prettyLabel(effectiveFeedStatusQuery.data?.status || "unknown")}
+                              </Badge>
+                            }
+                          />
+                          <DetailRow label="Effective reason" value={prettyLabel(effectiveFeedStatusQuery.data?.reason)} />
                           <DetailRow label="Market type" value={prettyLabel(currentFeed?.market_type || selectedMarketType)} />
                           <DetailRow label="Health" value={<Badge variant={statusVariant(currentFeed?.status || currentFeed?.state_feed_status)}>{prettyLabel(currentFeed?.status || currentFeed?.state_feed_status || currentFeed?.state || "unknown")}</Badge>} />
                           <DetailRow label="Lag seconds" value={formatNumber(currentFeed?.lag_seconds, 2)} />
@@ -2123,6 +2597,8 @@ export default function RatioBotPage() {
                         positionQty={positionQty}
                         currentPrice={latestPrice}
                         executionMode={selectedBot?.execution_mode}
+                        liveWallet={walletQuery.data}
+                        isLiveOnTestnet={isLiveOnTestnet}
                       />
                       <RatioBotEconomicsCard
                         sellThresholdRatio={toNumber(selectedBot?.sell_threshold_ratio) ?? 0}
@@ -2154,6 +2630,7 @@ export default function RatioBotPage() {
                     <div className="grid gap-6 xl:grid-cols-2">
                       <RatioBotStrategyManagerCard snapshot={strategyManagerSnapshot} />
                       <RatioBotTradeLedger decisions={decisionsQuery.data ?? EMPTY_DECISIONS} />
+                      <RatioBotLotList lots={lotsQuery.data ?? EMPTY_LOTS} quoteAsset={walletQuery.data?.quote_asset ?? undefined} />
                     </div>
                   ) : null}
                 </TabsContent>
@@ -2210,7 +2687,18 @@ export default function RatioBotPage() {
                       </CardHeader>
                       <CardContent className="space-y-3">
                         <DetailRow label="Today realized" value={formatNumber(currentPnl?.today_realized_pnl, 6)} />
+                        <DetailRow label="Realized (all-time)" value={formatNumber(currentPnl?.realized_pnl, 6)} />
                         <DetailRow label="Unrealized" value={formatNumber(currentPnl?.unrealized_pnl ?? currentStatus?.unrealized_pnl, 6)} />
+                        <DetailRow label="Total fees" value={formatNumber(currentPnl?.total_fees, 6)} />
+                        <DetailRow label="Estimated slippage cost" value={formatNumber(currentPnl?.estimated_slippage_cost, 6)} />
+                        <DetailRow
+                          label="Net realized"
+                          value={
+                            <span className={(currentPnl?.net_realized_pnl ?? 0) >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"}>
+                              {formatNumber(currentPnl?.net_realized_pnl, 6)}
+                            </span>
+                          }
+                        />
                         <DetailRow label="Current side" value={prettyLabel(currentPnl?.current_position_side || currentStatus?.current_position_side)} />
                         <DetailRow label="Current qty" value={formatNumber(currentPnl?.current_position_qty ?? currentStatus?.current_position_qty, 6)} />
                         <DetailRow label="Kill switch" value={form.kill_switch ? "Enabled" : "Off"} />
@@ -2320,6 +2808,21 @@ export default function RatioBotPage() {
                                   <SelectItem value="short_only">short_only</SelectItem>
                                 </>
                               )}
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                        <Field
+                          label="Starting entry"
+                          hint="Controls only the first trading objective — it does not lock the bot's direction afterward. BUY checks live USDT balance before Start; SELL checks live BTC/base-asset balance. If the balance is insufficient, Start is blocked with BOT NOT READY instead of silently switching sides."
+                        >
+                          <Select value={form.starting_entry} onValueChange={(value: BotForm["starting_entry"]) => setForm((current) => ({ ...current, starting_entry: value }))}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Not set</SelectItem>
+                              <SelectItem value="BUY">BUY</SelectItem>
+                              <SelectItem value="SELL">SELL</SelectItem>
                             </SelectContent>
                           </Select>
                         </Field>
@@ -2475,6 +2978,21 @@ export default function RatioBotPage() {
                               <Field label="Initial exit %" hint="Fraction of the position sold on the first sell stage. 1 = sells everything at once.">
                                 <Input type="number" step="0.01" min={0.01} max={1} value={form.initial_exit_pct} onChange={(event) => setForm((current) => ({ ...current, initial_exit_pct: event.target.value }))} />
                               </Field>
+                              <Field label="BUY allocations" hint="Comma-separated stage percentages. Example: 50,25,25">
+                                <Input value={form.stage_buy_allocations} onChange={(event) => setForm((current) => ({ ...current, stage_buy_allocations: event.target.value }))} />
+                              </Field>
+                              <Field label="BUY eligible drops %" hint="Each BUY stage waits for this drop from its reference. Example: 10,5,5">
+                                <Input value={form.stage_buy_drops} onChange={(event) => setForm((current) => ({ ...current, stage_buy_drops: event.target.value }))} />
+                              </Field>
+                              <Field label="SELL allocations" hint="Reverse lot selling default. Example: 25,25,50">
+                                <Input value={form.stage_sell_allocations} onChange={(event) => setForm((current) => ({ ...current, stage_sell_allocations: event.target.value }))} />
+                              </Field>
+                              <Field label="SELL eligible rises %" hint="Each SELL stage requires this profit/rise on eligible lots. Example: 5,5,10">
+                                <Input value={form.stage_sell_rises} onChange={(event) => setForm((current) => ({ ...current, stage_sell_rises: event.target.value }))} />
+                              </Field>
+                              <Field label="Recovery reserve %" hint="Held aside from Stage 1-3 deployable capital (e.g. Stage 1-3 = 40,20,20 summing to 80, reserve = 20). Deployed only once per exhaustion cycle, only after the recovery review window + a confirmed reversal — see Recovery monitoring below.">
+                                <Input type="number" step="0.01" min={0} max={100} value={form.strategy_reserve_pct} onChange={(event) => setForm((current) => ({ ...current, strategy_reserve_pct: event.target.value }))} />
+                              </Field>
 
                               <Field label="Reserve mode" hint="Dynamic lets the Strategy Manager's regime read adjust reserve % within your min/max bounds.">
                                 <Select value={form.reserve_mode} onValueChange={(value: BotForm["reserve_mode"]) => setForm((current) => ({ ...current, reserve_mode: value }))}>
@@ -2498,16 +3016,27 @@ export default function RatioBotPage() {
                                 </div>
                               ) : null}
 
-                              <Field label="Recovery monitoring" hint="If the bot gets stuck (no profitable sell / reserve exhausted, or fully sold with price running away), watch and periodically review instead of forcing a loss-sell or chasing price.">
+                              <Field
+                                label="Stage 4 Recovery"
+                                hint="If Stage 1-3 fully exhausts one direction with no profitable exit, wait the review window below, then observe for a genuine reversal (never on eligibility alone) before deploying the reserve as one real BUY/SELL — its own lot, its own exit target, at most once per exhaustion cycle. Never re-buys at a loss."
+                              >
                                 <div className="flex h-10 items-center justify-between rounded-md border px-3">
                                   <span className="text-sm">{form.recovery_enabled ? "Enabled" : "Disabled"}</span>
                                   <Switch checked={form.recovery_enabled} onCheckedChange={(checked) => setForm((current) => ({ ...current, recovery_enabled: checked }))} />
                                 </div>
                               </Field>
                               {form.recovery_enabled ? (
-                                <Field label="Recovery timeout (minutes)" hint="How long stuck before entering recovery monitoring.">
-                                  <Input type="number" step="1" min={1} value={form.recovery_timeout_minutes} onChange={(event) => setForm((current) => ({ ...current, recovery_timeout_minutes: event.target.value }))} />
-                                </Field>
+                                <>
+                                  <Field label="Recovery review delay (minutes)" hint="How long stuck (no trade since the last fill) before the recovery window opens. Spec default: 120 (2 hours).">
+                                    <Input type="number" step="1" min={1} value={form.recovery_timeout_minutes} onChange={(event) => setForm((current) => ({ ...current, recovery_timeout_minutes: event.target.value }))} />
+                                  </Field>
+                                  <Field label="Recovery BUY drop %" hint="How far price must fall below the lowest open lot before the recovery BUY starts tracking for a reversal.">
+                                    <Input type="number" step="0.01" min={0.0001} max={100} value={form.recovery_buy_drop_pct} onChange={(event) => setForm((current) => ({ ...current, recovery_buy_drop_pct: event.target.value }))} />
+                                  </Field>
+                                  <Field label="Recovery SELL rise %" hint="How far price must rise above the recovery lot's fill price before the recovery SELL starts tracking for a reversal. Still gated by the min-net-profit floor below.">
+                                    <Input type="number" step="0.01" min={0.0001} max={100} value={form.recovery_sell_rise_pct} onChange={(event) => setForm((current) => ({ ...current, recovery_sell_rise_pct: event.target.value }))} />
+                                  </Field>
+                                </>
                               ) : null}
                             </>
                           ) : null}
@@ -2546,16 +3075,19 @@ export default function RatioBotPage() {
                         <Field label="Cooldown after trade">
                           <Input type="number" step="1" value={form.cooldown_seconds_after_trade} onChange={(event) => setForm((current) => ({ ...current, cooldown_seconds_after_trade: event.target.value }))} />
                         </Field>
+                        <Field label="No-trade alert (minutes)" hint="Send an in-app notification if no trade fires for this long. Blank disables the alert. Rate-limited to one alert per idle period, not repeated every tick.">
+                          <Input type="number" step="1" min={1} value={form.no_trade_alert_minutes} onChange={(event) => setForm((current) => ({ ...current, no_trade_alert_minutes: event.target.value }))} />
+                        </Field>
                         <Field label="Trigger confirm seconds">
                           <Input type="number" step="1" value={form.trigger_confirm_seconds} onChange={(event) => setForm((current) => ({ ...current, trigger_confirm_seconds: event.target.value }))} />
                         </Field>
                         <Field label="Trigger confirm updates">
                           <Input type="number" step="1" value={form.trigger_confirm_updates} onChange={(event) => setForm((current) => ({ ...current, trigger_confirm_updates: event.target.value }))} />
                         </Field>
-                        <Field label="Selling loss ratio">
+                        <Field label="Selling loss ratio" hint="Required pullback from the tracked high before any SELL fires — normal Stage 1-3 sells and the Stage 4 Recovery sell. Blank means a sell will arm and track forever but never confirm.">
                           <Input type="number" step="0.0001" value={form.selling_loss_ratio} onChange={(event) => setForm((current) => ({ ...current, selling_loss_ratio: event.target.value }))} />
                         </Field>
-                        <Field label="Buying loss ratio">
+                        <Field label="Buying loss ratio" hint="Required rebound from the tracked low before any BUY fires — normal Stage 1-3 buys and the Stage 4 Recovery buy. Blank means a buy will arm and track forever but never confirm.">
                           <Input type="number" step="0.0001" value={form.buying_loss_ratio} onChange={(event) => setForm((current) => ({ ...current, buying_loss_ratio: event.target.value }))} />
                         </Field>
                         <Field label="Min price stability seconds">
@@ -2778,6 +3310,34 @@ export default function RatioBotPage() {
                 </TabsContent>
 
                 <TabsContent value="anchors" className="space-y-6">
+                  {form.starting_entry === "SELL" && !(selectedBot?.state?.last_position_qty && Number(selectedBot.state.last_position_qty) > 0) ? (
+                    <Card className="border-amber-500/40 bg-amber-500/5">
+                      <CardHeader>
+                        <CardTitle>Declare Starting Inventory</CardTitle>
+                        <p className="text-sm text-muted-foreground">
+                          Starting Entry is SELL — tell the bot what coin you already hold and your average cost. This seeds real lots (80% normal, {formatNumber(selectedBot?.strategy_reserve_pct, 0)}% recovery) so the existing Stage 1-3 sell logic and Recovery Reserve manage this position exactly like a normally-filled one. One-time only, before any fill.
+                        </p>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <Field label="Average cost basis price">
+                            <Input type="number" step="0.0001" value={startingInvPrice} onChange={(event) => setStartingInvPrice(event.target.value)} />
+                          </Field>
+                          <Field label="Quantity held">
+                            <Input type="number" step="0.00000001" value={startingInvQty} onChange={(event) => setStartingInvQty(event.target.value)} />
+                          </Field>
+                        </div>
+                        <Button
+                          type="button"
+                          onClick={() => selectedBotId && startingInventoryMutation.mutate({ botId: selectedBotId, costBasisPrice: startingInvPrice, quantity: startingInvQty })}
+                          disabled={!selectedBotId || !startingInvPrice || !startingInvQty || isBusy}
+                        >
+                          Record starting inventory
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ) : null}
+
                   <Card>
                     <CardHeader>
                       <CardTitle>Manual Overrides</CardTitle>
@@ -2858,6 +3418,48 @@ export default function RatioBotPage() {
 
                 <TabsContent value="audit" className="space-y-6">
                   <PayoutTimeline title="Decision Timeline" reference={selectedBot?.symbol} status={positionState} events={timelineItems} />
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Daily Performance</CardTitle>
+                      <p className="text-xs text-muted-foreground">
+                        Built only from actual filled trades and closed lots — never fabricated. Unrealized P&L and per-day drawdown are not tracked historically, so they're intentionally left out.
+                      </p>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Trades</TableHead>
+                            <TableHead>Net P&L</TableHead>
+                            <TableHead>Fees</TableHead>
+                            <TableHead>Recovery</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {(dailyReportQuery.data?.days ?? []).map((day) => (
+                            <TableRow key={day.date}>
+                              <TableCell>{day.date}</TableCell>
+                              <TableCell>{day.trades} ({day.buy_count} buy / {day.sell_count} sell)</TableCell>
+                              <TableCell className={day.net_pnl >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"}>
+                                {day.net_pnl >= 0 ? "+" : ""}{formatNumber(day.net_pnl, 4)}
+                              </TableCell>
+                              <TableCell>{formatNumber(day.fees, 4)}</TableCell>
+                              <TableCell>{day.recovery ? <Badge variant="secondary">Yes</Badge> : "No"}</TableCell>
+                            </TableRow>
+                          ))}
+                          {(dailyReportQuery.data?.days ?? []).length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
+                                No completed trading days yet.
+                              </TableCell>
+                            </TableRow>
+                          ) : null}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
 
                   <div className="grid gap-6 xl:grid-cols-2">
                     <Card>

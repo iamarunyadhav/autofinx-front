@@ -7,6 +7,21 @@ function fmt(value: number, digits = 2) {
   return value.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
+export interface RatioBotLiveWalletBalance {
+  asset?: string | null;
+  available?: number | null;
+  balance?: number | null;
+}
+
+export interface RatioBotLiveWallet {
+  mode?: string | null;
+  base_asset?: string | null;
+  quote_asset?: string | null;
+  base?: RatioBotLiveWalletBalance | null;
+  quote?: RatioBotLiveWalletBalance | null;
+  error?: string | null;
+}
+
 export interface RatioBotCapitalCardProps {
   baseQuoteAmount: number;
   initialEntryPct: number;
@@ -19,6 +34,10 @@ export interface RatioBotCapitalCardProps {
   quoteAsset?: string;
   /** "sandbox" | "live" — every figure on this card is real money only when this is "live". */
   executionMode?: string | null;
+  /** Real exchange balance for both sides of the trading pair (spec §4/§52) — additive to the config-derived breakdown below, not a replacement for it. */
+  liveWallet?: RatioBotLiveWallet | null;
+  /** True when execution_mode="live" AND the selected exchange connection is a testnet connection — a "live" bot can still be pointed at fake money (spec §5: never let Testnet look like Live). */
+  isLiveOnTestnet?: boolean;
 }
 
 /**
@@ -37,8 +56,11 @@ export function RatioBotCapitalCard({
   currentPrice,
   quoteAsset = "USDT",
   executionMode,
+  liveWallet,
+  isLiveOnTestnet,
 }: RatioBotCapitalCardProps) {
   const isLive = (executionMode || "").toLowerCase() === "live";
+  const showLiveWallet = liveWallet && (liveWallet.mode || "").toLowerCase() === "live";
   const wallet = Math.max(0, baseQuoteAmount || 0);
   const staged = reserveTrancheCount > 0 && initialEntryPct < 1;
   const reserveInitial = staged ? wallet * (1 - initialEntryPct) : 0;
@@ -56,12 +78,40 @@ export function RatioBotCapitalCard({
       <CardHeader className="flex-row items-center justify-between space-y-0">
         <CardTitle>Capital Breakdown</CardTitle>
         {executionMode ? (
-          <Badge className={isLive ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}>
-            {isLive ? "🟢 LIVE — real funds" : "🧪 SANDBOX — simulated"}
+          <Badge
+            className={
+              isLive && isLiveOnTestnet
+                ? "bg-sky-500/15 text-sky-300"
+                : isLive
+                  ? "bg-emerald-500/15 text-emerald-300"
+                  : "bg-amber-500/15 text-amber-300"
+            }
+          >
+            {isLive && isLiveOnTestnet ? "🔷 LIVE — TESTNET (fake funds)" : isLive ? "🟢 LIVE — MAINNET (real funds)" : "🧪 SANDBOX — simulated"}
           </Badge>
         ) : null}
       </CardHeader>
       <CardContent className="space-y-4">
+        {showLiveWallet ? (
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
+              <div className="text-xs text-muted-foreground">Live {liveWallet?.quote_asset || quoteAsset} available</div>
+              <div className="text-lg font-semibold">
+                {liveWallet?.quote?.available !== null && liveWallet?.quote?.available !== undefined
+                  ? `${fmt(liveWallet.quote.available, 4)} ${liveWallet?.quote_asset || quoteAsset}`
+                  : liveWallet?.error ? "Unavailable" : "—"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
+              <div className="text-xs text-muted-foreground">Live {liveWallet?.base_asset || "base asset"} available</div>
+              <div className="text-lg font-semibold">
+                {liveWallet?.base?.available !== null && liveWallet?.base?.available !== undefined
+                  ? `${fmt(liveWallet.base.available, 6)} ${liveWallet?.base_asset || ""}`
+                  : liveWallet?.error ? "Unavailable" : "—"}
+              </div>
+            </div>
+          </div>
+        ) : null}
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div className="rounded-lg border border-border/60 px-3 py-2">
             <div className="text-xs text-muted-foreground">
