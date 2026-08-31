@@ -446,6 +446,17 @@ interface EffectiveFeedStatus {
   last_price_timestamp?: string | null;
   max_age_seconds?: number | null;
   age_seconds?: number | null;
+  connection_state?: string | null;
+  source?: string | null;
+  snapshot?: {
+    symbol?: string | null;
+    source?: string | null;
+    connection_state?: string | null;
+    received_at?: string | null;
+    age_ms?: number | null;
+    max_age_seconds?: number | null;
+    stale_reason?: string | null;
+  } | null;
 }
 
 interface PendingApproval {
@@ -1486,6 +1497,7 @@ export default function RatioBotPage() {
     enabled: !!selectedBotId && !isCreating,
     refetchInterval: 10000,
   });
+  const effectiveSnapshot = effectiveFeedStatusQuery.data?.snapshot ?? null;
 
   const pendingApprovalQuery = useQuery({
     queryKey: ["ratio-bot-pending-approval", selectedBotId],
@@ -2439,7 +2451,7 @@ export default function RatioBotPage() {
                             }
                           >
                             {liveFeed.connected
-                              ? `${liveFeed.source === "ws" ? "LIVE WS" : "SSE"} · ${Math.round(liveFeed.latencyMs)}ms`
+                              ? `Chart ${liveFeed.source === "ws" ? "WS" : "SSE"} · ${Math.round(liveFeed.latencyMs)}ms`
                               : "connecting…"}
                           </Badge>
                           <Badge variant="outline">{liveCandles.length} candles</Badge>
@@ -2493,6 +2505,11 @@ export default function RatioBotPage() {
                             }
                           />
                           <DetailRow label="Effective reason" value={prettyLabel(effectiveFeedStatusQuery.data?.reason)} />
+                          <DetailRow label="Symbol" value={effectiveSnapshot?.symbol || selectedBot?.symbol || form.symbol} />
+                          <DetailRow label="Canonical source" value={prettyLabel(effectiveSnapshot?.source || effectiveFeedStatusQuery.data?.source)} />
+                          <DetailRow label="Canonical state" value={prettyLabel(effectiveSnapshot?.connection_state || effectiveFeedStatusQuery.data?.connection_state)} />
+                          <DetailRow label="Snapshot age" value={effectiveSnapshot?.age_ms != null ? `${Math.round(effectiveSnapshot.age_ms)} ms` : formatNumber(effectiveFeedStatusQuery.data?.age_seconds, 2)} />
+                          <DetailRow label="Last event" value={formatDateTime(effectiveSnapshot?.received_at || effectiveFeedStatusQuery.data?.last_price_timestamp)} />
                           <DetailRow label="Market type" value={prettyLabel(currentFeed?.market_type || selectedMarketType)} />
                           <DetailRow label="Health" value={<Badge variant={statusVariant(currentFeed?.status || currentFeed?.state_feed_status)}>{prettyLabel(currentFeed?.status || currentFeed?.state_feed_status || currentFeed?.state || "unknown")}</Badge>} />
                           <DetailRow label="Lag seconds" value={formatNumber(currentFeed?.lag_seconds, 2)} />
