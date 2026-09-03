@@ -8,10 +8,9 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useWorkspace } from '@/hooks/useWorkspace';
-import { useUpdateParams } from '@/hooks/useStrategy';
-import type { Database } from '@/integrations/supabase/types';
+import { useUpdateParams, type StrategyInstanceWithRelations } from '@/hooks/useStrategy';
 
-type StrategyInstance = Database['public']['Tables']['strategy_instances']['Row'];
+type StrategyInstance = StrategyInstanceWithRelations;
 
 type TemplateKey = 'ma_crossover' | 'bollinger' | 'rsi' | 'breakout';
 

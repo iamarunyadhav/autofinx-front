@@ -9,15 +9,25 @@ import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useWorkspace } from '@/hooks/useWorkspace';
-import { useUpdateParams } from '@/hooks/useStrategy';
-import type { Database } from '@/integrations/supabase/types';
-import { Json } from '@/integrations/supabase/types';
+import { useUpdateParams, type StrategyInstanceWithRelations } from '@/hooks/useStrategy';
 
-type StrategyInstance = Database['public']['Tables']['strategy_instances']['Row'];
+type StrategyInstance = StrategyInstanceWithRelations;
 
 interface ParameterEditorProps {
   instance: StrategyInstance;
   onClose: () => void;
+}
+
+// The backend returns `params` as an eager-loaded array of
+// {key, value} StrategyParam rows (see StrategyController::instances()'s
+// ->with(['strategy','params','connection'])), not a flat object — this
+// UI edits a flat key/value map, so convert on the way in/out.
+function paramsToRecord(instance: StrategyInstance): Record<string, number | string | boolean> {
+  const record: Record<string, number | string | boolean> = {};
+  for (const p of instance.params ?? []) {
+    record[p.key] = p.value;
+  }
+  return record;
 }
 
 export function ParameterEditor({ instance, onClose }: ParameterEditorProps) {
@@ -27,8 +37,7 @@ export function ParameterEditor({ instance, onClose }: ParameterEditorProps) {
   const [hasChanges, setHasChanges] = useState(false);
 
   useEffect(() => {
-    const initialParams = (instance.params as Record<string, number | string | boolean>) || {};
-    setParams(initialParams);
+    setParams(paramsToRecord(instance));
     setHasChanges(false);
   }, [instance]);
 
@@ -49,8 +58,7 @@ export function ParameterEditor({ instance, onClose }: ParameterEditorProps) {
   };
 
   const handleReset = () => {
-    const initialParams = (instance.params as Record<string, number | string | boolean>) || {};
-    setParams(initialParams);
+    setParams(paramsToRecord(instance));
     setHasChanges(false);
   };
 

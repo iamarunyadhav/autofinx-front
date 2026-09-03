@@ -3,18 +3,15 @@ import { motion } from 'framer-motion';
 import { Play, Clock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { useSimulateSchedule } from '@/hooks/useScheduler';
-import type { Database } from '@/integrations/supabase/types';
-
-type StrategySchedule = Database['public']['Tables']['strategy_schedules']['Row'];
+import { useSimulateSchedule, type Schedule } from '@/hooks/useScheduler';
 
 interface ScheduleSimulatorProps {
-  schedules: StrategySchedule[];
+  schedules: Schedule[];
 }
 
 export function ScheduleSimulator({ schedules }: ScheduleSimulatorProps) {
   const simulateSchedule = useSimulateSchedule();
-  const [selectedSchedule, setSelectedSchedule] = useState<StrategySchedule | null>(null);
+  const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
   const [timestamps, setTimestamps] = useState<string[]>([]);
 
   useEffect(() => {

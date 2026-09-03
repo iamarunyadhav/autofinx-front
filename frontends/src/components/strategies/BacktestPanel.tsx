@@ -9,9 +9,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { callEdgeFunction } from '@/lib/api';
-import type { Database } from '@/integrations/supabase/types';
+import type { StrategyInstanceWithRelations } from '@/hooks/useStrategy';
 
-type StrategyInstance = Database['public']['Tables']['strategy_instances']['Row'];
+type StrategyInstance = StrategyInstanceWithRelations;
 
 interface BacktestPanelProps {
   instance: StrategyInstance;

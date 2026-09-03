@@ -1,5 +1,3 @@
-import type { Database } from './types';
-
 type SupabaseSession = { access_token: string; user?: SupabaseUser } | null;
 type SupabaseUser = { id: string; email: string | null; [key: string]: unknown };
 type AuthChangeHandler = (event: string, session: SupabaseSession) => void;
@@ -16,7 +14,7 @@ class TableQuery {
 
   constructor(private table: string, private client: ApiClient) {}
 
-  select() {
+  select(_columns?: string) {
     this.mode = this.mode ?? 'get';
     return this;
   }
@@ -29,6 +27,12 @@ class TableQuery {
 
   update(payload: any) {
     this.mode = 'patch';
+    this.data = payload;
+    return this;
+  }
+
+  upsert(payload: any) {
+    this.mode = 'post';
     this.data = payload;
     return this;
   }
@@ -157,9 +161,9 @@ class ApiClient {
         return { data: null, error };
       }
     },
-    signOut: async () => {
+    signOut: async (options?: { scope?: 'global' | 'local' }) => {
       if (this.token) {
-        await this.request('post', '/auth/logout');
+        await this.request('post', '/auth/logout', options?.scope === 'global' ? { all: true } : undefined);
       }
       this.token = null;
       return { error: null };
@@ -185,8 +189,8 @@ class ApiClient {
     return { access_token: token, user: this.currentUser } as SupabaseSession;
   }
 
-  from(table: keyof Database['public']['Tables'] | string) {
-    return new TableQuery(table as string, this);
+  from(table: string) {
+    return new TableQuery(table, this);
   }
 
   private async refreshUser() {
@@ -204,15 +208,6 @@ class ApiClient {
 
   functions = {
     invoke: async <T>(name: string, { body }: { body: Record<string, unknown> }) => {
-      if (name === 'sync-connection') {
-        const now = new Date().toISOString();
-        const balances = [
-          { currency: 'BTC', available: 0.5, locked: 0, total: 0.5 },
-          { currency: 'ETH', available: 2.3, locked: 0, total: 2.3 },
-          { currency: 'USDT', available: 10000, locked: 0, total: 10000 },
-        ];
-        return { data: { success: true, balances, syncedAt: now } as T, error: null };
-      }
       return this.request('post', `/functions/${name}`, body);
     },
   };

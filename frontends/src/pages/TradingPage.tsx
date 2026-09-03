@@ -132,7 +132,7 @@ export default function TradingPage() {
                 <TableBody>
                   {positions.map((pos) => (
                     <TableRow key={pos.id}>
-                      <TableCell>{pos.symbol_id}</TableCell>
+                      <TableCell>{pos.symbol?.symbol || pos.symbol_id}</TableCell>
                       <TableCell className="text-right">{Number(pos.quantity).toLocaleString()}</TableCell>
                       <TableCell className="text-right">${Number(pos.avg_price).toFixed(2)}</TableCell>
                       <TableCell className="text-right">
@@ -173,7 +173,7 @@ export default function TradingPage() {
               <TableBody>
                 {orders.map((order) => (
                   <TableRow key={order.id}>
-                      <TableCell>{order.symbols?.symbol || order.symbol_id}</TableCell>
+                      <TableCell>{order.symbol?.symbol || order.symbol_id}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className={order.side === 'buy' ? 'text-green-500' : 'text-red-500'}>
                           {order.side.toUpperCase()}

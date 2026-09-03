@@ -6,8 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
-import { authHeaders } from '@/lib/auth';
+import { authHeaders, clearAuthToken } from '@/lib/auth';
 import { Shield, Key, LogOut, Loader2, CheckCircle, AlertTriangle, Lock, Unlock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useEffect } from 'react';
@@ -67,11 +66,19 @@ export function SecuritySettings({ userId, userEmail }: SecuritySettingsProps) {
 
     setChangingPassword(true);
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: passwordForm.newPassword,
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'}/auth/password`, {
+        method: 'PUT',
+        headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          current_password: passwordForm.currentPassword,
+          password: passwordForm.newPassword,
+          password_confirmation: passwordForm.confirmPassword,
+        }),
       });
-
-      if (error) throw error;
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || 'Failed to change password');
+      }
 
       toast({
         title: 'Password Updated',
@@ -87,7 +94,7 @@ export function SecuritySettings({ userId, userEmail }: SecuritySettingsProps) {
       console.error('Error changing password:', error);
       toast({
         title: 'Error',
-        description: 'Failed to change password. Please try again.',
+        description: error instanceof Error ? error.message : 'Failed to change password. Please try again.',
         variant: 'destructive',
       });
     } finally {
@@ -98,7 +105,18 @@ export function SecuritySettings({ userId, userEmail }: SecuritySettingsProps) {
   const handleSignOut = async () => {
     setLoggingOut(true);
     try {
-      await supabase.auth.signOut();
+      // Was calling client.ts's shim auth.signOut(), which tracks its own
+      // separate session token (localStorage key 'autofinx_token') that
+      // nothing in this app's real login flow (useAuth.tsx, key
+      // 'auth_token') ever populates — that call always silently no-op'd
+      // (its internal token was always empty) without ever hitting the real
+      // backend logout endpoint or clearing the real session, so the token
+      // stayed valid after "signing out".
+      await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'}/auth/logout`, {
+        method: 'POST',
+        headers: await authHeaders(),
+      }).catch(() => {});
+      clearAuthToken();
       navigate('/auth');
     } catch (error) {
       console.error('Error signing out:', error);
@@ -115,7 +133,12 @@ export function SecuritySettings({ userId, userEmail }: SecuritySettingsProps) {
   const handleSignOutAllDevices = async () => {
     setLoggingOut(true);
     try {
-      await supabase.auth.signOut({ scope: 'global' });
+      await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'}/auth/logout`, {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({ all: true }),
+      }).catch(() => {});
+      clearAuthToken();
       navigate('/auth');
     } catch (error) {
       console.error('Error signing out all devices:', error);

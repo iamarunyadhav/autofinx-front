@@ -1,13 +1,13 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { ArrowDownToLine, ArrowUpFromLine, TrendingUp, TrendingDown } from 'lucide-react';
-import type { Database } from '@/integrations/supabase/types';
+import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
 
-type Ledger = Database['public']['Tables']['ledgers']['Row'];
-
+// This is the shape useBalances() (hooks/useWallet.ts) actually returns
+// (GET /workspaces/{id}/wallet/accounts) — a per-currency account row, not
+// the raw single-row-per-workspace `ledgers` table (which has no `currency`
+// column at all).
 interface BalanceCardProps {
-  balance: Ledger | { id: string; currency: string; balance: number | null; available?: number | null; locked_balance?: number | null; available_balance?: number | null };
+  balance: { id: string; currency: string; balance: number | null; available?: number | null; locked_balance?: number | null; available_balance?: number | null };
   onDeposit: () => void;
   onWithdraw: () => void;
 }
@@ -41,10 +41,6 @@ export function BalanceCard({ balance, onDeposit, onWithdraw }: BalanceCardProps
     (balance as any).available_balance ?? (balance as any).available ?? totalBalance;
   const lockedBalance =
     (balance as any).locked_balance ?? Math.max(0, totalBalance - availableBalance);
-  
-  // Mock 24h change - in real app would come from API
-  const change24h = Math.random() > 0.5 ? Math.random() * 5 : -Math.random() * 3;
-  const isPositive = change24h >= 0;
 
   const formatAmount = (amount: number | null | undefined) => {
     const safeAmount = typeof amount === 'number' ? amount : 0;
@@ -64,17 +60,6 @@ export function BalanceCard({ balance, onDeposit, onWithdraw }: BalanceCardProps
           <span className="text-2xl">{icon}</span>
           <CardTitle className="text-lg font-semibold">{balance.currency}</CardTitle>
         </div>
-        <Badge 
-          variant={isPositive ? 'default' : 'destructive'}
-          className="text-xs"
-        >
-          {isPositive ? (
-            <TrendingUp className="h-3 w-3 mr-1" />
-          ) : (
-            <TrendingDown className="h-3 w-3 mr-1" />
-          )}
-          {isPositive ? '+' : ''}{change24h.toFixed(2)}%
-        </Badge>
       </CardHeader>
       <CardContent className="space-y-4">
         <div>

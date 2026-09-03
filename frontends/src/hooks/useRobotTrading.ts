@@ -3,6 +3,13 @@ import { authorizedFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import type { QuickTradeRecord } from "@/hooks/useQuickTrade";
 
+const ROBOT_LIST_REFRESH_MS = 10000;
+const ROBOT_STATUS_REFRESH_MS = 8000;
+const ROBOT_BALANCE_REFRESH_MS = 15000;
+const ROBOT_LIVE_STATS_ACTIVE_MS = 2000;
+const ROBOT_LIVE_STATS_IDLE_MS = 8000;
+const ROBOT_LIVE_STATS_BACKOFF_MS = 15000;
+
 export interface RobotSessionRecord {
   id: string;
   workspace_id: string;
@@ -149,7 +156,8 @@ export function useRobotSessions(workspaceId?: string) {
       return authorizedFetch(`/workspaces/${workspaceId}/robot-sessions`) as Promise<RobotSessionRecord[]>;
     },
     enabled: !!workspaceId,
-    refetchInterval: 5000,
+    refetchInterval: ROBOT_LIST_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -161,7 +169,8 @@ export function useRobotSessionStatus(sessionId?: string) {
       return authorizedFetch(`/robot-sessions/${sessionId}/status`) as Promise<SessionStatusPayload>;
     },
     enabled: !!sessionId,
-    refetchInterval: 4000,
+    refetchInterval: ROBOT_STATUS_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -184,7 +193,8 @@ export function useExchangeBalance(workspaceId?: string, enabled = true) {
       return authorizedFetch(`/workspaces/${workspaceId}/wallet/exchange-balance`) as Promise<ExchangeBalance>;
     },
     enabled: !!workspaceId && enabled,
-    refetchInterval: 5000,
+    refetchInterval: ROBOT_BALANCE_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -196,7 +206,12 @@ export function useRobotLiveStats(sessionId?: string, enabled = true) {
       return authorizedFetch(`/robot-sessions/${sessionId}/live-stats`) as Promise<RobotLiveStats>;
     },
     enabled: !!sessionId && enabled,
-    refetchInterval: 1000,
+    refetchInterval: (query) => {
+      if (query.state.fetchFailureCount > 0) return ROBOT_LIVE_STATS_BACKOFF_MS;
+      const stats = query.state.data as RobotLiveStats | null | undefined;
+      return stats?.status === "RUNNING" ? ROBOT_LIVE_STATS_ACTIVE_MS : ROBOT_LIVE_STATS_IDLE_MS;
+    },
+    refetchIntervalInBackground: false,
   });
 }
 

@@ -730,13 +730,13 @@ function formatDateTime(value?: string | number | null) {
   }).format(date);
 }
 
-function toNumber(value?: string | number | null) {
+function toNumber(value?: string | number | null | unknown) {
   if (value === null || value === undefined || value === "") return null;
-  const parsed = Number(value);
+  const parsed = Number(value as string | number);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function formatNumber(value?: string | number | null, maximumFractionDigits = 4) {
+function formatNumber(value?: string | number | null | unknown, maximumFractionDigits = 4) {
   const parsed = toNumber(value);
   if (parsed === null) return "None";
   return new Intl.NumberFormat(undefined, {
@@ -744,7 +744,7 @@ function formatNumber(value?: string | number | null, maximumFractionDigits = 4)
   }).format(parsed);
 }
 
-function formatRatioPercent(value?: string | number | null) {
+function formatRatioPercent(value?: string | number | null | unknown) {
   const parsed = toNumber(value);
   if (parsed === null) return "None";
   return `${(parsed * 100).toFixed(2)}%`;
@@ -1332,11 +1332,7 @@ export default function RatioBotPage() {
     queryKey: ["ratio-bot-ratio", selectedBotId],
     queryFn: async () => {
       if (!selectedBotId) return null as RatioDisplay | null;
-      try {
-        return await fetchBotResource<RatioDisplay>(selectedBotId, "ratio");
-      } catch {
-        return null;
-      }
+      return fetchBotResource<RatioDisplay>(selectedBotId, "ratio");
     },
     enabled: !!selectedBotId && !isCreating,
     refetchInterval: runtimePollingMs,
@@ -1818,6 +1814,21 @@ export default function RatioBotPage() {
   const currentStagePlan = snapshotQuery.data?.stage_plan || null;
   const currentRatio = ratioQuery.data || null;
   const currentBrainSnapshot = brainSnapshotQuery.data || null;
+
+  // If any runtime query is currently failing, everything above is showing
+  // the LAST successful fetch, not the bot's actual current state — a bot
+  // could be stuck or losing money with the dashboard silently frozen on
+  // stale numbers. Surface that instead of failing silently. Every per-bot
+  // runtime query on this page is included here, not just the "core" set,
+  // so a failing wallet/readiness/decisions/etc. fetch is never silently
+  // invisible either.
+  const runtimeQueries = [
+    statusQuery, ratioQuery, feedQuery, lastSignalQuery, lastOrderQuery, positionQuery, pnlQuery, snapshotQuery,
+    brainSnapshotQuery, decisionsQuery, eventsQuery, lotsQuery, walletQuery, readinessQuery, startupChecklistQuery,
+    effectiveFeedStatusQuery, pendingApprovalQuery, dailyReportQuery,
+  ];
+  const runtimeQueryErrors = runtimeQueries.filter((q) => q.isError);
+  const runtimeDataIsStale = runtimeQueryErrors.length > 0;
 
   const reversalWatch = (() => {
     const trigger = currentSignal?.metadata?.trigger || "";
@@ -2321,6 +2332,12 @@ export default function RatioBotPage() {
                     secondaryGuardLabel="Webhook latency guard"
                     secondaryGuardName="Webhook / signal"
                   />
+                  {runtimeDataIsStale ? (
+                    <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+                      Data failed to refresh — the numbers below may be stale, not the bot&apos;s current state.
+                      {" "}({runtimeQueryErrors.length} of {runtimeQueries.length} runtime checks failing)
+                    </div>
+                  ) : null}
                   {overallBlocked ? (
                     <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-300">
                       Blocked: {overallBlockDetail || "See block reason in Audit."}

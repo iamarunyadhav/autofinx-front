@@ -1,10 +1,30 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import type { Database } from '@/integrations/supabase/types';
 import { authHeaders } from '@/lib/auth';
 
-type ExchangeConnection = Database['public']['Tables']['exchange_connections']['Row'];
+// Was previously aliased from the auto-generated (stale) Supabase Database
+// type. ConnectionController::index() (backend) returns a hand-built array,
+// not a raw model dump — this matches that exactly (app/Http/Controllers/
+// Api/ConnectionController.php:22-51).
+export interface ExchangeConnection {
+  id: string;
+  workspace_id: string;
+  user_id: string | null;
+  name: string;
+  provider: string;
+  exchange: string;
+  is_enabled: boolean;
+  is_active: boolean;
+  is_testnet: boolean;
+  permissions: { trade?: boolean; read?: boolean; withdraw?: boolean } | null;
+  last_synced_at: string | null;
+  created_at: string;
+  updated_at: string;
+  masked_api_key: string | null;
+  masked_api_secret: string | null;
+  masked_passphrase: string | null;
+  has_secret: boolean;
+}
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
 
@@ -230,13 +250,19 @@ export function useSyncConnection() {
 
   return useMutation({
     mutationFn: async ({ connectionId, workspaceId }: { connectionId: string; workspaceId: string }) => {
-      const { data, error } = await supabase.functions.invoke<SyncResult>('sync-connection', {
-        body: { connectionId },
+      // Real exchange balances via ConnectionController::sync() — this used
+      // to call a mock (`functions.invoke('sync-connection', ...)`, see
+      // client.ts) that always returned fixed fake numbers (0.5 BTC, 2.3 ETH,
+      // 10000 USDT), regardless of the connection's actual holdings.
+      const res = await fetch(`${API_BASE}/connections/${connectionId}/sync`, {
+        method: 'POST',
+        headers: await authHeaders(),
       });
+      const data = (await res.json().catch(() => ({}))) as SyncResult & { message?: string };
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || 'Sync failed');
+      }
 
-      if (error) throw error;
-      if (!data?.success) throw new Error('Sync failed');
-      
       return { ...data, workspaceId };
     },
     onSuccess: (result) => {

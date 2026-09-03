@@ -113,8 +113,8 @@ export function TransactionHistory({ transactions, isLoading }: TransactionHisto
                           <Badge variant="outline" className="text-[10px]">Payout</Badge>
                           <Button
                             variant="link"
-                            size="xs"
-                            className="px-0 text-[12px]"
+                            size="sm"
+                            className="h-auto px-0 py-0 text-[12px]"
                             onClick={() => window.open(`/payouts/${tx.meta?.payment_id}`, '_blank')}
                           >
                             View timeline <ExternalLink className="w-3 h-3 ml-1" />

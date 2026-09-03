@@ -1,17 +1,66 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { callEdgeFunction } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
-import type { Database } from '@/integrations/supabase/types';
 
-type Strategy = Database['public']['Tables']['strategies']['Row'];
-type StrategyInstance = Database['public']['Tables']['strategy_instances']['Row'];
+// Was previously aliased from the auto-generated (stale) Supabase Database
+// type. StrategyController::instances() (backend) returns a raw Eloquent
+// dump of `strategy_instances` eager-loaded with ->with(['strategy', 'params',
+// 'connection']) — see app/Models/StrategyInstance.php and
+// database/migrations/2025_12_31_114501_create_domain_tables.php +
+// 2026_01_04_020000_add_connection_to_strategy_instances.php. The stale type
+// had a completely different relation shape (`strategies`/`strategy_schedules`/
+// `instance_risk_profiles`, none of which the backend actually returns) and
+// no `connection_id` at all (added by a later migration) — several consumers
+// were silently reading fields that never existed on the real response.
+export interface Strategy {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  params_schema: Record<string, any> | null;
+  enabled: boolean;
+  category: string | null;
+  created_at: string;
+  updated_at: string;
+  // Not currently returned by the backend (no such columns on `strategies`)
+  // — kept optional so existing frontend fallbacks stay forward-compatible.
+  is_public?: boolean;
+  version?: string;
+}
 
-interface StrategyInstanceWithRelations extends StrategyInstance {
-  strategies: Strategy;
-  strategy_schedules: Array<Database['public']['Tables']['strategy_schedules']['Row']>;
-  instance_risk_profiles: Array<{
-    risk_profiles: Database['public']['Tables']['risk_profiles']['Row'];
-  }>;
+export interface StrategyParam {
+  id: string;
+  instance_id: string;
+  key: string;
+  value: any;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StrategyInstance {
+  id: string;
+  workspace_id: string;
+  strategy_id: string;
+  name: string;
+  mode: 'paper' | 'live';
+  // No fixed enum enforced server-side (StrategyController validates it as
+  // 'sometimes|string'); 'idle' is the DB default, 'running'/'stopped' are
+  // what useToggleInstance() actually sends.
+  status: 'idle' | 'running' | 'stopped' | string;
+  performance: Record<string, any> | null;
+  connection_id: string | null;
+  created_at: string;
+  updated_at: string;
+  // Not currently returned by the backend (no such column on
+  // strategy_instances) — kept optional so the "N symbols / All symbols"
+  // frontend fallback stays forward-compatible if this is ever added.
+  allowed_symbols?: string[] | null;
+}
+
+export interface StrategyInstanceWithRelations extends StrategyInstance {
+  strategy?: Strategy;
+  params?: StrategyParam[];
+  connection?: { id: string; name: string; provider: string } | null;
 }
 
 export function useStrategies() {

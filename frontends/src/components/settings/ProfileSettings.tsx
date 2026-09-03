@@ -7,8 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { authHeaders } from '@/lib/auth';
 import { User, Save, Loader2, Camera } from 'lucide-react';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
 
 interface ProfileSettingsProps {
   userId: string | undefined;
@@ -17,7 +19,7 @@ interface ProfileSettingsProps {
 
 interface Profile {
   id: string;
-  full_name: string | null;
+  name: string | null;
   email: string | null;
   avatar_url: string | null;
   phone: string | null;
@@ -70,23 +72,18 @@ export function ProfileSettings({ userId, userEmail }: ProfileSettingsProps) {
 
   const fetchProfile = async () => {
     if (!userId) return;
-    
+
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        throw error;
-      }
+      const res = await fetch(`${API_BASE}/auth/me`, { headers: await authHeaders() });
+      if (!res.ok) throw new Error('Failed to load profile');
+      const body = await res.json();
+      const data = body?.user;
 
       if (data) {
         setProfile(data);
         setFormData({
-          full_name: data.full_name || '',
+          full_name: data.name || '',
           phone: data.phone || '',
           timezone: data.timezone || 'UTC',
           preferred_language: data.preferred_language || 'en',
@@ -101,31 +98,30 @@ export function ProfileSettings({ userId, userEmail }: ProfileSettingsProps) {
 
   const handleSave = async () => {
     if (!userId) return;
-    
+
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .upsert({
-          id: userId,
-          email: userEmail,
-          ...formData,
-          updated_at: new Date().toISOString(),
-        });
-
-      if (error) throw error;
+      const res = await fetch(`${API_BASE}/auth/profile`, {
+        method: 'PUT',
+        headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || 'Failed to save profile');
+      }
 
       toast({
         title: 'Profile Updated',
         description: 'Your profile has been saved successfully.',
       });
-      
+
       fetchProfile();
     } catch (error) {
       console.error('Error saving profile:', error);
       toast({
         title: 'Error',
-        description: 'Failed to save profile. Please try again.',
+        description: error instanceof Error ? error.message : 'Failed to save profile. Please try again.',
         variant: 'destructive',
       });
     } finally {

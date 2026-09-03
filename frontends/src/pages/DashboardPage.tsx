@@ -44,12 +44,12 @@ export function DashboardPage() {
   const { data: candles, isLoading: candlesLoading } = useCandles('BTCUSDT', '5m', 60);
 
   const todayPnL = useMemo(
-    () => positions?.reduce((sum, p) => sum + Number(p.unrealized_pnl || 0), 0) || 0,
+    () => positions?.reduce((sum, p) => sum + Number(p.unrealized_pl || 0), 0) || 0,
     [positions]
   );
 
   const activeStrategies = useMemo(
-    () => strategyInstances?.filter((s) => s.is_enabled).length || 0,
+    () => strategyInstances?.filter((s) => s.status === 'running').length || 0,
     [strategyInstances]
   );
 
@@ -67,10 +67,10 @@ export function DashboardPage() {
         return {
           id: instance.id,
           name: instance.name,
-          type: instance.strategies?.strategy_type || 'custom',
+          type: instance.strategy?.category || 'custom',
           asset: 'Multi-asset',
           mode: instance.mode as 'live' | 'paper',
-          status: instance.is_enabled ? ('running' as const) : ('paused' as const),
+          status: instance.status === 'running' ? ('running' as const) : ('paused' as const),
           pnl,
           pnlPercent,
           trades24h,
@@ -88,7 +88,7 @@ export function DashboardPage() {
       toggleInstance.mutate({
         instanceId: id,
         workspaceId,
-        isEnabled: !strategy.is_enabled,
+        isEnabled: strategy.status !== 'running',
       });
     }
   };

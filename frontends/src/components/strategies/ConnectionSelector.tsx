@@ -1,7 +1,5 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import type { Database } from '@/integrations/supabase/types';
-
-type ExchangeConnection = Database['public']['Tables']['exchange_connections']['Row'];
+import type { ExchangeConnection } from '@/hooks/useConnections';
 
 interface ConnectionSelectorProps {
   connections: ExchangeConnection[];

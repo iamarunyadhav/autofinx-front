@@ -24,12 +24,11 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useState } from 'react';
 import { useWorkspace } from '@/hooks/useWorkspace';
-import { useToggleInstance, useSetMode, useDeleteInstance } from '@/hooks/useStrategy';
+import { useToggleInstance, useSetMode, useDeleteInstance, type StrategyInstanceWithRelations } from '@/hooks/useStrategy';
 import { useConnections } from '@/hooks/useConnections';
 import { ConnectionSelector } from './ConnectionSelector';
-import type { Database } from '@/integrations/supabase/types';
 
-type StrategyInstance = Database['public']['Tables']['strategy_instances']['Row'];
+type StrategyInstance = StrategyInstanceWithRelations;
 
 interface StrategyInstancesProps {
   instances: StrategyInstance[];
@@ -52,7 +51,7 @@ export function StrategyInstances({ instances, isLoading, onEdit, onBacktest, st
     toggleInstance.mutate({
       instanceId: instance.id,
       workspaceId: currentWorkspace.id,
-      isEnabled: !instance.is_enabled,
+      isEnabled: instance.status !== 'running',
     });
   };
 
@@ -133,14 +132,14 @@ export function StrategyInstances({ instances, isLoading, onEdit, onBacktest, st
                       >
                         {instance.mode === 'live' ? '● LIVE' : '◌ PAPER'}
                       </Badge>
-                      <Badge 
+                      <Badge
                         variant="outline"
-                        className={instance.is_enabled 
+                        className={instance.status === 'running'
                           ? 'bg-[hsl(var(--running))]/10 text-[hsl(var(--running))] border-[hsl(var(--running))]/30'
                           : 'bg-[hsl(var(--paused))]/10 text-[hsl(var(--paused))] border-[hsl(var(--paused))]/30'
                         }
                       >
-                        {instance.is_enabled ? 'Running' : 'Paused'}
+                        {instance.status === 'running' ? 'Running' : 'Paused'}
                       </Badge>
                     </div>
                   </div>
@@ -217,10 +216,10 @@ export function StrategyInstances({ instances, isLoading, onEdit, onBacktest, st
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">
-                      {instance.is_enabled ? 'On' : 'Off'}
+                      {instance.status === 'running' ? 'On' : 'Off'}
                     </span>
                     <Switch
-                      checked={instance.is_enabled ?? false}
+                      checked={instance.status === 'running'}
                       onCheckedChange={() => handleToggle(instance)}
                       disabled={toggleInstance.isPending}
                     />

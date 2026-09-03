@@ -32,13 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import type { Database } from '@/integrations/supabase/types';
-
-type ExchangeConnection = Database['public']['Tables']['exchange_connections']['Row'] & {
-  masked_api_key?: string | null;
-  masked_api_secret?: string | null;
-  masked_passphrase?: string | null;
-};
+import type { ExchangeConnection } from '@/hooks/useConnections';
 
 interface ConnectionCardProps {
   connection: ExchangeConnection;

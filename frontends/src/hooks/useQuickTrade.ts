@@ -1,5 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { authorizedFetch } from "@/lib/api";
+
+const QUICK_TRADE_ACTIVE_REFRESH_MS = 8000;
+const QUICK_TRADE_HISTORY_REFRESH_MS = 15000;
+const QUICK_TRADE_CHART_REFRESH_MS = 6000;
 import { useToast } from "@/hooks/use-toast";
 
 export type TradeDirection = "buy" | "sell" | "neutral";
@@ -286,7 +290,8 @@ export function useQuickTradeChart(params: {
     ],
     queryFn: async () => authorizedFetch(`/quick-trade/chart?${search.toString()}`) as Promise<QuickTradeChartPayload>,
     enabled: !!params.symbol,
-    refetchInterval: 5000,
+    refetchInterval: QUICK_TRADE_CHART_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -329,7 +334,8 @@ export function useQuickTradeForecast(params: {
         stake_amount: params.stakeAmount,
       }) as Promise<QuickTradeForecastPayload>,
     enabled: candleCount >= 10 && params.stakeAmount > 0,
-    refetchInterval: 5000,
+    refetchInterval: QUICK_TRADE_HISTORY_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -346,7 +352,8 @@ export function useQuickTradeActive(workspaceId?: string, source?: string, robot
       return authorizedFetch(`/workspaces/${workspaceId}/quick-trades/active${suffix}`) as Promise<QuickTradeRecord[]>;
     },
     enabled: !!workspaceId,
-    refetchInterval: 4000,
+    refetchInterval: QUICK_TRADE_ACTIVE_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -363,7 +370,8 @@ export function useQuickTradeHistory(workspaceId?: string, source?: string, robo
       return authorizedFetch(`/workspaces/${workspaceId}/quick-trades/history?${search.toString()}`) as Promise<QuickTradeRecord[]>;
     },
     enabled: !!workspaceId,
-    refetchInterval: 6000,
+    refetchInterval: QUICK_TRADE_HISTORY_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -398,7 +406,7 @@ export function useSettleQuickTrades() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (limit = 100) =>
+    mutationFn: async (limit: number = 100) =>
       authorizedFetch("/quick-trade/settle-due", "POST", { limit }) as Promise<{ settled: QuickTradeRecord[] }>,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["quick-trade-active"] });

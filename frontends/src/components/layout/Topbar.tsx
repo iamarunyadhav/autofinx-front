@@ -321,10 +321,10 @@ export function Topbar({ showMenuButton = false, onMenuClick }: TopbarProps) {
                   notifications.slice(0, 10).map((notif) => (
                     <NotificationItem
                       key={notif.id}
-                      title={(notif.content as any)?.title || 'Notification'}
-                      message={(notif.content as any)?.body || notif.body || ''}
-                      time={new Date(notif.created_at!).toLocaleTimeString()}
-                      type={((notif.content as any)?.type || notif.severity || 'info') as 'success' | 'warning' | 'info' | 'error'}
+                      title={notif.content?.title || 'Notification'}
+                      message={notif.content?.body || ''}
+                      time={new Date(notif.created_at).toLocaleTimeString()}
+                      type={(notif.content?.type || 'info') as 'success' | 'warning' | 'info' | 'error'}
                       onClick={() => handleNotificationClick(notif.id)}
                     />
                   ))

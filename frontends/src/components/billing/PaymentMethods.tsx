@@ -6,10 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { usePaymentMethods, useAddPaymentMethod, useSetDefaultPaymentMethod, useDeletePaymentMethod } from '@/hooks/usePaymentMethods';
-import type { Database } from '@/integrations/supabase/types';
+import { usePaymentMethods, useAddPaymentMethod, useSetDefaultPaymentMethod, useDeletePaymentMethod, type PaymentMethod } from '@/hooks/usePaymentMethods';
 
-type Gateway = Database['public']['Enums']['payment_gateway'];
+type Gateway = PaymentMethod['gateway'];
 
 const gatewayFields: Record<Gateway, Array<{ key: string; label: string; placeholder?: string; type?: string }>> = {
   stripe: [

@@ -1,22 +1,36 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { callEdgeFunction } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
-import type { Database } from '@/integrations/supabase/types';
 
-type StrategySchedule = Database['public']['Tables']['strategy_schedules']['Row'];
-
-interface ScheduleWithInstance extends StrategySchedule {
-  strategy_instances: {
-    id: string;
-    name: string;
-    mode: 'paper' | 'live';
-    is_enabled: boolean;
-    strategies: {
-      name: string;
-      strategy_type: string;
-    };
-  };
+// Was previously aliased from the auto-generated (stale) Supabase Database
+// type, describing a `strategy_schedules` table that does not exist in the
+// real Laravel schema at all — the real table is `schedules`
+// (ScheduleController.php), flat (name/window_json/interval_ms/cooldown_s/
+// max_trades_json/enabled), with no link to a strategy instance (no
+// instance_id column). handleScheduler()'s mapScheduleToRichShape() (lib/api.ts)
+// maps that flat shape to this richer one on every read/write so the
+// existing UI (already written against this shape) works; there is no real
+// `strategy_instances` link to provide, so that field is intentionally
+// omitted here and every consumer already falls back gracefully (e.g.
+// "Unknown Bot") when it's absent.
+export interface Schedule {
+  id: string;
+  workspace_id: string;
+  name: string;
+  is_enabled: boolean;
+  evaluation_interval_ms: number;
+  cooldown_seconds: number;
+  timezone?: string;
+  active_days?: number[];
+  start_time?: string;
+  end_time?: string;
+  max_trades_per_hour?: number;
+  max_trades_per_day?: number;
+  created_at: string;
+  updated_at: string;
 }
+
+type ScheduleWithInstance = Schedule;
 
 interface ScheduleData {
   timezone?: string;
@@ -55,7 +69,7 @@ export function useCreateSchedule() {
 
   return useMutation({
     mutationFn: async ({ instanceId, scheduleData }: { instanceId: string; scheduleData: ScheduleData }) => {
-      const data = await callEdgeFunction<{ schedule: StrategySchedule }>('scheduler', {
+      const data = await callEdgeFunction<{ schedule: Schedule }>('scheduler', {
         action: 'create_schedule',
         instance_id: instanceId,
         schedule_data: scheduleData,
@@ -85,7 +99,7 @@ export function useUpdateSchedule() {
 
   return useMutation({
     mutationFn: async ({ scheduleId, scheduleData }: { scheduleId: string; scheduleData: ScheduleData }) => {
-      const data = await callEdgeFunction<{ schedule: StrategySchedule }>('scheduler', {
+      const data = await callEdgeFunction<{ schedule: Schedule }>('scheduler', {
         action: 'update_schedule',
         schedule_id: scheduleId,
         schedule_data: scheduleData,
@@ -115,7 +129,7 @@ export function useToggleSchedule() {
 
   return useMutation({
     mutationFn: async ({ scheduleId, isEnabled }: { scheduleId: string; isEnabled: boolean }) => {
-      const data = await callEdgeFunction<{ schedule: StrategySchedule }>('scheduler', {
+      const data = await callEdgeFunction<{ schedule: Schedule }>('scheduler', {
         action: 'toggle_schedule',
         schedule_id: scheduleId,
         is_enabled: isEnabled,

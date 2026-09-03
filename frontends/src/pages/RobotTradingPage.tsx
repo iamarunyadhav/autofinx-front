@@ -35,10 +35,10 @@ import {
 import { useRepairRuntime, useRuntimeHealth } from "@/hooks/useRuntimeHealth";
 import { useRuntimeSafetySettings, useUpdateRuntimeSafetySettings } from "@/hooks/useRuntimeSafetySettings";
 import { type CandleData, useRobotCandleFeed } from "@/hooks/useRobotCandleFeed";
-import { RobotLiveChart } from "@/components/trading/RobotLiveChart";
+import { RobotLiveChart, type ChartMarker } from "@/components/trading/RobotLiveChart";
 import { AssetClassToggle } from "@/components/trading/AssetClassToggle";
 import { ProviderSelect } from "@/components/trading/ProviderSelect";
-import type { AssetClass } from "@/hooks/useProviderCatalog";
+import type { AssetClass, ProviderCatalogEntry } from "@/hooks/useProviderCatalog";
 
 const MIN_ROBOT_STAKE = 20;
 
@@ -107,7 +107,9 @@ export default function RobotTradingPage() {
   const activeMode = tradingState?.mode ?? "paper";
   const liveReady = Boolean(tradingState?.live_ready);
   const providerCatalogAll = Object.values(tradingState?.provider_catalog ?? {});
-  const providerCatalog = providerCatalogAll.filter((provider) => (provider.asset_class ?? "CRYPTO") === assetClass);
+  const providerCatalog = providerCatalogAll
+    .filter((provider) => (provider.asset_class ?? "CRYPTO") === assetClass)
+    .map((provider) => ({ ...provider, asset_class: assetClass })) as ProviderCatalogEntry[];
   const providerIntegrations = (tradingState?.active_integrations ?? []).filter(
     (integration) => integration.provider_key === selectedProvider
   );
@@ -251,7 +253,7 @@ export default function RobotTradingPage() {
   }, [chartLivePosition, selectedSession?.take_profit_pct]);
 
   // Entry marker (snapped to the nearest candle) + live PnL overlay for the chart.
-  const chartMarkers = useMemo(() => {
+  const chartMarkers = useMemo<ChartMarker[]>(() => {
     if (chartLivePosition?.active_since) {
       const entrySec = Math.floor(new Date(chartLivePosition.active_since).getTime() / 1000);
       const earlier = chartCandles.filter((c) => c.time <= entrySec).map((c) => c.time);
@@ -344,6 +346,8 @@ export default function RobotTradingPage() {
   const liveIntegration = integrationsForProvider.find((i) => (i.environment ?? "live") === "live");
   const currentEnv: "paper" | "testnet" | "live" =
     activeMode !== "live" ? "paper" : (tradingState?.exchange_environment ?? "live") === "testnet" ? "testnet" : "live";
+  const executionBadge =
+    currentEnv === "live" ? "LIVE MAINNET" : currentEnv === "testnet" ? "SANDBOX TESTNET" : "SANDBOX PAPER";
 
   const setTradeEnv = (env: "paper" | "testnet" | "live") => {
     if (env === "paper") {
@@ -505,7 +509,7 @@ export default function RobotTradingPage() {
                   {sessionPnl.toFixed(2)}
                 </Badge>
                 <Badge className={currentEnv === "live" ? "bg-emerald-500/10 text-emerald-300" : currentEnv === "testnet" ? "bg-amber-500/10 text-amber-300" : "bg-slate-500/10 text-slate-300"}>
-                  {currentEnv.toUpperCase()}
+                  {executionBadge}
                 </Badge>
                 <Badge className="bg-blue-500/10 text-blue-300">{selectedProvider.toUpperCase()}</Badge>
               </div>

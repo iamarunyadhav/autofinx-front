@@ -224,6 +224,13 @@ const DEFAULT_SETTINGS: FutureTradeSettings = {
   indicatorInfluence: { ...BALANCED_INFLUENCE_DEFAULTS },
 };
 
+type IndicatorInfluenceControlTemplate = {
+  key: string;
+  label: string;
+  note: string;
+  impact?: string;
+};
+
 const INDICATOR_INFLUENCE_CONTROLS = [
   { key: "vwapPositive", label: "VWAP positive", note: "Direction alignment contribution", impact: "positive" },
   { key: "emaPositive", label: "EMA positive", note: "5m EMA trend alignment contribution", impact: "positive" },
@@ -253,7 +260,7 @@ const INDICATOR_INFLUENCE_CONTROLS = [
   { key: "lossStreakWeight", label: "Loss streak", note: "Recent loss cooldown/threshold influence", impact: "dynamic" },
   { key: "atrWeight", label: "ATR", note: "ATR-driven TP/SL influence", impact: "dynamic" },
   { key: "volatilityWeight", label: "Volatility", note: "Volatility cooldown/size influence", impact: "dynamic" },
-] as const;
+] satisfies IndicatorInfluenceControlTemplate[];
 
 const DEFAULT_ENV_CONFIG: FutureTradeEnvConfig = {
   mode: "paper",

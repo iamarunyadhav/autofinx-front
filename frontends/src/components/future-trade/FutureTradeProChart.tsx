@@ -305,7 +305,7 @@ function buildBubblePoints(data: EnrichedCandle[]) {
     }));
 }
 
-function buildRuntimeMarkers(runtimePoints: FutureTradeDynamicPoint[], data: EnrichedCandle[]) {
+function buildRuntimeMarkers(runtimePoints: FutureTradeDynamicPoint[], data: EnrichedCandle[]): MarkerPoint[] {
   const byLabel = new Map<string, EnrichedCandle>();
   data.forEach((row) => byLabel.set(row.timeLabel, row));
 
@@ -316,14 +316,15 @@ function buildRuntimeMarkers(runtimePoints: FutureTradeDynamicPoint[], data: Enr
       const time = row.time?.slice(0, 5);
       const candle = byLabel.get(time || "");
       if (!candle) return null;
-      return {
+      const marker: MarkerPoint = {
         index: candle.index,
         price: row.signal === "BUY" ? candle.low : candle.high,
         signal: row.signal,
         confidence: row.confidence,
-      } satisfies MarkerPoint;
+      };
+      return marker;
     })
-    .filter((row): row is MarkerPoint => Boolean(row));
+    .filter((row): row is MarkerPoint => row !== null);
 }
 
 function runBacktest(data: EnrichedCandle[], settings: FutureTradeSettings): BacktestSummary {

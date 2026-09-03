@@ -31,6 +31,7 @@ export interface OpsDeploymentReadiness {
   live_mode: string;
   blockers: string[];
   warnings: string[];
+  summary?: string;
   details?: Record<string, any>;
 }
 
@@ -46,6 +47,7 @@ export interface OpsLiveReadiness {
   reason_codes: string[];
   summary: string;
   suggested_actions: string[];
+  checklist?: Array<Record<string, any>>;
   deployment: OpsDeploymentReadiness;
   health: Record<string, any>;
 }

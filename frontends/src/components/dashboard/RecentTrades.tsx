@@ -104,11 +104,11 @@ export function RecentTrades() {
                       {Number(trade.quantity).toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm">
-                      ${Number(trade.avg_fill_price || trade.price || 0).toFixed(2)}
+                      ${Number(trade.price || 0).toFixed(2)}
                     </TableCell>
                     <TableCell className="text-right text-sm text-muted-foreground hidden sm:table-cell">
-                      {trade.filled_at 
-                        ? format(new Date(trade.filled_at), 'HH:mm:ss')
+                      {trade.created_at
+                        ? format(new Date(trade.created_at), 'HH:mm:ss')
                         : '-'
                       }
                     </TableCell>

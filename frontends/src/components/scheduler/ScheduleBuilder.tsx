@@ -11,9 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Card, CardContent } from '@/components/ui/card';
 import { useCreateSchedule, useUpdateSchedule } from '@/hooks/useScheduler';
-import type { Database } from '@/integrations/supabase/types';
+import type { StrategyInstanceWithRelations } from '@/hooks/useStrategy';
 
-type StrategyInstance = Database['public']['Tables']['strategy_instances']['Row'];
+type StrategyInstance = StrategyInstanceWithRelations;
 
 interface ScheduleBuilderProps {
   instances?: StrategyInstance[];

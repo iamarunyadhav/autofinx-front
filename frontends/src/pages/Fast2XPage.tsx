@@ -228,7 +228,7 @@ export default function Fast2XPage() {
 
         <div className="grid gap-6 xl:grid-cols-[1.35fr_0.95fr]">
           <div className="space-y-6">
-            <Fast2XLiveChart data={chartData} pnl={fast2x.pnl.data} settings={settings} levels={fast2x.chart.data?.levels} />
+            <Fast2XLiveChart data={chartData as unknown as Array<Record<string, number | string | null>>} pnl={fast2x.pnl.data} settings={settings} levels={fast2x.chart.data?.levels} />
             <Fast2XAutoManagementPanel auto={fast2x.chart.data?.autoManagement} pnl={fast2x.pnl.data} price={fast2x.price.data} />
             <Fast2XDecisionFeed logs={fast2x.logs.data ?? []} />
             <Fast2XTradeHistory trades={fast2x.trades.data ?? []} />

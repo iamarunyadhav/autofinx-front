@@ -21,26 +21,10 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useState } from 'react';
-import { useToggleSchedule, useDeleteSchedule } from '@/hooks/useScheduler';
-import type { Database } from '@/integrations/supabase/types';
-
-type StrategySchedule = Database['public']['Tables']['strategy_schedules']['Row'];
-
-interface ScheduleWithInstance extends StrategySchedule {
-  strategy_instances: {
-    id: string;
-    name: string;
-    mode: 'paper' | 'live';
-    is_enabled: boolean;
-    strategies: {
-      name: string;
-      strategy_type: string;
-    };
-  };
-}
+import { useToggleSchedule, useDeleteSchedule, type Schedule } from '@/hooks/useScheduler';
 
 interface ScheduleCardProps {
-  schedule: ScheduleWithInstance;
+  schedule: Schedule;
   index: number;
   onEdit: () => void;
 }
@@ -70,7 +54,7 @@ export function ScheduleCard({ schedule, index, onEdit }: ScheduleCardProps) {
               <div className="flex-1 min-w-0">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Zap className="h-4 w-4 text-primary" />
-                  {schedule.strategy_instances?.name || 'Unknown Bot'}
+                  {schedule.name || 'Unnamed Schedule'}
                 </CardTitle>
                 <div className="flex items-center gap-2 mt-2">
                   <Badge
@@ -81,15 +65,6 @@ export function ScheduleCard({ schedule, index, onEdit }: ScheduleCardProps) {
                     }
                   >
                     {schedule.is_enabled ? 'Active' : 'Paused'}
-                  </Badge>
-                  <Badge
-                    variant="outline"
-                    className={schedule.strategy_instances?.mode === 'live'
-                      ? 'bg-[hsl(var(--live))]/10 text-[hsl(var(--live))] border-[hsl(var(--live))]/30'
-                      : 'bg-[hsl(var(--paper))]/10 text-[hsl(var(--paper))] border-[hsl(var(--paper))]/30'
-                    }
-                  >
-                    {schedule.strategy_instances?.mode?.toUpperCase()}
                   </Badge>
                 </div>
               </div>

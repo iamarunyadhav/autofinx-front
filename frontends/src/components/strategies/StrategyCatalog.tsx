@@ -4,9 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { Database } from '@/integrations/supabase/types';
-
-type Strategy = Database['public']['Tables']['strategies']['Row'];
+import type { Strategy } from '@/hooks/useStrategy';
 
 interface StrategyCatalogProps {
   strategies: Strategy[];
@@ -62,7 +60,7 @@ export function StrategyCatalog({ strategies, isLoading, onSelect, strategyTypeI
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {strategies.map((strategy, index) => {
-        const Icon = strategyTypeIcons[strategy.strategy_type] || strategyTypeIcons.custom;
+        const Icon = strategyTypeIcons[strategy.category || 'custom'] || strategyTypeIcons.custom;
         
         return (
           <motion.div
@@ -81,7 +79,7 @@ export function StrategyCatalog({ strategies, isLoading, onSelect, strategyTypeI
                     <div>
                       <CardTitle className="text-lg">{strategy.name}</CardTitle>
                       <Badge variant="outline" className="mt-1 text-xs">
-                        {strategyTypeLabels[strategy.strategy_type] || strategy.strategy_type}
+                        {strategyTypeLabels[strategy.category || ''] || strategy.category || 'Custom'}
                       </Badge>
                     </div>
                   </div>

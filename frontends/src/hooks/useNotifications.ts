@@ -1,11 +1,35 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { callEdgeFunction } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
-import type { Database } from '@/integrations/supabase/types';
 import { authHeaders } from '@/lib/auth';
 
-type Notification = Database['public']['Tables']['notifications']['Row'];
-type NotificationSettings = Database['public']['Tables']['notification_settings']['Row'];
+// Was previously aliased from the auto-generated (and since-stale) Supabase
+// Database type, which described a much richer notifications shape
+// (title/body/channel/severity/action_url/is_read/metadata) that does not
+// exist in the real Laravel schema. NotificationController::index() returns
+// a raw Eloquent dump of the `notifications` table (see
+// database/migrations/2025_12_31_114501_create_domain_tables.php): just
+// id/workspace_id/user_id/type/content(json)/read_at/created_at/updated_at
+// — the title/body/etc. fields consumers want live inside the `content` JSON
+// blob, not as top-level columns.
+export interface Notification {
+  id: string;
+  workspace_id: string | null;
+  user_id: string | null;
+  type: string;
+  content: Record<string, any> | null;
+  read_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationSettings {
+  id: string;
+  user_id: string;
+  preferences: Record<string, any> | null;
+  created_at: string;
+  updated_at: string;
+}
 
 export function useNotifications(workspaceId: string | undefined, unreadOnly = false) {
   return useQuery({

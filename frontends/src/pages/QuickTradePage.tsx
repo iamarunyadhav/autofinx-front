@@ -37,7 +37,7 @@ import { useRuntimeSafetySettings, useUpdateRuntimeSafetySettings } from "@/hook
 import type { ChartMarker } from "@/components/trading/RobotLiveChart";
 import { AssetClassToggle } from "@/components/trading/AssetClassToggle";
 import { ProviderSelect } from "@/components/trading/ProviderSelect";
-import type { AssetClass } from "@/hooks/useProviderCatalog";
+import type { AssetClass, ProviderCatalogEntry } from "@/hooks/useProviderCatalog";
 import { cn } from "@/lib/utils";
 
 function useCountdown(expiresAt: string | undefined) {
@@ -221,7 +221,9 @@ export default function QuickTradePage() {
   const tradingState = metadata?.trading_state;
   const activeMode = tradingState?.mode ?? "paper";
   const providerCatalogAll = Object.values(tradingState?.provider_catalog ?? {});
-  const providerCatalog = providerCatalogAll.filter((p) => (p.asset_class ?? "CRYPTO") === assetClass);
+  const providerCatalog = providerCatalogAll
+    .filter((p) => (p.asset_class ?? "CRYPTO") === assetClass)
+    .map((p) => ({ ...p, asset_class: assetClass })) as ProviderCatalogEntry[];
   const providerIntegrations = (tradingState?.active_integrations ?? []).filter(
     (i) => i.provider_key === selectedProvider
   );
@@ -402,6 +404,19 @@ export default function QuickTradePage() {
   const integrationLabel =
     providerIntegrations.find((i) => i.id === selectedIntegrationId)?.display_name ??
     tradingState?.preferred_integration_label ?? "Auto";
+  const selectedIntegration = providerIntegrations.find((i) => i.id === selectedIntegrationId);
+  const executionEnvironment =
+    activeMode !== "live"
+      ? "paper"
+      : (selectedIntegration?.environment ?? tradingState?.exchange_environment ?? tradingState?.venue_environment ?? "live") === "testnet"
+        ? "testnet"
+        : "live";
+  const executionBadge =
+    executionEnvironment === "live"
+      ? "LIVE MAINNET"
+      : executionEnvironment === "testnet"
+        ? "SANDBOX TESTNET"
+        : "SANDBOX PAPER";
 
   const updateMode = (nextMode: "paper" | "live", provider = selectedProvider, integrationId = selectedIntegrationId) => {
     if (!workspaceId) return;
@@ -511,7 +526,9 @@ export default function QuickTradePage() {
               </div>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Badge className={activeMode === "live" ? "bg-emerald-500/10 text-emerald-300" : "bg-slate-700/50 text-slate-300"}>{activeMode.toUpperCase()}</Badge>
+              <Badge className={executionEnvironment === "live" ? "bg-emerald-500/10 text-emerald-300" : executionEnvironment === "testnet" ? "bg-amber-500/10 text-amber-300" : "bg-slate-700/50 text-slate-300"}>
+                {executionBadge}
+              </Badge>
               <Badge className="bg-blue-500/10 text-blue-300">{selectedProvider.toUpperCase()}</Badge>
               <Badge className="bg-slate-700/50 text-slate-300">{integrationLabel}</Badge>
               {activeMode === "live" && (

@@ -16,9 +16,7 @@ import { useWorkspace } from '@/hooks/useWorkspace';
 import { useCreateInstance } from '@/hooks/useStrategy';
 import { useConnections } from '@/hooks/useConnections';
 import { ConnectionSelector } from './ConnectionSelector';
-import type { Database } from '@/integrations/supabase/types';
-
-type Strategy = Database['public']['Tables']['strategies']['Row'];
+import type { Strategy } from '@/hooks/useStrategy';
 
 interface CreateBotWizardProps {
   strategies: Strategy[];
@@ -71,7 +69,7 @@ export function CreateBotWizard({ strategies, preSelectedStrategy, onClose, stra
   const handleNext = () => {
     if (step === 1 && !form.watch('strategyId')) return;
     if (step === 2) {
-      const type = selectedStrategy?.strategy_type || 'custom';
+      const type = selectedStrategy?.category || 'custom';
       setParams(defaultParams[type] || {});
     }
     setStep(s => Math.min(s + 1, 4));
@@ -147,7 +145,7 @@ export function CreateBotWizard({ strategies, preSelectedStrategy, onClose, stra
                 className="grid grid-cols-1 md:grid-cols-2 gap-3"
               >
                 {strategies.map((strategy) => {
-                  const Icon = strategyTypeIcons[strategy.strategy_type] || strategyTypeIcons.custom;
+                  const Icon = strategyTypeIcons[strategy.category || 'custom'] || strategyTypeIcons.custom;
                   return (
                     <Label
                       key={strategy.id}

@@ -113,11 +113,12 @@ export default function PortfolioIntelligencePage() {
   const [form, setForm] = useState<ConfigFormState>(emptyForm);
   const [selectedSymbol, setSelectedSymbol] = useState('');
 
+  const rankedPayload = Array.isArray(rankedResponse) ? null : rankedResponse;
   const rankedOpportunities: PortfolioRecommendation[] =
-    rankedResponse?.opportunities ??
+    rankedPayload?.opportunities ??
     (snapshot?.ranked_opportunities as PortfolioRecommendation[] | undefined) ??
     [];
-  const rankedSummary = rankedResponse?.summary ?? snapshot?.summary ?? {};
+  const rankedSummary = rankedPayload?.summary ?? snapshot?.summary ?? {};
   const recommendations = recommendationsResponse ?? snapshot?.recommendations ?? {};
   const allocation = allocationResponse?.allocation ?? snapshot?.allocation ?? {};
   const riskBudget = riskBudgetResponse ?? snapshot?.risk_budget ?? {};

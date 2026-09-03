@@ -5,9 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { Database } from '@/integrations/supabase/types';
+import type { StrategyInstanceWithRelations } from '@/hooks/useStrategy';
 
-type StrategyInstance = Database['public']['Tables']['strategy_instances']['Row'];
+type StrategyInstance = StrategyInstanceWithRelations;
 
 interface StrategyAnalysisPanelProps {
   instances: StrategyInstance[];

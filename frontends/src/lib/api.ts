@@ -176,11 +176,43 @@ async function handleStrategy(body: Record<string, any>) {
   }
 }
 
+// GET /workspaces/{id}/schedules (ScheduleController::index) returns the raw
+// flat `schedules` row shape (name/window_json/interval_ms/cooldown_s/
+// max_trades_json/enabled) — create_schedule/update_schedule below already
+// map the richer frontend shape (evaluation_interval_ms/cooldown_seconds/
+// active_days/start_time/end_time/timezone/max_trades_per_hour/
+// max_trades_per_day/is_enabled) onto that flat shape when writing, but the
+// read side was never mapped back, so every consumer (ScheduleCard,
+// ScheduleSimulator, ScheduleBuilder) was reading fields that never existed
+// on the response. There is no `strategy_instances` link on the real
+// `schedules` table (no instance_id column at all) — omitted, callers
+// already fall back gracefully (e.g. "Unknown Bot") when it's absent.
+function mapScheduleToRichShape(raw: Record<string, any>): Record<string, any> {
+  const windowJson = raw?.window_json || {};
+  const maxTradesJson = raw?.max_trades_json || {};
+  return {
+    id: raw.id,
+    workspace_id: raw.workspace_id,
+    name: raw.name,
+    is_enabled: raw.enabled ?? true,
+    evaluation_interval_ms: raw.interval_ms,
+    cooldown_seconds: raw.cooldown_s,
+    timezone: windowJson.timezone,
+    active_days: windowJson.days,
+    start_time: windowJson.start,
+    end_time: windowJson.end,
+    max_trades_per_hour: maxTradesJson.per_hour,
+    max_trades_per_day: maxTradesJson.per_day,
+    created_at: raw.created_at,
+    updated_at: raw.updated_at,
+  };
+}
+
 async function handleScheduler(body: Record<string, any>) {
   switch (body.action) {
     case 'get_schedules': {
       const data = await authorizedFetch(`/workspaces/${body.workspace_id}/schedules`, 'GET');
-      return { schedules: data || [] };
+      return { schedules: (data || []).map(mapScheduleToRichShape) };
     }
     case 'create_schedule': {
       const schedule = await authorizedFetch(`/workspaces/${body.schedule_data.workspace_id || body.workspace_id}/schedules`, 'POST', {
@@ -199,11 +231,16 @@ async function handleScheduler(body: Record<string, any>) {
         },
         enabled: body.schedule_data.is_enabled ?? true,
       });
-      return { schedule };
+      return { schedule: mapScheduleToRichShape(schedule) };
     }
     case 'update_schedule': {
       const schedule = await authorizedFetch(`/schedules/${body.schedule_id}`, 'PUT', {
-        window_json: body.schedule_data,
+        window_json: {
+          timezone: body.schedule_data.timezone,
+          days: body.schedule_data.active_days,
+          start: body.schedule_data.start_time,
+          end: body.schedule_data.end_time,
+        },
         interval_ms: body.schedule_data.evaluation_interval_ms,
         cooldown_s: body.schedule_data.cooldown_seconds,
         max_trades_json: {
@@ -212,11 +249,11 @@ async function handleScheduler(body: Record<string, any>) {
         },
         enabled: body.schedule_data.is_enabled,
       });
-      return { schedule };
+      return { schedule: mapScheduleToRichShape(schedule) };
     }
     case 'toggle_schedule': {
       const schedule = await authorizedFetch(`/schedules/${body.schedule_id}`, 'PUT', { enabled: body.is_enabled });
-      return { schedule };
+      return { schedule: mapScheduleToRichShape(schedule) };
     }
     case 'delete_schedule': {
       await authorizedFetch(`/schedules/${body.schedule_id}`, 'DELETE');

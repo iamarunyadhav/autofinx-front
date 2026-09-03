@@ -7,12 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useWithdraw } from '@/hooks/useWallet';
-import { usePaymentMethods } from '@/hooks/usePaymentMethods';
+import { usePaymentMethods, type PaymentMethod } from '@/hooks/usePaymentMethods';
 import { ArrowUpFromLine, Loader2, AlertTriangle } from 'lucide-react';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
-import type { Database } from '@/integrations/supabase/types';
 type Ledger = { currency: string; available?: number; balance?: number };
-type PaymentMethod = Database['public']['Tables']['payment_methods']['Row'];
 
 interface WithdrawModalProps {
   open: boolean;

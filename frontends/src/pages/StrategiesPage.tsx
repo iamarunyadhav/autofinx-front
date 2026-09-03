@@ -14,10 +14,9 @@ import { ParameterEditor } from '@/components/strategies/ParameterEditor';
 import { BacktestPanel } from '@/components/strategies/BacktestPanel';
 import { AlgorithmConfigurator } from '@/components/strategies/AlgorithmConfigurator';
 import { ArbitragePanel } from '@/components/strategies/ArbitragePanel';
-import type { Database } from '@/integrations/supabase/types';
+import type { Strategy, StrategyInstanceWithRelations } from '@/hooks/useStrategy';
 
-type Strategy = Database['public']['Tables']['strategies']['Row'];
-type StrategyInstance = Database['public']['Tables']['strategy_instances']['Row'];
+type StrategyInstance = StrategyInstanceWithRelations;
 
 const strategyTypeIcons: Record<string, React.ElementType> = {
   trend: TrendingUp,

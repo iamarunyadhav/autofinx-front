@@ -20,10 +20,10 @@ export default function SchedulerPage() {
   const [showBuilder, setShowBuilder] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<string | null>(null);
 
-  // Instances without schedules
-  const instancesWithoutSchedule = instances.filter(
-    inst => !schedules.some(sch => sch.instance_id === inst.id)
-  );
+  // Schedules aren't actually linked to a specific strategy instance in the
+  // current backend (no instance_id column on `schedules`), so every
+  // instance is offered when creating a new schedule.
+  const instancesWithoutSchedule = instances;
 
   return (
     <AppShell>

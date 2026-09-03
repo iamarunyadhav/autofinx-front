@@ -16,10 +16,8 @@ import {
   useRotateConnection
 } from '@/hooks/useConnections';
 import { useWorkspace } from '@/hooks/useWorkspace';
-import type { Database } from '@/integrations/supabase/types';
+import type { ExchangeConnection } from '@/hooks/useConnections';
 import { AppShell } from '@/components/layout';
-
-type ExchangeConnection = Database['public']['Tables']['exchange_connections']['Row'];
 
 export default function ConnectionsPage() {
   const { currentWorkspace } = useWorkspace();

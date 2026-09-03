@@ -23,9 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import type { Database } from '@/integrations/supabase/types';
-
-type ExchangeConnection = Database['public']['Tables']['exchange_connections']['Row'];
+import type { ExchangeConnection } from '@/hooks/useConnections';
 
 const editConnectionSchema = z.object({
   name: z.string().min(1, 'Name is required').max(50),

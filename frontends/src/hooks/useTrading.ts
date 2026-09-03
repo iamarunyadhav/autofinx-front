@@ -1,11 +1,63 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { callEdgeFunction } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
-import type { Database } from '@/integrations/supabase/types';
 
-type Order = Database['public']['Tables']['orders']['Row'];
-type Position = Database['public']['Tables']['positions']['Row'];
-type Trade = Database['public']['Tables']['trades']['Row'];
+// These used to be aliased from the auto-generated Supabase schema type,
+// left over from before this app moved onto the Laravel backend. That type no
+// longer matches the real schema — GET /workspaces/{id}/orders|positions|trades
+// (TradingController.php) returns Eloquent's raw column set for the
+// `orders`/`positions`/`trades` tables (see
+// database/migrations/2025_12_31_114501_create_domain_tables.php), which has
+// different column names in several places (avg_price/unrealized_pl here vs
+// avg_entry_price/unrealized_pnl in the stale generated type). The runtime
+// code was already reading the correct (Laravel) field names; only the type
+// layer was wrong. Hand-written here to match the real API response shape.
+export interface Order {
+  id: string;
+  workspace_id: string;
+  instance_id: string | null;
+  symbol_id: string | null;
+  side: 'buy' | 'sell';
+  type: 'market' | 'limit' | 'stop_loss' | 'take_profit' | string;
+  quantity: number;
+  price: number | null;
+  status: 'pending' | 'pending_provider' | 'filled' | 'failed' | 'NEW' | 'PARTIAL' | 'CANCELLED' | 'REJECTED' | 'UNCERTAIN' | string;
+  meta: Record<string, any> | null;
+  external_id: string | null;
+  idempotency_key: string | null;
+  created_at: string;
+  updated_at: string;
+  // Eager-loaded via TradingController::orders()'s ->with('symbol').
+  symbol?: { id: string; symbol: string; type: string; exchange: string | null } | null;
+}
+
+const TRADING_TABLE_REFRESH_MS = 10000;
+
+export interface Position {
+  id: string;
+  workspace_id: string;
+  symbol_id: string;
+  quantity: number;
+  avg_price: number;
+  unrealized_pl: number;
+  created_at: string;
+  updated_at: string;
+  // Eager-loaded via TradingController::positions()'s ->with('symbol').
+  symbol?: { id: string; symbol: string; type: string; exchange: string | null } | null;
+}
+
+export interface Trade {
+  id: string;
+  order_id: string;
+  workspace_id: string;
+  price: number;
+  quantity: number;
+  fee: number;
+  executed_at: string;
+  meta: Record<string, any> | null;
+  created_at: string;
+  updated_at: string;
+}
 
 interface PlaceOrderParams {
   workspace_id: string;
@@ -35,7 +87,8 @@ export function useOrders(workspaceId: string | undefined, status?: string) {
       return data.orders;
     },
     enabled: !!workspaceId,
-    refetchInterval: 5000,
+    refetchInterval: TRADING_TABLE_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -52,7 +105,8 @@ export function usePositions(workspaceId: string | undefined, mode: 'paper' | 'l
       return data.positions;
     },
     enabled: !!workspaceId,
-    refetchInterval: 5000,
+    refetchInterval: TRADING_TABLE_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 }
 
