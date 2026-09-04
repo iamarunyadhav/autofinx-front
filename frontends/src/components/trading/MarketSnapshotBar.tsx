@@ -35,7 +35,12 @@ export function MarketSnapshotBar({
         const res = await api.get<MarketPricePayload>(`/market/price?symbol=${symbol}&exchange=binance`);
         return res.data;
       },
-      refetchInterval: 4000,
+      // Symbols with no active bot have no cached price yet and 404 —
+      // back off to a slow poll instead of hammering the same 404 every
+      // 4s, while still picking it up automatically once a bot starts
+      // tracking that symbol.
+      refetchInterval: (query: { state: { status: string } }) =>
+        query.state.status === "error" ? 60000 : 4000,
       retry: false,
       staleTime: 2000,
     })),
