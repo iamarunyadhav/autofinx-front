@@ -134,6 +134,7 @@ interface RatioBotConfig {
   side_mode?: string | null;
   mode?: string | null;
   execution_mode?: string | null;
+  spot_execution_route?: string | null;
   evaluation_mode?: string | null;
   connection_id?: string | null;
   integration_id?: string | null;
@@ -509,6 +510,7 @@ type BotForm = {
   side_mode: "buy_sell" | "long_only" | "short_only" | "both";
   mode: "advisor" | "manual_approval" | "restricted_auto";
   execution_mode: "sandbox" | "live";
+  spot_execution_route: "spot_market" | "convert";
   evaluation_mode: "hybrid" | "tick" | "candle_close" | "websocket" | "polling";
   connection_id: string;
   integration_id: string;
@@ -636,6 +638,7 @@ const INITIAL_FORM: BotForm = {
   side_mode: "buy_sell",
   mode: "manual_approval",
   execution_mode: "sandbox",
+  spot_execution_route: "spot_market",
   evaluation_mode: "hybrid",
   connection_id: "none",
   integration_id: "none",
@@ -896,6 +899,7 @@ function buildFormFromConfig(config: RatioBotConfig): BotForm {
     side_mode: normalizeSideMode(config.side_mode, config.market_type),
     mode: normalizeMode(config.mode),
     execution_mode: normalizeExecutionMode(config.execution_mode, config.market_type),
+    spot_execution_route: normalizeSpotExecutionRoute(config.spot_execution_route),
     evaluation_mode: normalizeEvaluationMode(config.evaluation_mode),
     connection_id: config.connection_id || "none",
     integration_id: config.integration_id || "none",
@@ -1033,6 +1037,10 @@ function normalizeExecutionMode(value?: string | null, marketType?: string | nul
   return value === "live" ? "live" : "sandbox";
 }
 
+function normalizeSpotExecutionRoute(value?: string | null): BotForm["spot_execution_route"] {
+  return value === "convert" ? "convert" : "spot_market";
+}
+
 function normalizeEvaluationMode(value?: string | null): BotForm["evaluation_mode"] {
   if (value === "tick" || value === "candle_close" || value === "websocket" || value === "polling") return value;
   return "hybrid";
@@ -1082,6 +1090,7 @@ function buildPayload(form: BotForm) {
     side_mode: isFutures ? form.side_mode : "buy_sell",
     mode: form.mode,
     execution_mode: isFutures ? "sandbox" : form.execution_mode,
+    spot_execution_route: isFutures ? "spot_market" : form.spot_execution_route,
     evaluation_mode: form.evaluation_mode,
     connection_id: isFutures ? null : parseNullableUuid(form.connection_id),
     integration_id: isFutures ? parseNullableUuid(form.integration_id) : null,
@@ -3015,6 +3024,19 @@ export default function RatioBotPage() {
                             </SelectContent>
                           </Select>
                         </Field>
+                        {form.market_type === "spot" ? (
+                          <Field label="Spot route" hint="Spot market is default. Convert requests a fixed Binance Convert quote, checks it against max allowed slippage, then accepts it.">
+                            <Select value={form.spot_execution_route} onValueChange={(value: BotForm["spot_execution_route"]) => setForm((current) => ({ ...current, spot_execution_route: value }))}>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="spot_market">spot market</SelectItem>
+                                <SelectItem value="convert">convert quote</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                        ) : null}
                         <Field label="Evaluation mode">
                           <Select value={form.evaluation_mode} onValueChange={(value: BotForm["evaluation_mode"]) => setForm((current) => ({ ...current, evaluation_mode: value }))}>
                             <SelectTrigger>
