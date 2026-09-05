@@ -222,6 +222,8 @@ interface RatioBotConfig {
 interface RatioDisplay {
   current_price?: number;
   position_state?: string | null;
+  last_buy_price?: string | number | null;
+  last_sell_price?: string | number | null;
   active_anchor_price?: number | null;
   active_anchor_type?: string | null;
   sell_ratio?: number | null;
@@ -569,6 +571,10 @@ type BotForm = {
   max_daily_loss: string;
   max_consecutive_losses: string;
   strategy_params_json: string;
+  auto_start_direction_mode: "manual" | "auto";
+  auto_start_min_confidence: string;
+  auto_start_observation_candles: string;
+  auto_start_min_trend_ratio: string;
   // V2
   v2_enabled: boolean;
   sell_tranche_count: string;
@@ -695,6 +701,10 @@ const INITIAL_FORM: BotForm = {
   max_daily_loss: "50",
   max_consecutive_losses: "3",
   strategy_params_json: JSON.stringify(STRATEGY_DEFAULTS.ratio_threshold, null, 2),
+  auto_start_direction_mode: "manual",
+  auto_start_min_confidence: "65",
+  auto_start_observation_candles: "24",
+  auto_start_min_trend_ratio: "0.001",
   v2_enabled: false,
   sell_tranche_count: "0",
   initial_exit_pct: "1",
@@ -752,6 +762,67 @@ function formatRatioPercent(value?: string | number | null | unknown) {
 
 function formatBoolean(value?: boolean | null) {
   return value ? "Yes" : "No";
+}
+
+function thresholdRatio(value?: string | number | null) {
+  const parsed = toNumber(value);
+  if (parsed === null) return null;
+  return Math.abs(parsed);
+}
+
+function computeTriggerPrices(params: {
+  currentPrice?: number | null;
+  buyAnchor?: number | null;
+  sellAnchor?: number | null;
+  sellThreshold?: string | number | null;
+  buyThreshold?: string | number | null;
+  costRatio?: number | null;
+}) {
+  const cost = Math.max(0, params.costRatio ?? 0);
+  const sellThreshold = thresholdRatio(params.sellThreshold);
+  const buyThreshold = thresholdRatio(params.buyThreshold);
+  const sellTarget = params.buyAnchor && sellThreshold !== null
+    ? params.buyAnchor * (1 + sellThreshold + cost)
+    : null;
+  const buyTarget = params.sellAnchor && buyThreshold !== null
+    ? params.sellAnchor / (1 + buyThreshold + cost)
+    : null;
+
+  return {
+    sellTarget,
+    buyTarget,
+    sellDistancePct: params.currentPrice && sellTarget ? ((sellTarget / params.currentPrice) - 1) * 100 : null,
+    buyDistancePct: params.currentPrice && buyTarget ? ((params.currentPrice / buyTarget) - 1) * 100 : null,
+  };
+}
+
+function ThresholdTrackerCard({
+  ratio,
+  triggerPrices,
+}: {
+  ratio?: RatioDisplay | null;
+  triggerPrices: ReturnType<typeof computeTriggerPrices>;
+}) {
+  const pendingSide = (ratio?.pending_trigger_side || "").toLowerCase();
+  const nextSide = pendingSide || (ratio?.position_state === "flat" ? "buy" : ratio?.position_state?.includes("holding") ? "sell" : "waiting");
+  const sellReady = ratio?.sell_armed || (triggerPrices.sellDistancePct !== null && triggerPrices.sellDistancePct <= 0);
+  const buyReady = ratio?.buy_armed || (triggerPrices.buyDistancePct !== null && triggerPrices.buyDistancePct <= 0);
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border/70 p-4">
+      <h3 className="text-sm font-semibold">Threshold Tracker</h3>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <DetailRow label="Next watch" value={prettyLabel(nextSide)} />
+        <DetailRow label="Anchor" value={formatNumber(ratio?.active_anchor_price, 6)} />
+        <DetailRow label="Sell target" value={formatNumber(triggerPrices.sellTarget, 6)} />
+        <DetailRow label="Buy target" value={formatNumber(triggerPrices.buyTarget, 6)} />
+        <DetailRow label="Sell distance" value={triggerPrices.sellDistancePct === null ? "None" : `${triggerPrices.sellDistancePct <= 0 ? "Ready" : "Needs"} ${Math.abs(triggerPrices.sellDistancePct).toFixed(2)}%`} />
+        <DetailRow label="Buy distance" value={triggerPrices.buyDistancePct === null ? "None" : `${triggerPrices.buyDistancePct <= 0 ? "Ready" : "Needs"} ${Math.abs(triggerPrices.buyDistancePct).toFixed(2)}%`} />
+        <DetailRow label="Sell armed" value={formatBoolean(!!sellReady)} />
+        <DetailRow label="Buy armed" value={formatBoolean(!!buyReady)} />
+      </div>
+    </div>
+  );
 }
 
 function prettyLabel(value?: string | null) {
@@ -812,6 +883,7 @@ function formatJson(value: unknown) {
 
 function buildFormFromConfig(config: RatioBotConfig): BotForm {
   const algorithm = normalizeAlgorithm(config.algorithm);
+  const strategyParams = (config.strategy_params ?? {}) as JsonRecord;
   return {
     ...INITIAL_FORM,
     name: config.name || INITIAL_FORM.name,
@@ -886,6 +958,10 @@ function buildFormFromConfig(config: RatioBotConfig): BotForm {
     max_daily_loss: stringifyValue(config.max_daily_loss),
     max_consecutive_losses: stringifyValue(config.max_consecutive_losses),
     strategy_params_json: formatJson(config.strategy_params ?? STRATEGY_DEFAULTS[algorithm]),
+    auto_start_direction_mode: strategyParams.auto_start_direction_mode === "auto" ? "auto" : "manual",
+    auto_start_min_confidence: stringifyValue(strategyParams.auto_start_min_confidence) || stringifyValue(config.brain_min_confidence) || INITIAL_FORM.auto_start_min_confidence,
+    auto_start_observation_candles: stringifyValue(strategyParams.auto_start_observation_candles) || INITIAL_FORM.auto_start_observation_candles,
+    auto_start_min_trend_ratio: stringifyValue(strategyParams.auto_start_min_trend_ratio) || INITIAL_FORM.auto_start_min_trend_ratio,
     v2_enabled: !!config.v2_enabled,
     sell_tranche_count: stringifyValue(config.sell_tranche_count) || INITIAL_FORM.sell_tranche_count,
     initial_exit_pct: stringifyValue(config.initial_exit_pct) || INITIAL_FORM.initial_exit_pct,
@@ -907,7 +983,7 @@ function buildFormFromConfig(config: RatioBotConfig): BotForm {
   };
 }
 
-function stringifyValue(value?: string | number | null) {
+function stringifyValue(value?: string | number | boolean | null | unknown) {
   if (value === null || value === undefined) return "";
   return String(value);
 }
@@ -985,6 +1061,13 @@ function buildPayload(form: BotForm) {
   if (strategy.error) {
     throw new Error(strategy.error);
   }
+  const strategyParams = {
+    ...(strategy.data ?? {}),
+    auto_start_direction_mode: form.auto_start_direction_mode,
+    auto_start_min_confidence: parseNullableNumber(form.auto_start_min_confidence) ?? 60,
+    auto_start_observation_candles: parseNullableInteger(form.auto_start_observation_candles) ?? 24,
+    auto_start_min_trend_ratio: parseNullableNumber(form.auto_start_min_trend_ratio) ?? 0.001,
+  };
 
   const isFutures = form.market_type === "futures";
 
@@ -1060,7 +1143,7 @@ function buildPayload(form: BotForm) {
     risk_per_trade: isFutures ? parseNullableNumber(form.risk_per_trade) : null,
     max_daily_loss: isFutures ? parseNullableNumber(form.max_daily_loss) : null,
     max_consecutive_losses: isFutures ? parseNullableInteger(form.max_consecutive_losses) : null,
-    strategy_params: strategy.data,
+    strategy_params: strategyParams,
     v2_enabled: form.v2_enabled,
     sell_tranche_count: parseNullableInteger(form.sell_tranche_count),
     initial_exit_pct: parseNullableNumber(form.initial_exit_pct),
@@ -1075,7 +1158,7 @@ function buildPayload(form: BotForm) {
     recovery_enabled: form.recovery_enabled,
     recovery_timeout_minutes: parseNullableInteger(form.recovery_timeout_minutes),
     max_entry_price_drift_bps: parseNullableNumber(form.max_entry_price_drift_bps),
-    starting_entry: form.starting_entry === "none" ? null : form.starting_entry,
+    starting_entry: form.auto_start_direction_mode === "auto" || form.starting_entry === "none" ? null : form.starting_entry,
     recovery_buy_drop_pct: parseNullableNumber(form.recovery_buy_drop_pct),
     recovery_sell_rise_pct: parseNullableNumber(form.recovery_sell_rise_pct),
     no_trade_alert_minutes: parseNullableInteger(form.no_trade_alert_minutes),
@@ -2026,18 +2109,28 @@ export default function RatioBotPage() {
   ];
   const overallBlocked = !!currentStatus?.block_reason_code || !!currentStatus?.kill_switch;
   const overallBlockDetail = currentStatus?.kill_switch ? "Kill switch is active." : currentStatus?.block_reason_detail;
+  const buyAnchorForTargets = toNumber(currentRatio?.last_buy_price ?? selectedBot?.state?.last_buy_price);
+  const sellAnchorForTargets = toNumber(currentRatio?.last_sell_price ?? selectedBot?.state?.last_sell_price);
+  const thresholdTargets = computeTriggerPrices({
+    currentPrice: toNumber(currentRatio?.current_price) ?? latestPrice,
+    buyAnchor: buyAnchorForTargets,
+    sellAnchor: sellAnchorForTargets,
+    sellThreshold: currentRatio?.sell_threshold ?? selectedBot?.sell_threshold_ratio,
+    buyThreshold: currentRatio?.buy_threshold ?? selectedBot?.buy_threshold_ratio,
+    costRatio: toNumber(currentRatio?.cost_ratio),
+  });
 
-  const chartExtraLines = !hasOpenPosition
-    ? [
-        { key: "anchor", price: toNumber(currentRatio?.active_anchor_price), color: "#a855f7", title: "Anchor" },
-        {
-          key: "trigger",
-          price: toNumber(currentRatio?.pending_trigger_price),
-          color: pendingTriggerSide === "sell" ? "#f43f5e" : "#22c55e",
-          title: currentRatio?.pending_trigger_side ? `${prettyLabel(pendingTriggerSide)} trigger` : "Trigger",
-        },
-      ]
-    : [];
+  const chartExtraLines = [
+    { key: "anchor", price: toNumber(currentRatio?.active_anchor_price), color: "#a855f7", title: "Anchor" },
+    { key: "sell-target", price: thresholdTargets.sellTarget, color: "#f43f5e", title: "Sell threshold" },
+    { key: "buy-target", price: thresholdTargets.buyTarget, color: "#22c55e", title: "Buy threshold" },
+    {
+      key: "trigger",
+      price: toNumber(currentRatio?.pending_trigger_price),
+      color: pendingTriggerSide === "sell" ? "#f43f5e" : "#22c55e",
+      title: currentRatio?.pending_trigger_side ? `${prettyLabel(pendingTriggerSide)} trigger` : "Trigger",
+    },
+  ];
 
   const timelineItems = (() => {
     type Item = { title: string; body?: string; status: "pending" | "success" | "error"; at?: string; ts: number };
@@ -2501,6 +2594,8 @@ export default function RatioBotPage() {
                           <DetailRow label="Last signal" value={prettyLabel(currentStatus?.last_signal || currentSignal?.decision)} />
                           <DetailRow label="Cooldown until" value={formatDateTime(currentStatus?.cooldown_until || selectedBot?.state?.cooldown_until)} />
                         </div>
+
+                        <ThresholdTrackerCard ratio={currentRatio} triggerPrices={thresholdTargets} />
                       </CardContent>
                     </Card>
 
@@ -2845,11 +2940,26 @@ export default function RatioBotPage() {
                             </SelectContent>
                           </Select>
                         </Field>
+                        <Field label="Start direction mode" hint="Manual keeps the current dropdown flow. Auto only chooses a clean idle cycle start after wallet, forecast, chart trend, and confidence agree.">
+                          <Select value={form.auto_start_direction_mode} onValueChange={(value: BotForm["auto_start_direction_mode"]) => setForm((current) => ({ ...current, auto_start_direction_mode: value }))}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="manual">manual</SelectItem>
+                              <SelectItem value="auto">auto</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </Field>
                         <Field
                           label="Starting entry"
                           hint="Controls only the first trading objective — it does not lock the bot's direction afterward. BUY checks live USDT balance before Start; SELL checks live BTC/base-asset balance. If the balance is insufficient, Start is blocked with BOT NOT READY instead of silently switching sides."
                         >
-                          <Select value={form.starting_entry} onValueChange={(value: BotForm["starting_entry"]) => setForm((current) => ({ ...current, starting_entry: value }))}>
+                          <Select
+                            value={form.starting_entry}
+                            onValueChange={(value: BotForm["starting_entry"]) => setForm((current) => ({ ...current, starting_entry: value }))}
+                            disabled={form.auto_start_direction_mode === "auto"}
+                          >
                             <SelectTrigger>
                               <SelectValue />
                             </SelectTrigger>
@@ -2860,6 +2970,28 @@ export default function RatioBotPage() {
                             </SelectContent>
                           </Select>
                         </Field>
+                        {form.auto_start_direction_mode === "auto" ? (
+                          <>
+                            <Field label="Auto min confidence">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={form.auto_start_min_confidence}
+                                onChange={(event) => setForm((current) => ({ ...current, auto_start_min_confidence: event.target.value }))}
+                              />
+                            </Field>
+                            <Field label="Observation candles">
+                              <Input
+                                type="number"
+                                min={8}
+                                max={120}
+                                value={form.auto_start_observation_candles}
+                                onChange={(event) => setForm((current) => ({ ...current, auto_start_observation_candles: event.target.value }))}
+                              />
+                            </Field>
+                          </>
+                        ) : null}
                         <Field label="Execution mode" hint={form.market_type === "futures" ? "Futures stays sandbox/testnet first." : "Spot can stay sandbox or go live."}>
                           <Select value={form.execution_mode} onValueChange={(value: BotForm["execution_mode"]) => setForm((current) => ({ ...current, execution_mode: value }))}>
                             <SelectTrigger>
@@ -3344,7 +3476,7 @@ export default function RatioBotPage() {
                 </TabsContent>
 
                 <TabsContent value="anchors" className="space-y-6">
-                  {form.starting_entry === "SELL" && !(selectedBot?.state?.last_position_qty && Number(selectedBot.state.last_position_qty) > 0) ? (
+                  {form.auto_start_direction_mode === "manual" && form.starting_entry === "SELL" && !(selectedBot?.state?.last_position_qty && Number(selectedBot.state.last_position_qty) > 0) ? (
                     <Card className="border-amber-500/40 bg-amber-500/5">
                       <CardHeader>
                         <CardTitle>Declare Starting Inventory</CardTitle>
