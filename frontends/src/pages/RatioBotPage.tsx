@@ -28,6 +28,10 @@ import { SignalSummaryCard } from "@/components/trading/SignalSummaryCard";
 import { NearTermForecastCard } from "@/components/trading/NearTermForecastCard";
 import { PayoutTimeline } from "@/components/wallet/PayoutTimeline";
 import { RatioBotCapitalCard } from "@/components/trading/RatioBotCapitalCard";
+import { RatioBotDiagnosticsPanel } from "@/components/trading/RatioBotDiagnosticsPanel";
+import { RatioBotLiquidationDistanceCard } from "@/components/trading/RatioBotLiquidationDistanceCard";
+import { RatioBotRecoverySlotCard } from "@/components/trading/RatioBotRecoverySlotCard";
+import { MarketHoursStatus, RatioBotStatusChips } from "@/components/trading/RatioBotStatusChips";
 import { RatioBotStageTracker } from "@/components/trading/RatioBotStageTracker";
 import { RatioBotEconomicsCard } from "@/components/trading/RatioBotEconomicsCard";
 import { RatioBotStrategyManagerCard, type StrategyManagerSnapshot } from "@/components/trading/RatioBotStrategyManagerCard";
@@ -218,6 +222,17 @@ interface RatioBotConfig {
   recovery_buy_drop_pct?: string | number | null;
   recovery_sell_rise_pct?: string | number | null;
   no_trade_alert_minutes?: number | null;
+  recovery_slot_enabled?: boolean | null;
+  recovery_slot_allocation_pct?: string | number | null;
+  recovery_slot_target_pct?: string | number | null;
+  liquidation_guard_enabled?: boolean | null;
+  liquidation_watch_buffer_pct?: string | number | null;
+  liquidation_critical_buffer_pct?: string | number | null;
+  futures_recovery_enabled?: boolean | null;
+  futures_recovery_topup_pct?: string | number | null;
+  futures_recovery_timeout_minutes?: number | null;
+  futures_recovery_min_confidence?: string | number | null;
+  asset_class?: "CRYPTO" | "FOREX" | "METALS" | string | null;
 }
 
 interface RatioDisplay {
@@ -414,6 +429,7 @@ interface LotRecord {
   realized_pnl?: number | null;
   bought_at?: string | null;
   closed_at?: string | null;
+  is_recovery_average?: boolean | null;
 }
 
 interface WalletAssetBalance {
@@ -565,6 +581,13 @@ type BotForm = {
   leverage: string;
   margin_type: "isolated" | "cross";
   position_mode: "one_way" | "hedge";
+  liquidation_guard_enabled: boolean;
+  liquidation_watch_buffer_pct: string;
+  liquidation_critical_buffer_pct: string;
+  futures_recovery_enabled: boolean;
+  futures_recovery_topup_pct: string;
+  futures_recovery_timeout_minutes: string;
+  futures_recovery_min_confidence: string;
   reduce_only_exit_orders: boolean;
   max_open_position_per_symbol: string;
   allow_reverse_signal: boolean;
@@ -596,6 +619,9 @@ type BotForm = {
   recovery_buy_drop_pct: string;
   recovery_sell_rise_pct: string;
   no_trade_alert_minutes: string;
+  recovery_slot_enabled: boolean;
+  recovery_slot_allocation_pct: string;
+  recovery_slot_target_pct: string;
 };
 
 const STRATEGY_DEFAULTS: Record<BotForm["algorithm"], JsonRecord> = {
@@ -696,6 +722,13 @@ const INITIAL_FORM: BotForm = {
   leverage: "3",
   margin_type: "isolated",
   position_mode: "one_way",
+  liquidation_guard_enabled: true,
+  liquidation_watch_buffer_pct: "15",
+  liquidation_critical_buffer_pct: "5",
+  futures_recovery_enabled: false,
+  futures_recovery_topup_pct: "10",
+  futures_recovery_timeout_minutes: "60",
+  futures_recovery_min_confidence: "60",
   reduce_only_exit_orders: true,
   max_open_position_per_symbol: "1",
   allow_reverse_signal: false,
@@ -731,6 +764,9 @@ const INITIAL_FORM: BotForm = {
   recovery_buy_drop_pct: "5",
   recovery_sell_rise_pct: "2",
   no_trade_alert_minutes: "120",
+  recovery_slot_enabled: false,
+  recovery_slot_allocation_pct: "10",
+  recovery_slot_target_pct: "25",
 };
 
 function formatDateTime(value?: string | number | null) {
@@ -954,6 +990,13 @@ function buildFormFromConfig(config: RatioBotConfig): BotForm {
     leverage: stringifyValue(config.leverage),
     margin_type: normalizeMarginType(config.margin_type),
     position_mode: normalizePositionMode(config.position_mode),
+    liquidation_guard_enabled: config.liquidation_guard_enabled ?? INITIAL_FORM.liquidation_guard_enabled,
+    liquidation_watch_buffer_pct: stringifyValue(config.liquidation_watch_buffer_pct) || INITIAL_FORM.liquidation_watch_buffer_pct,
+    liquidation_critical_buffer_pct: stringifyValue(config.liquidation_critical_buffer_pct) || INITIAL_FORM.liquidation_critical_buffer_pct,
+    futures_recovery_enabled: config.futures_recovery_enabled ?? INITIAL_FORM.futures_recovery_enabled,
+    futures_recovery_topup_pct: stringifyValue(config.futures_recovery_topup_pct) || INITIAL_FORM.futures_recovery_topup_pct,
+    futures_recovery_timeout_minutes: stringifyValue(config.futures_recovery_timeout_minutes) || INITIAL_FORM.futures_recovery_timeout_minutes,
+    futures_recovery_min_confidence: stringifyValue(config.futures_recovery_min_confidence) || INITIAL_FORM.futures_recovery_min_confidence,
     reduce_only_exit_orders: config.reduce_only_exit_orders ?? INITIAL_FORM.reduce_only_exit_orders,
     max_open_position_per_symbol: stringifyValue(config.max_open_position_per_symbol),
     allow_reverse_signal: !!config.allow_reverse_signal,
@@ -984,6 +1027,9 @@ function buildFormFromConfig(config: RatioBotConfig): BotForm {
     recovery_buy_drop_pct: stringifyValue(config.recovery_buy_drop_pct) || INITIAL_FORM.recovery_buy_drop_pct,
     recovery_sell_rise_pct: stringifyValue(config.recovery_sell_rise_pct) || INITIAL_FORM.recovery_sell_rise_pct,
     no_trade_alert_minutes: stringifyValue(config.no_trade_alert_minutes),
+    recovery_slot_enabled: !!config.recovery_slot_enabled,
+    recovery_slot_allocation_pct: stringifyValue(config.recovery_slot_allocation_pct) || INITIAL_FORM.recovery_slot_allocation_pct,
+    recovery_slot_target_pct: stringifyValue(config.recovery_slot_target_pct) || INITIAL_FORM.recovery_slot_target_pct,
   };
 }
 
@@ -1145,6 +1191,13 @@ function buildPayload(form: BotForm) {
     leverage: isFutures ? parseNullableNumber(form.leverage) : null,
     margin_type: isFutures ? form.margin_type : null,
     position_mode: isFutures ? form.position_mode : null,
+    liquidation_guard_enabled: form.liquidation_guard_enabled,
+    liquidation_watch_buffer_pct: isFutures ? parseNullableNumber(form.liquidation_watch_buffer_pct) : null,
+    liquidation_critical_buffer_pct: isFutures ? parseNullableNumber(form.liquidation_critical_buffer_pct) : null,
+    futures_recovery_enabled: isFutures && form.liquidation_guard_enabled ? form.futures_recovery_enabled : false,
+    futures_recovery_topup_pct: isFutures ? parseNullableNumber(form.futures_recovery_topup_pct) : null,
+    futures_recovery_timeout_minutes: isFutures ? parseNullableInteger(form.futures_recovery_timeout_minutes) : null,
+    futures_recovery_min_confidence: isFutures ? parseNullableNumber(form.futures_recovery_min_confidence) : null,
     reduce_only_exit_orders: isFutures ? form.reduce_only_exit_orders : null,
     max_open_position_per_symbol: isFutures ? parseNullableNumber(form.max_open_position_per_symbol) : null,
     allow_reverse_signal: isFutures ? form.allow_reverse_signal : null,
@@ -1170,6 +1223,9 @@ function buildPayload(form: BotForm) {
     starting_entry: form.auto_start_direction_mode === "auto" || form.starting_entry === "none" ? null : form.starting_entry,
     recovery_buy_drop_pct: parseNullableNumber(form.recovery_buy_drop_pct),
     recovery_sell_rise_pct: parseNullableNumber(form.recovery_sell_rise_pct),
+    recovery_slot_enabled: form.recovery_slot_enabled,
+    recovery_slot_allocation_pct: parseNullableNumber(form.recovery_slot_allocation_pct),
+    recovery_slot_target_pct: parseNullableNumber(form.recovery_slot_target_pct),
     no_trade_alert_minutes: parseNullableInteger(form.no_trade_alert_minutes),
   };
 }
@@ -1201,6 +1257,10 @@ async function invalidateBotQueries(queryClient: ReturnType<typeof useQueryClien
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-effective-feed-status", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-daily-report", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-pending-approval", botId] }),
+    queryClient.invalidateQueries({ queryKey: ["ratio-bot-diagnostics", botId] }),
+    queryClient.invalidateQueries({ queryKey: ["ratio-bot-liquidation-guard", botId] }),
+    queryClient.invalidateQueries({ queryKey: ["ratio-bot-recovery-slot", botId] }),
+    queryClient.invalidateQueries({ queryKey: ["ratio-bot-market-hours", botId] }),
   ]);
 }
 
@@ -1586,6 +1646,18 @@ export default function RatioBotPage() {
     refetchInterval: 10000,
   });
   const effectiveSnapshot = effectiveFeedStatusQuery.data?.snapshot ?? null;
+
+  const marketHoursQuery = useQuery({
+    queryKey: ["ratio-bot-market-hours", selectedBotId],
+    queryFn: async () => {
+      if (!selectedBotId) return null as MarketHoursStatus | null;
+      return fetchBotResource<MarketHoursStatus>(selectedBotId, "market-hours");
+    },
+    enabled: !!selectedBotId && !isCreating,
+    // Market hours change on the order of hours, not seconds -- no need for
+    // the tight polling cadence the live-feed queries above use.
+    refetchInterval: 60000,
+  });
 
   const pendingApprovalQuery = useQuery({
     queryKey: ["ratio-bot-pending-approval", selectedBotId],
@@ -2404,13 +2476,23 @@ export default function RatioBotPage() {
                 </CardContent>
               </Card>
 
+              <RatioBotStatusChips
+                assetClass={selectedBot?.asset_class}
+                exchange={selectedBot?.exchange}
+                executionMode={selectedBot?.execution_mode}
+                positionState={selectedBot?.state?.position_state}
+                marketHours={marketHoursQuery.data}
+                hasRecoveryAverageLot={(lotsQuery.data ?? []).some((lot) => !!lot.is_recovery_average)}
+              />
+
               <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList className="grid h-auto w-full grid-cols-2 gap-1 lg:grid-cols-5">
+                <TabsList className="grid h-auto w-full grid-cols-2 gap-1 lg:grid-cols-6">
                   <TabsTrigger value="overview">Overview</TabsTrigger>
                   <TabsTrigger value="runtime">Runtime</TabsTrigger>
                   <TabsTrigger value="config">Config</TabsTrigger>
                   <TabsTrigger value="anchors">Anchors</TabsTrigger>
                   <TabsTrigger value="audit">Audit</TabsTrigger>
+                  <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="overview" className="space-y-6">
@@ -2750,6 +2832,8 @@ export default function RatioBotPage() {
                       />
                     </div>
                   ) : null}
+
+                  {selectedBotId && !isCreating ? <RatioBotRecoverySlotCard botId={selectedBotId} /> : null}
 
                   {selectedMarketType === "spot" && (selectedBot?.algorithm || "ratio_threshold") === "ratio_threshold" ? (
                     <RatioBotStageTracker
@@ -3226,6 +3310,43 @@ export default function RatioBotPage() {
                                   </Field>
                                 </>
                               ) : null}
+
+                              <Field
+                                label="Recovery Slot (standing balance)"
+                                hint="A separate, persistent reserve that skims a % of every profitable sell across many cycles — distinct from the per-cycle Recovery Reserve above. Exists so a genuinely stuck bot (out of quote to buy, or out of base to sell) has a small emergency cushion. Capped, never funded from a losing trade."
+                              >
+                                <div className="flex h-10 items-center justify-between rounded-md border px-3">
+                                  <span className="text-sm">{form.recovery_slot_enabled ? "Enabled" : "Disabled"}</span>
+                                  <Switch
+                                    checked={form.recovery_slot_enabled}
+                                    onCheckedChange={(checked) => setForm((current) => ({ ...current, recovery_slot_enabled: checked }))}
+                                  />
+                                </div>
+                              </Field>
+                              {form.recovery_slot_enabled ? (
+                                <>
+                                  <Field label="Allocate % of profit" hint="Slice of every profitable sell's realized P&L that tops up the slot. Hard ceiling 50%.">
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      min={0}
+                                      max={50}
+                                      value={form.recovery_slot_allocation_pct}
+                                      onChange={(event) => setForm((current) => ({ ...current, recovery_slot_allocation_pct: event.target.value }))}
+                                    />
+                                  </Field>
+                                  <Field label="Target cap (% of trade size)" hint="Once the slot's value reaches this % of the bot's normal trade size, skimming stops until the slot is used and drops back below it.">
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      min={0}
+                                      max={100}
+                                      value={form.recovery_slot_target_pct}
+                                      onChange={(event) => setForm((current) => ({ ...current, recovery_slot_target_pct: event.target.value }))}
+                                    />
+                                  </Field>
+                                </>
+                              ) : null}
                             </>
                           ) : null}
                         </CardContent>
@@ -3449,7 +3570,119 @@ export default function RatioBotPage() {
                         </Field>
                       </CardContent>
                     </Card>
+
+                    <Card className={cn(form.market_type !== "futures" && "opacity-80", "border-amber-500/30")}>
+                      <CardHeader>
+                        <CardTitle>Liquidation Guard</CardTitle>
+                        <p className="text-xs text-muted-foreground">
+                          Continuously watches this position's distance to liquidation. Below the watch buffer, new
+                          entries pause; at or below the critical buffer, the bot force-closes the position itself
+                          rather than wait for a profitable exit that may never come before the exchange liquidates it.
+                        </p>
+                      </CardHeader>
+                      <CardContent className="grid gap-4 md:grid-cols-2">
+                        <Field label="Liquidation Guard" hint="Recommended on for every futures bot.">
+                          <div className="flex h-10 items-center justify-between rounded-md border px-3">
+                            <span className="text-sm">{form.liquidation_guard_enabled ? "Enabled" : "Disabled"}</span>
+                            <Switch
+                              checked={form.liquidation_guard_enabled}
+                              onCheckedChange={(value) => setForm((current) => ({ ...current, liquidation_guard_enabled: value }))}
+                            />
+                          </div>
+                        </Field>
+                        <div />
+                        <Field label="Watch buffer %" hint="Below this distance to liquidation, new entries pause.">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min={0.5}
+                            max={90}
+                            value={form.liquidation_watch_buffer_pct}
+                            onChange={(event) => setForm((current) => ({ ...current, liquidation_watch_buffer_pct: event.target.value }))}
+                          />
+                        </Field>
+                        <Field label="Critical buffer %" hint="At or below this, the bot force-closes the position.">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min={0.1}
+                            max={89.99}
+                            value={form.liquidation_critical_buffer_pct}
+                            onChange={(event) => setForm((current) => ({ ...current, liquidation_critical_buffer_pct: event.target.value }))}
+                          />
+                        </Field>
+                        {Number(form.liquidation_critical_buffer_pct) >= Number(form.liquidation_watch_buffer_pct) ? (
+                          <p className="md:col-span-2 text-xs text-rose-500">
+                            Critical buffer must be smaller than the watch buffer, or the watch tier will never trigger first.
+                          </p>
+                        ) : null}
+                      </CardContent>
+                    </Card>
+
+                    <Card className={cn(form.market_type !== "futures" && "opacity-80")}>
+                      <CardHeader>
+                        <CardTitle>Futures Recovery</CardTitle>
+                        <p className="text-xs text-muted-foreground">
+                          A single, bounded, one-time top-up to a stuck position's average entry -- never a repeating
+                          average-down. Only fires when the signal that opened the position still confidently agrees
+                          and the Liquidation Guard reports it's safe to do so.
+                        </p>
+                      </CardHeader>
+                      <CardContent className="grid gap-4 md:grid-cols-2">
+                        <Field
+                          label="Futures Recovery"
+                          hint={
+                            form.liquidation_guard_enabled
+                              ? "Recommended off unless you understand the one-time top-up behavior."
+                              : "Disabled -- requires Liquidation Guard to be enabled above first."
+                          }
+                        >
+                          <div className="flex h-10 items-center justify-between rounded-md border px-3">
+                            <span className="text-sm">{form.futures_recovery_enabled && form.liquidation_guard_enabled ? "Enabled" : "Disabled"}</span>
+                            <Switch
+                              checked={form.futures_recovery_enabled && form.liquidation_guard_enabled}
+                              disabled={! form.liquidation_guard_enabled}
+                              onCheckedChange={(value) => setForm((current) => ({ ...current, futures_recovery_enabled: value }))}
+                            />
+                          </div>
+                        </Field>
+                        <div />
+                        <Field label="Top-up %" hint="Of the original position's notional, one time only. Hard-clamped 0-30.">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min={0}
+                            max={30}
+                            value={form.futures_recovery_topup_pct}
+                            onChange={(event) => setForm((current) => ({ ...current, futures_recovery_topup_pct: event.target.value }))}
+                          />
+                        </Field>
+                        <Field label="Timeout minutes" hint="How long a losing position must sit before a review is considered.">
+                          <Input
+                            type="number"
+                            step="1"
+                            min={1}
+                            value={form.futures_recovery_timeout_minutes}
+                            onChange={(event) => setForm((current) => ({ ...current, futures_recovery_timeout_minutes: event.target.value }))}
+                          />
+                        </Field>
+                        <Field label="Min confidence %" hint="Below this, the signal no longer supports the position -- pause instead of topping up.">
+                          <Input
+                            type="number"
+                            step="1"
+                            min={0}
+                            max={100}
+                            value={form.futures_recovery_min_confidence}
+                            onChange={(event) => setForm((current) => ({ ...current, futures_recovery_min_confidence: event.target.value }))}
+                          />
+                        </Field>
+                      </CardContent>
+                    </Card>
                   </div>
+
+                  {form.market_type === "futures" && selectedBotId ? (
+                    <RatioBotLiquidationDistanceCard botId={selectedBotId} />
+                  ) : null}
 
                   <Card>
                     <CardHeader>
@@ -3748,6 +3981,15 @@ export default function RatioBotPage() {
                       />
                     </CardContent>
                   </Card>
+                </TabsContent>
+
+                <TabsContent value="diagnostics" className="space-y-6">
+                  {selectedBotId ? (
+                    <RatioBotDiagnosticsPanel
+                      botId={selectedBotId}
+                      onFixApplied={() => invalidateBotQueries(queryClient, workspaceId, selectedBotId)}
+                    />
+                  ) : null}
                 </TabsContent>
               </Tabs>
             </div>
