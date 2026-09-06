@@ -32,6 +32,9 @@ import { RatioBotDiagnosticsPanel } from "@/components/trading/RatioBotDiagnosti
 import { RatioBotLiquidationDistanceCard } from "@/components/trading/RatioBotLiquidationDistanceCard";
 import { RatioBotRecoverySlotCard } from "@/components/trading/RatioBotRecoverySlotCard";
 import { MarketHoursStatus, RatioBotStatusChips } from "@/components/trading/RatioBotStatusChips";
+import { AssetClassToggle } from "@/components/trading/AssetClassToggle";
+import { ProviderSelect } from "@/components/trading/ProviderSelect";
+import { useProviderCatalog } from "@/hooks/useProviderCatalog";
 import { RatioBotStageTracker } from "@/components/trading/RatioBotStageTracker";
 import { RatioBotEconomicsCard } from "@/components/trading/RatioBotEconomicsCard";
 import { RatioBotStrategyManagerCard, type StrategyManagerSnapshot } from "@/components/trading/RatioBotStrategyManagerCard";
@@ -518,6 +521,7 @@ interface FuturesReadiness extends JsonRecord {
 type BotForm = {
   name: string;
   symbol: string;
+  exchange: "binance" | "oanda" | "metal_broker";
   market_type: "spot" | "futures";
   algorithm: "ratio_threshold" | "trailing_ratio" | "ma_crossover" | "rsi" | "breakout";
   timeframe: "1m" | "3m" | "5m" | "15m" | "1h" | "4h";
@@ -656,6 +660,7 @@ const STRATEGY_DEFAULTS: Record<BotForm["algorithm"], JsonRecord> = {
 const INITIAL_FORM: BotForm = {
   name: "BTC realtime engine",
   symbol: "BTCUSDT",
+  exchange: "binance",
   market_type: "spot",
   algorithm: "ratio_threshold",
   timeframe: "1m",
@@ -927,6 +932,7 @@ function buildFormFromConfig(config: RatioBotConfig): BotForm {
     ...INITIAL_FORM,
     name: config.name || INITIAL_FORM.name,
     symbol: config.symbol || INITIAL_FORM.symbol,
+    exchange: normalizeExchange(config.exchange),
     market_type: normalizeMarketType(config.market_type),
     algorithm,
     timeframe: normalizeTimeframe(config.timeframe),
@@ -1056,6 +1062,11 @@ function normalizeMarketType(value?: string | null): BotForm["market_type"] {
   return value === "futures" ? "futures" : "spot";
 }
 
+function normalizeExchange(value?: string | null): BotForm["exchange"] {
+  const normalized = (value || "").toLowerCase();
+  return normalized === "oanda" || normalized === "metal_broker" ? normalized : "binance";
+}
+
 function normalizeAlgorithm(value?: string | null): BotForm["algorithm"] {
   if (value === "trailing_ratio" || value === "rsi" || value === "breakout") return value;
   if (value === "ma" || value === "ma_crossover") return "ma_crossover";
@@ -1128,6 +1139,7 @@ function buildPayload(form: BotForm) {
   return {
     name: form.name.trim(),
     symbol: form.symbol.trim().toUpperCase(),
+    exchange: form.exchange,
     market_type: form.market_type,
     algorithm: form.algorithm,
     timeframe: form.timeframe,
@@ -1386,6 +1398,7 @@ export default function RatioBotPage() {
   const { currentWorkspace } = useWorkspace();
   const workspaceId = currentWorkspace?.id;
   const { toast } = useToast();
+  const providerCatalog = useProviderCatalog();
   const queryClient = useQueryClient();
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
   const [hydratedBotId, setHydratedBotId] = useState<string | null>(null);
@@ -2476,6 +2489,68 @@ export default function RatioBotPage() {
                 </CardContent>
               </Card>
 
+              <Card>
+                <CardContent className="flex flex-col gap-4 p-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Venue</div>
+                    <div className="mt-1 text-lg font-semibold">
+                      {form.execution_mode === "live" ? "Live" : "Paper (sandbox)"} · {form.market_type}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {form.exchange === "binance"
+                        ? "Trades on Binance"
+                        : `Trades on ${providerCatalog.byAssetClass("FOREX").find((p) => p.key === form.exchange)?.label ?? form.exchange} — sandbox only, no live account connected`}
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border p-2">
+                      <div className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">Mode</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={form.execution_mode === "sandbox" ? "default" : "outline"}
+                          onClick={() => setForm((current) => ({ ...current, execution_mode: "sandbox" }))}
+                        >
+                          Paper
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={form.execution_mode === "live" ? "default" : "outline"}
+                          className={form.execution_mode === "live" ? "bg-emerald-500 text-emerald-950 hover:bg-emerald-400" : undefined}
+                          onClick={() => setForm((current) => ({ ...current, execution_mode: "live" }))}
+                        >
+                          Live
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border p-2">
+                      <div className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">Asset class</div>
+                      <AssetClassToggle
+                        value={form.exchange === "binance" ? "CRYPTO" : "FOREX"}
+                        onChange={(nextClass) => {
+                          const firstProvider = providerCatalog.byAssetClass(nextClass)[0];
+                          setForm((current) => ({
+                            ...current,
+                            exchange: (nextClass === "CRYPTO" ? "binance" : (firstProvider?.key ?? "oanda")) as BotForm["exchange"],
+                            symbol: nextClass === "CRYPTO" ? (current.exchange !== "binance" ? "BTCUSDT" : current.symbol) : (firstProvider?.symbols?.[0]?.symbol ?? "EURUSD"),
+                          }));
+                        }}
+                      />
+                    </div>
+                    <div className="rounded-xl border p-2">
+                      <div className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">Provider</div>
+                      <ProviderSelect
+                        providers={providerCatalog.byAssetClass(form.exchange === "binance" ? "CRYPTO" : "FOREX")}
+                        value={form.exchange}
+                        onChange={(providerKey) => setForm((current) => ({ ...current, exchange: providerKey as BotForm["exchange"] }))}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
               <RatioBotStatusChips
                 assetClass={selectedBot?.asset_class}
                 exchange={selectedBot?.exchange}
@@ -2949,8 +3024,20 @@ export default function RatioBotPage() {
                         <Field label="Bot name">
                           <Input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
                         </Field>
-                        <Field label="Symbol">
+                        <Field label="Symbol" hint="Crypto e.g. BTCUSDT. Forex/metals e.g. EURUSD, XAUUSD — pick the matching Exchange / Broker below, or this will still try to trade it on Binance.">
                           <Input value={form.symbol} onChange={(event) => setForm((current) => ({ ...current, symbol: event.target.value.toUpperCase() }))} />
+                        </Field>
+                        <Field label="Exchange / Broker" hint="Which venue this bot actually trades on — this, not the symbol alone, decides Crypto vs. Forex/Metals routing, market-hours awareness, and which broker client executes orders.">
+                          <Select value={form.exchange} onValueChange={(value: BotForm["exchange"]) => setForm((current) => ({ ...current, exchange: value }))}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="binance">Binance (Crypto)</SelectItem>
+                              <SelectItem value="oanda">OANDA (Forex / Metals — sandbox only, no live account connected)</SelectItem>
+                              <SelectItem value="metal_broker">Metal Broker (Forex / Metals — legacy sandbox)</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </Field>
                         <Field label="Market type">
                           <Select value={form.market_type} onValueChange={(value: BotForm["market_type"]) => setForm((current) => ({ ...current, market_type: value }))}>
