@@ -43,6 +43,7 @@ import { RatioBotTradeLedger } from "@/components/trading/RatioBotTradeLedger";
 import { RatioBotLotList } from "@/components/trading/RatioBotLotList";
 import { RatioBotStartupChecklist, type StartupChecklist } from "@/components/trading/RatioBotStartupChecklist";
 import { RatioBotReversalWatchCard } from "@/components/trading/RatioBotReversalWatchCard";
+import { TrendWindowBreakdownCard } from "@/components/trading/TrendWindowBreakdownCard";
 import { MarketSnapshotBar, DEFAULT_SYMBOLS as DEFAULT_MARKET_SNAPSHOT_SYMBOLS } from "@/components/trading/MarketSnapshotBar";
 import { useRatioBotCandleFeed } from "@/hooks/useRatioBotCandleFeed";
 import type { SignalPreview, ForecastPayload } from "@/hooks/useQuickTrade";
@@ -137,6 +138,7 @@ interface RatioBotConfig {
   algorithm?: string | null;
   brain_enabled?: boolean | null;
   brain_min_confidence?: number | null;
+  forecast_horizon_seconds?: number | null;
   timeframe?: string | null;
   side_mode?: string | null;
   mode?: string | null;
@@ -527,6 +529,7 @@ type BotForm = {
   timeframe: "1m" | "3m" | "5m" | "15m" | "1h" | "4h";
   brain_enabled: boolean;
   brain_min_confidence: string;
+  forecast_horizon_seconds: string;
   side_mode: "buy_sell" | "long_only" | "short_only" | "both";
   mode: "advisor" | "manual_approval" | "restricted_auto";
   execution_mode: "sandbox" | "live";
@@ -666,6 +669,7 @@ const INITIAL_FORM: BotForm = {
   timeframe: "1m",
   brain_enabled: true,
   brain_min_confidence: "65",
+  forecast_horizon_seconds: "",
   side_mode: "buy_sell",
   mode: "manual_approval",
   execution_mode: "sandbox",
@@ -938,6 +942,7 @@ function buildFormFromConfig(config: RatioBotConfig): BotForm {
     timeframe: normalizeTimeframe(config.timeframe),
     brain_enabled: !!config.brain_enabled,
     brain_min_confidence: stringifyValue(config.brain_min_confidence) || INITIAL_FORM.brain_min_confidence,
+    forecast_horizon_seconds: stringifyValue(config.forecast_horizon_seconds) || INITIAL_FORM.forecast_horizon_seconds,
     side_mode: normalizeSideMode(config.side_mode, config.market_type),
     mode: normalizeMode(config.mode),
     execution_mode: normalizeExecutionMode(config.execution_mode, config.market_type),
@@ -1145,6 +1150,7 @@ function buildPayload(form: BotForm) {
     timeframe: form.timeframe,
     brain_enabled: form.brain_enabled,
     brain_min_confidence: parseNullableInteger(form.brain_min_confidence),
+    forecast_horizon_seconds: parseNullableInteger(form.forecast_horizon_seconds),
     side_mode: isFutures ? form.side_mode : "buy_sell",
     mode: form.mode,
     execution_mode: isFutures ? "sandbox" : form.execution_mode,
@@ -1273,6 +1279,7 @@ async function invalidateBotQueries(queryClient: ReturnType<typeof useQueryClien
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-liquidation-guard", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-recovery-slot", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-market-hours", botId] }),
+    queryClient.invalidateQueries({ queryKey: ["ratio-bot-trend-score", botId] }),
   ]);
 }
 
@@ -2762,6 +2769,7 @@ export default function RatioBotPage() {
                         </div>
 
                         <ThresholdTrackerCard ratio={currentRatio} triggerPrices={thresholdTargets} />
+                        {selectedBotId && !isCreating ? <TrendWindowBreakdownCard botId={selectedBotId} /> : null}
                       </CardContent>
                     </Card>
 
@@ -3092,15 +3100,30 @@ export default function RatioBotPage() {
                           </div>
                         </Field>
                         {form.brain_enabled ? (
-                          <Field label="Brain min confidence to delay a trade" hint="0-100. Brain must disagree at or above this confidence to add one extra confirmation tick.">
-                            <Input
-                              type="number"
-                              min={0}
-                              max={100}
-                              value={form.brain_min_confidence}
-                              onChange={(event) => setForm((current) => ({ ...current, brain_min_confidence: event.target.value }))}
-                            />
-                          </Field>
+                          <>
+                            <Field label="Brain min confidence to delay a trade" hint="0-100. Brain must disagree at or above this confidence to add one extra confirmation tick.">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={form.brain_min_confidence}
+                                onChange={(event) => setForm((current) => ({ ...current, brain_min_confidence: event.target.value }))}
+                              />
+                            </Field>
+                            <Field
+                              label="Forecast horizon override (seconds)"
+                              hint="Leave blank to derive the horizon from the Timeframe above (e.g. 15m → 900s). Set this to make the brain forecast further ahead (or closer in) than the candle size it trades on — the ladder itself keeps trading on Timeframe regardless."
+                            >
+                              <Input
+                                type="number"
+                                min={30}
+                                max={86400}
+                                placeholder={`Derived from timeframe (${form.timeframe})`}
+                                value={form.forecast_horizon_seconds}
+                                onChange={(event) => setForm((current) => ({ ...current, forecast_horizon_seconds: event.target.value }))}
+                              />
+                            </Field>
+                          </>
                         ) : null}
                         <Field label="Side mode">
                           <Select value={form.side_mode} onValueChange={(value: BotForm["side_mode"]) => setForm((current) => ({ ...current, side_mode: value }))}>
