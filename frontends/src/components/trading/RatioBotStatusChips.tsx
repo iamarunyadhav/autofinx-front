@@ -52,6 +52,7 @@ export function RatioBotStatusChips({
   positionState,
   marketHours,
   hasRecoveryAverageLot,
+  startingEntry,
 }: {
   assetClass?: string | null;
   exchange?: string | null;
@@ -59,9 +60,15 @@ export function RatioBotStatusChips({
   positionState?: string | null;
   marketHours?: MarketHoursStatus | null;
   hasRecoveryAverageLot?: boolean;
+  startingEntry?: string | null;
 }) {
   const resolvedAssetClass = (assetClass || "CRYPTO").toUpperCase();
   const resolvedState = (positionState || "idle").toLowerCase();
+  // WATCH_ONLY has no dedicated position_state of its own (it's provably
+  // equivalent to no starting_entry at all -- see RatioBotConfig::isWatchOnlyMode())
+  // so "idle" is distinguished into an intentional "Watching" badge here,
+  // purely presentational, rather than looking like a stalled/broken bot.
+  const isWatchOnly = resolvedState === "idle" && (startingEntry || "").toUpperCase() === "WATCH_ONLY";
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -91,8 +98,8 @@ export function RatioBotStatusChips({
         </Badge>
       ) : null}
 
-      <Badge variant="outline" className={cn("capitalize", positionStateBadgeClass(resolvedState))}>
-        {resolvedState.replace(/_/g, " ")}
+      <Badge variant="outline" className={cn("capitalize", isWatchOnly ? "bg-sky-500/15 text-sky-300" : positionStateBadgeClass(resolvedState))}>
+        {isWatchOnly ? "Watching" : resolvedState.replace(/_/g, " ")}
       </Badge>
 
       {hasRecoveryAverageLot ? (

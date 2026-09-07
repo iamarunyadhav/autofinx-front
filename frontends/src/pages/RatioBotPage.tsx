@@ -227,7 +227,8 @@ interface RatioBotConfig {
   stage_sell_allocations?: number[] | null;
   stage_sell_rises?: number[] | null;
   strategy_reserve_pct?: string | number | null;
-  starting_entry?: "BUY" | "SELL" | string | null;
+  starting_entry?: "BUY" | "SELL" | "WATCH_ONLY" | "SEED_POSITION" | string | null;
+  seed_position_pct?: string | number | null;
   recovery_buy_drop_pct?: string | number | null;
   recovery_sell_rise_pct?: string | number | null;
   no_trade_alert_minutes?: number | null;
@@ -645,7 +646,8 @@ type BotForm = {
   stage_sell_allocations: string;
   stage_sell_rises: string;
   strategy_reserve_pct: string;
-  starting_entry: "none" | "BUY" | "SELL";
+  starting_entry: "none" | "BUY" | "SELL" | "WATCH_ONLY" | "SEED_POSITION";
+  seed_position_pct: string;
   recovery_buy_drop_pct: string;
   recovery_sell_rise_pct: string;
   no_trade_alert_minutes: string;
@@ -804,6 +806,7 @@ const INITIAL_FORM: BotForm = {
   stage_sell_rises: "5,5,10",
   strategy_reserve_pct: "20",
   starting_entry: "BUY",
+  seed_position_pct: "10",
   recovery_buy_drop_pct: "5",
   recovery_sell_rise_pct: "2",
   no_trade_alert_minutes: "120",
@@ -1079,7 +1082,14 @@ function buildFormFromConfig(config: RatioBotConfig): BotForm {
     recovery_enabled: !!config.recovery_enabled,
     recovery_timeout_minutes: stringifyValue(config.recovery_timeout_minutes),
     max_entry_price_drift_bps: stringifyValue(config.max_entry_price_drift_bps) || INITIAL_FORM.max_entry_price_drift_bps,
-    starting_entry: config.starting_entry === "BUY" || config.starting_entry === "SELL" ? config.starting_entry : "none",
+    starting_entry:
+      config.starting_entry === "BUY" ||
+      config.starting_entry === "SELL" ||
+      config.starting_entry === "WATCH_ONLY" ||
+      config.starting_entry === "SEED_POSITION"
+        ? config.starting_entry
+        : "none",
+    seed_position_pct: stringifyValue(config.seed_position_pct) || INITIAL_FORM.seed_position_pct,
     recovery_buy_drop_pct: stringifyValue(config.recovery_buy_drop_pct) || INITIAL_FORM.recovery_buy_drop_pct,
     recovery_sell_rise_pct: stringifyValue(config.recovery_sell_rise_pct) || INITIAL_FORM.recovery_sell_rise_pct,
     no_trade_alert_minutes: stringifyValue(config.no_trade_alert_minutes),
@@ -1297,6 +1307,7 @@ function buildPayload(form: BotForm) {
     recovery_timeout_minutes: parseNullableInteger(form.recovery_timeout_minutes),
     max_entry_price_drift_bps: parseNullableNumber(form.max_entry_price_drift_bps),
     starting_entry: form.auto_start_direction_mode === "auto" || form.starting_entry === "none" ? null : form.starting_entry,
+    seed_position_pct: form.starting_entry === "SEED_POSITION" ? parseNullableNumber(form.seed_position_pct) : null,
     recovery_buy_drop_pct: parseNullableNumber(form.recovery_buy_drop_pct),
     recovery_sell_rise_pct: parseNullableNumber(form.recovery_sell_rise_pct),
     recovery_slot_enabled: form.recovery_slot_enabled,
@@ -2630,6 +2641,7 @@ export default function RatioBotPage() {
                 positionState={selectedBot?.state?.position_state}
                 marketHours={marketHoursQuery.data}
                 hasRecoveryAverageLot={(lotsQuery.data ?? []).some((lot) => !!lot.is_recovery_average)}
+                startingEntry={selectedBot?.starting_entry}
               />
 
               <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -3236,9 +3248,34 @@ export default function RatioBotPage() {
                               <SelectItem value="none">Not set</SelectItem>
                               <SelectItem value="BUY">BUY</SelectItem>
                               <SelectItem value="SELL">SELL</SelectItem>
+                              <SelectItem value="WATCH_ONLY">Watch only</SelectItem>
+                              <SelectItem value="SEED_POSITION">Seed position</SelectItem>
                             </SelectContent>
                           </Select>
+                          {form.starting_entry === "WATCH_ONLY" ? (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              No position, no forced direction — the bot waits for its normal signal before ever buying
+                              or selling. Best for a brand-new coin you want to observe first.
+                            </p>
+                          ) : null}
+                          {form.starting_entry === "SEED_POSITION" ? (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Buy a small deliberate stake right now, then let the bot manage the rest dynamically.
+                            </p>
+                          ) : null}
                         </Field>
+                        {form.starting_entry === "SEED_POSITION" ? (
+                          <Field label="Seed position %" hint="What % of this bot's capital to seed immediately (1-50).">
+                            <Input
+                              type="number"
+                              step="1"
+                              min={1}
+                              max={50}
+                              value={form.seed_position_pct}
+                              onChange={(event) => setForm((current) => ({ ...current, seed_position_pct: event.target.value }))}
+                            />
+                          </Field>
+                        ) : null}
                         {form.auto_start_direction_mode === "auto" ? (
                           <>
                             <Field label="Auto min confidence">
