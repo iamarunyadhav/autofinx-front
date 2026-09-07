@@ -3,6 +3,8 @@ import {
   ActivitySquare,
   AlertTriangle,
   Bot,
+  ChevronDown,
+  ChevronRight,
   Pause,
   Play,
   RefreshCw,
@@ -44,6 +46,7 @@ import { RatioBotLotList } from "@/components/trading/RatioBotLotList";
 import { RatioBotStartupChecklist, type StartupChecklist } from "@/components/trading/RatioBotStartupChecklist";
 import { RatioBotReversalWatchCard } from "@/components/trading/RatioBotReversalWatchCard";
 import { TrendWindowBreakdownCard } from "@/components/trading/TrendWindowBreakdownCard";
+import { RatioBrainDecisionCard } from "@/components/trading/RatioBrainDecisionCard";
 import { MarketSnapshotBar, DEFAULT_SYMBOLS as DEFAULT_MARKET_SNAPSHOT_SYMBOLS } from "@/components/trading/MarketSnapshotBar";
 import { useRatioBotCandleFeed } from "@/hooks/useRatioBotCandleFeed";
 import type { SignalPreview, ForecastPayload } from "@/hooks/useQuickTrade";
@@ -54,6 +57,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -238,6 +242,14 @@ interface RatioBotConfig {
   futures_recovery_timeout_minutes?: number | null;
   futures_recovery_min_confidence?: string | number | null;
   asset_class?: "CRYPTO" | "FOREX" | "METALS" | string | null;
+  ratio_brain_enabled?: boolean | null;
+  ratio_brain_shadow_mode?: boolean | null;
+  portfolio_guard_min_profit_usdt?: string | number | null;
+  portfolio_guard_safety_margin_pct?: string | number | null;
+  recovery_min_observation_minutes?: number | null;
+  recovery_max_observation_minutes?: number | null;
+  sell_selector_weights?: { profit?: number; capital_release?: number; age?: number; cycle_effect?: number } | null;
+  emergency_atr_multiple_threshold?: string | number | null;
 }
 
 interface RatioDisplay {
@@ -595,6 +607,17 @@ type BotForm = {
   futures_recovery_topup_pct: string;
   futures_recovery_timeout_minutes: string;
   futures_recovery_min_confidence: string;
+  ratio_brain_enabled: boolean;
+  ratio_brain_shadow_mode: boolean;
+  portfolio_guard_min_profit_usdt: string;
+  portfolio_guard_safety_margin_pct: string;
+  recovery_min_observation_minutes: string;
+  recovery_max_observation_minutes: string;
+  sell_selector_weight_profit: string;
+  sell_selector_weight_capital_release: string;
+  sell_selector_weight_age: string;
+  sell_selector_weight_cycle_effect: string;
+  emergency_atr_multiple_threshold: string;
   reduce_only_exit_orders: boolean;
   max_open_position_per_symbol: string;
   allow_reverse_signal: boolean;
@@ -738,6 +761,17 @@ const INITIAL_FORM: BotForm = {
   futures_recovery_topup_pct: "10",
   futures_recovery_timeout_minutes: "60",
   futures_recovery_min_confidence: "60",
+  ratio_brain_enabled: false,
+  ratio_brain_shadow_mode: true,
+  portfolio_guard_min_profit_usdt: "0.5",
+  portfolio_guard_safety_margin_pct: "15",
+  recovery_min_observation_minutes: "15",
+  recovery_max_observation_minutes: "240",
+  sell_selector_weight_profit: "40",
+  sell_selector_weight_capital_release: "30",
+  sell_selector_weight_age: "10",
+  sell_selector_weight_cycle_effect: "20",
+  emergency_atr_multiple_threshold: "3",
   reduce_only_exit_orders: true,
   max_open_position_per_symbol: "1",
   allow_reverse_signal: false,
@@ -1008,6 +1042,17 @@ function buildFormFromConfig(config: RatioBotConfig): BotForm {
     futures_recovery_topup_pct: stringifyValue(config.futures_recovery_topup_pct) || INITIAL_FORM.futures_recovery_topup_pct,
     futures_recovery_timeout_minutes: stringifyValue(config.futures_recovery_timeout_minutes) || INITIAL_FORM.futures_recovery_timeout_minutes,
     futures_recovery_min_confidence: stringifyValue(config.futures_recovery_min_confidence) || INITIAL_FORM.futures_recovery_min_confidence,
+    ratio_brain_enabled: config.ratio_brain_enabled ?? INITIAL_FORM.ratio_brain_enabled,
+    ratio_brain_shadow_mode: config.ratio_brain_shadow_mode ?? INITIAL_FORM.ratio_brain_shadow_mode,
+    portfolio_guard_min_profit_usdt: stringifyValue(config.portfolio_guard_min_profit_usdt) || INITIAL_FORM.portfolio_guard_min_profit_usdt,
+    portfolio_guard_safety_margin_pct: stringifyValue(config.portfolio_guard_safety_margin_pct) || INITIAL_FORM.portfolio_guard_safety_margin_pct,
+    recovery_min_observation_minutes: stringifyValue(config.recovery_min_observation_minutes) || INITIAL_FORM.recovery_min_observation_minutes,
+    recovery_max_observation_minutes: stringifyValue(config.recovery_max_observation_minutes) || INITIAL_FORM.recovery_max_observation_minutes,
+    sell_selector_weight_profit: stringifyValue(config.sell_selector_weights?.profit != null ? config.sell_selector_weights.profit * 100 : null) || INITIAL_FORM.sell_selector_weight_profit,
+    sell_selector_weight_capital_release: stringifyValue(config.sell_selector_weights?.capital_release != null ? config.sell_selector_weights.capital_release * 100 : null) || INITIAL_FORM.sell_selector_weight_capital_release,
+    sell_selector_weight_age: stringifyValue(config.sell_selector_weights?.age != null ? config.sell_selector_weights.age * 100 : null) || INITIAL_FORM.sell_selector_weight_age,
+    sell_selector_weight_cycle_effect: stringifyValue(config.sell_selector_weights?.cycle_effect != null ? config.sell_selector_weights.cycle_effect * 100 : null) || INITIAL_FORM.sell_selector_weight_cycle_effect,
+    emergency_atr_multiple_threshold: stringifyValue(config.emergency_atr_multiple_threshold) || INITIAL_FORM.emergency_atr_multiple_threshold,
     reduce_only_exit_orders: config.reduce_only_exit_orders ?? INITIAL_FORM.reduce_only_exit_orders,
     max_open_position_per_symbol: stringifyValue(config.max_open_position_per_symbol),
     allow_reverse_signal: !!config.allow_reverse_signal,
@@ -1216,6 +1261,19 @@ function buildPayload(form: BotForm) {
     futures_recovery_topup_pct: isFutures ? parseNullableNumber(form.futures_recovery_topup_pct) : null,
     futures_recovery_timeout_minutes: isFutures ? parseNullableInteger(form.futures_recovery_timeout_minutes) : null,
     futures_recovery_min_confidence: isFutures ? parseNullableNumber(form.futures_recovery_min_confidence) : null,
+    ratio_brain_enabled: form.ratio_brain_enabled,
+    ratio_brain_shadow_mode: form.ratio_brain_shadow_mode,
+    portfolio_guard_min_profit_usdt: parseNullableNumber(form.portfolio_guard_min_profit_usdt),
+    portfolio_guard_safety_margin_pct: parseNullableNumber(form.portfolio_guard_safety_margin_pct),
+    recovery_min_observation_minutes: parseNullableInteger(form.recovery_min_observation_minutes),
+    recovery_max_observation_minutes: parseNullableInteger(form.recovery_max_observation_minutes),
+    sell_selector_weights: {
+      profit: (parseNullableNumber(form.sell_selector_weight_profit) ?? 0) / 100,
+      capital_release: (parseNullableNumber(form.sell_selector_weight_capital_release) ?? 0) / 100,
+      age: (parseNullableNumber(form.sell_selector_weight_age) ?? 0) / 100,
+      cycle_effect: (parseNullableNumber(form.sell_selector_weight_cycle_effect) ?? 0) / 100,
+    },
+    emergency_atr_multiple_threshold: parseNullableNumber(form.emergency_atr_multiple_threshold),
     reduce_only_exit_orders: isFutures ? form.reduce_only_exit_orders : null,
     max_open_position_per_symbol: isFutures ? parseNullableNumber(form.max_open_position_per_symbol) : null,
     allow_reverse_signal: isFutures ? form.allow_reverse_signal : null,
@@ -1280,6 +1338,7 @@ async function invalidateBotQueries(queryClient: ReturnType<typeof useQueryClien
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-recovery-slot", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-market-hours", botId] }),
     queryClient.invalidateQueries({ queryKey: ["ratio-bot-trend-score", botId] }),
+    queryClient.invalidateQueries({ queryKey: ["ratio-bot-ratio-brain", botId] }),
   ]);
 }
 
@@ -1411,6 +1470,7 @@ export default function RatioBotPage() {
   const [hydratedBotId, setHydratedBotId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
+  const [ratioBrainSectionOpen, setRatioBrainSectionOpen] = useState(false);
   const [form, setForm] = useState<BotForm>(INITIAL_FORM);
   const [anchorBuyPrice, setAnchorBuyPrice] = useState("");
   const [anchorBuyQty, setAnchorBuyQty] = useState("");
@@ -1717,8 +1777,13 @@ export default function RatioBotPage() {
       return;
     }
 
-    if (selectedBotId && bots.length > 0 && !bots.some((bot) => bot.id === selectedBotId)) {
-      setSelectedBotId(bots[0].id);
+    // Previously guarded by `bots.length > 0`, so a selectedBotId left over
+    // from before the last bot was deleted (or a stale id from a prior
+    // session) was never cleared once the list genuinely became empty --
+    // every per-bot detail query below stayed enabled forever and 404'd on
+    // every refetch tick since there was nothing left to fetch.
+    if (selectedBotId && !bots.some((bot) => bot.id === selectedBotId)) {
+      setSelectedBotId(bots.length > 0 ? bots[0].id : null);
     }
   }, [workspaceId, bots, selectedBotId, isCreating]);
 
@@ -2770,6 +2835,7 @@ export default function RatioBotPage() {
 
                         <ThresholdTrackerCard ratio={currentRatio} triggerPrices={thresholdTargets} />
                         {selectedBotId && !isCreating ? <TrendWindowBreakdownCard botId={selectedBotId} /> : null}
+                        {selectedBotId && !isCreating ? <RatioBrainDecisionCard botId={selectedBotId} /> : null}
                       </CardContent>
                     </Card>
 
@@ -3793,6 +3859,180 @@ export default function RatioBotPage() {
                   {form.market_type === "futures" && selectedBotId ? (
                     <RatioBotLiquidationDistanceCard botId={selectedBotId} />
                   ) : null}
+
+                  <Collapsible open={ratioBrainSectionOpen} onOpenChange={setRatioBrainSectionOpen}>
+                    <Card className="border-amber-500/30">
+                      <CollapsibleTrigger asChild>
+                        <CardHeader className="cursor-pointer select-none">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              {ratioBrainSectionOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                              <CardTitle className="flex items-center gap-2">
+                                RatioBrain
+                                <Badge variant="outline" className="border-amber-400/40 text-amber-500">Beta</Badge>
+                              </CardTitle>
+                            </div>
+                            {form.ratio_brain_enabled ? (
+                              <Badge className={form.ratio_brain_shadow_mode ? "bg-amber-500/15 text-amber-500" : "bg-emerald-500/15 text-emerald-500"}>
+                                {form.ratio_brain_shadow_mode ? "Shadow mode" : "Live"}
+                              </Badge>
+                            ) : null}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Thin orchestration layer over the existing engine -- a portfolio-wide profit guard before
+                            any controlled-loss exit, a volatility-adaptive recovery window, a multi-factor sell
+                            ranking, and spot flash-crash protection. Shadow mode recommended until you've reviewed
+                            its logged decisions against real market data.
+                          </p>
+                        </CardHeader>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <CardContent className="grid gap-4 md:grid-cols-2">
+                          <Field label="RatioBrain" hint="Off by default -- this bot's own opt-in, on top of the workspace-wide switch.">
+                            <div className="flex h-10 items-center justify-between rounded-md border px-3">
+                              <span className="text-sm">{form.ratio_brain_enabled ? "Enabled" : "Disabled"}</span>
+                              <Switch
+                                checked={form.ratio_brain_enabled}
+                                onCheckedChange={(value) => setForm((current) => ({ ...current, ratio_brain_enabled: value }))}
+                              />
+                            </div>
+                          </Field>
+                          <Field
+                            label="Shadow mode"
+                            hint={
+                              form.ratio_brain_shadow_mode
+                                ? "Logs what RatioBrain would have done, without acting on it."
+                                : "RatioBrain's controlled-loss-exit recommendation can place a real trade."
+                            }
+                          >
+                            <div className="flex h-10 items-center justify-between rounded-md border px-3">
+                              <span className="text-sm">{form.ratio_brain_shadow_mode ? "Shadow (safe)" : "Live"}</span>
+                              <Switch
+                                checked={form.ratio_brain_shadow_mode}
+                                onCheckedChange={(value) => {
+                                  if (!value) {
+                                    const confirmed = window.confirm(
+                                      "Turning off shadow mode lets RatioBrain's controlled-loss-exit recommendation place a real trade. Only do this after reviewing its logged shadow decisions. Continue?",
+                                    );
+                                    if (!confirmed) return;
+                                  }
+                                  setForm((current) => ({ ...current, ratio_brain_shadow_mode: value }));
+                                }}
+                              />
+                            </div>
+                          </Field>
+
+                          <div className="md:col-span-2 text-xs font-medium text-muted-foreground">Portfolio Profit Guard</div>
+                          <Field label="Min profit (USDT)" hint="Floor added on top of estimated round-trip costs before a controlled loss is ever allowed.">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min={0}
+                              value={form.portfolio_guard_min_profit_usdt}
+                              onChange={(event) => setForm((current) => ({ ...current, portfolio_guard_min_profit_usdt: event.target.value }))}
+                            />
+                          </Field>
+                          <Field label="Safety margin %" hint="Extra cushion on top of costs + min profit -- never just 'profit > 0'.">
+                            <Input
+                              type="number"
+                              step="1"
+                              min={0}
+                              max={100}
+                              value={form.portfolio_guard_safety_margin_pct}
+                              onChange={(event) => setForm((current) => ({ ...current, portfolio_guard_safety_margin_pct: event.target.value }))}
+                            />
+                          </Field>
+
+                          <div className="md:col-span-2 text-xs font-medium text-muted-foreground">Dynamic Observation Window</div>
+                          <Field label="Min minutes" hint="Floor, even during a sharply strengthening recovery.">
+                            <Input
+                              type="number"
+                              step="1"
+                              min={1}
+                              value={form.recovery_min_observation_minutes}
+                              onChange={(event) => setForm((current) => ({ ...current, recovery_min_observation_minutes: event.target.value }))}
+                            />
+                          </Field>
+                          <Field label="Max minutes" hint="Ceiling -- a runaway 'always extend' loop can never grow past this.">
+                            <Input
+                              type="number"
+                              step="1"
+                              min={1}
+                              value={form.recovery_max_observation_minutes}
+                              onChange={(event) => setForm((current) => ({ ...current, recovery_max_observation_minutes: event.target.value }))}
+                            />
+                          </Field>
+
+                          <div className="md:col-span-2 text-xs font-medium text-muted-foreground">
+                            Sell Selector Weights
+                            {(() => {
+                              const sum =
+                                (Number(form.sell_selector_weight_profit) || 0) +
+                                (Number(form.sell_selector_weight_capital_release) || 0) +
+                                (Number(form.sell_selector_weight_age) || 0) +
+                                (Number(form.sell_selector_weight_cycle_effect) || 0);
+                              return (
+                                <span className={cn("ml-2 font-normal", Math.round(sum) === 100 ? "text-muted-foreground" : "text-amber-500")}>
+                                  (sum {sum.toFixed(0)}% -- normalized automatically if not 100%)
+                                </span>
+                              );
+                            })()}
+                          </div>
+                          <Field label="Profit %">
+                            <Input
+                              type="number"
+                              step="1"
+                              min={0}
+                              value={form.sell_selector_weight_profit}
+                              onChange={(event) => setForm((current) => ({ ...current, sell_selector_weight_profit: event.target.value }))}
+                            />
+                          </Field>
+                          <Field label="Capital release %">
+                            <Input
+                              type="number"
+                              step="1"
+                              min={0}
+                              value={form.sell_selector_weight_capital_release}
+                              onChange={(event) => setForm((current) => ({ ...current, sell_selector_weight_capital_release: event.target.value }))}
+                            />
+                          </Field>
+                          <Field label="Age %">
+                            <Input
+                              type="number"
+                              step="1"
+                              min={0}
+                              value={form.sell_selector_weight_age}
+                              onChange={(event) => setForm((current) => ({ ...current, sell_selector_weight_age: event.target.value }))}
+                            />
+                          </Field>
+                          <Field label="Cycle-effect %">
+                            <Input
+                              type="number"
+                              step="1"
+                              min={0}
+                              value={form.sell_selector_weight_cycle_effect}
+                              onChange={(event) => setForm((current) => ({ ...current, sell_selector_weight_cycle_effect: event.target.value }))}
+                            />
+                          </Field>
+
+                          <div className="md:col-span-2 text-xs font-medium text-muted-foreground">Spot Emergency Guard</div>
+                          <Field
+                            label="ATR-multiple threshold"
+                            hint={`At this setting, a drop reaching roughly ${Number(form.emergency_atr_multiple_threshold) || 3}x this symbol's recent ATR over a short window triggers emergency mode.`}
+                          >
+                            <Input
+                              type="number"
+                              step="0.1"
+                              min={1}
+                              max={20}
+                              value={form.emergency_atr_multiple_threshold}
+                              onChange={(event) => setForm((current) => ({ ...current, emergency_atr_multiple_threshold: event.target.value }))}
+                            />
+                          </Field>
+                        </CardContent>
+                      </CollapsibleContent>
+                    </Card>
+                  </Collapsible>
 
                   <Card>
                     <CardHeader>
