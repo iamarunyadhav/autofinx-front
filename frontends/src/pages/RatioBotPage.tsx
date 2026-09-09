@@ -251,6 +251,11 @@ interface RatioBotConfig {
   recovery_max_observation_minutes?: number | null;
   sell_selector_weights?: { profit?: number; capital_release?: number; age?: number; cycle_effect?: number } | null;
   emergency_atr_multiple_threshold?: string | number | null;
+  wallet_fallback_enabled?: boolean | null;
+  wallet_fallback_min_cooldown_minutes?: number | null;
+  wallet_fallback_base_observation_minutes?: number | null;
+  wallet_fallback_min_observation_minutes?: number | null;
+  wallet_fallback_max_observation_minutes?: number | null;
 }
 
 interface RatioDisplay {
@@ -614,6 +619,11 @@ type BotForm = {
   portfolio_guard_safety_margin_pct: string;
   recovery_min_observation_minutes: string;
   recovery_max_observation_minutes: string;
+  wallet_fallback_enabled: boolean;
+  wallet_fallback_min_cooldown_minutes: string;
+  wallet_fallback_base_observation_minutes: string;
+  wallet_fallback_min_observation_minutes: string;
+  wallet_fallback_max_observation_minutes: string;
   sell_selector_weight_profit: string;
   sell_selector_weight_capital_release: string;
   sell_selector_weight_age: string;
@@ -769,6 +779,11 @@ const INITIAL_FORM: BotForm = {
   portfolio_guard_safety_margin_pct: "15",
   recovery_min_observation_minutes: "15",
   recovery_max_observation_minutes: "240",
+  wallet_fallback_enabled: false,
+  wallet_fallback_min_cooldown_minutes: "60",
+  wallet_fallback_base_observation_minutes: "60",
+  wallet_fallback_min_observation_minutes: "15",
+  wallet_fallback_max_observation_minutes: "240",
   sell_selector_weight_profit: "40",
   sell_selector_weight_capital_release: "30",
   sell_selector_weight_age: "10",
@@ -1051,6 +1066,11 @@ function buildFormFromConfig(config: RatioBotConfig): BotForm {
     portfolio_guard_safety_margin_pct: stringifyValue(config.portfolio_guard_safety_margin_pct) || INITIAL_FORM.portfolio_guard_safety_margin_pct,
     recovery_min_observation_minutes: stringifyValue(config.recovery_min_observation_minutes) || INITIAL_FORM.recovery_min_observation_minutes,
     recovery_max_observation_minutes: stringifyValue(config.recovery_max_observation_minutes) || INITIAL_FORM.recovery_max_observation_minutes,
+    wallet_fallback_enabled: config.wallet_fallback_enabled ?? INITIAL_FORM.wallet_fallback_enabled,
+    wallet_fallback_min_cooldown_minutes: stringifyValue(config.wallet_fallback_min_cooldown_minutes) || INITIAL_FORM.wallet_fallback_min_cooldown_minutes,
+    wallet_fallback_base_observation_minutes: stringifyValue(config.wallet_fallback_base_observation_minutes) || INITIAL_FORM.wallet_fallback_base_observation_minutes,
+    wallet_fallback_min_observation_minutes: stringifyValue(config.wallet_fallback_min_observation_minutes) || INITIAL_FORM.wallet_fallback_min_observation_minutes,
+    wallet_fallback_max_observation_minutes: stringifyValue(config.wallet_fallback_max_observation_minutes) || INITIAL_FORM.wallet_fallback_max_observation_minutes,
     sell_selector_weight_profit: stringifyValue(config.sell_selector_weights?.profit != null ? config.sell_selector_weights.profit * 100 : null) || INITIAL_FORM.sell_selector_weight_profit,
     sell_selector_weight_capital_release: stringifyValue(config.sell_selector_weights?.capital_release != null ? config.sell_selector_weights.capital_release * 100 : null) || INITIAL_FORM.sell_selector_weight_capital_release,
     sell_selector_weight_age: stringifyValue(config.sell_selector_weights?.age != null ? config.sell_selector_weights.age * 100 : null) || INITIAL_FORM.sell_selector_weight_age,
@@ -1277,6 +1297,11 @@ function buildPayload(form: BotForm) {
     portfolio_guard_safety_margin_pct: parseNullableNumber(form.portfolio_guard_safety_margin_pct),
     recovery_min_observation_minutes: parseNullableInteger(form.recovery_min_observation_minutes),
     recovery_max_observation_minutes: parseNullableInteger(form.recovery_max_observation_minutes),
+    wallet_fallback_enabled: form.wallet_fallback_enabled,
+    wallet_fallback_min_cooldown_minutes: parseNullableInteger(form.wallet_fallback_min_cooldown_minutes),
+    wallet_fallback_base_observation_minutes: parseNullableInteger(form.wallet_fallback_base_observation_minutes),
+    wallet_fallback_min_observation_minutes: parseNullableInteger(form.wallet_fallback_min_observation_minutes),
+    wallet_fallback_max_observation_minutes: parseNullableInteger(form.wallet_fallback_max_observation_minutes),
     sell_selector_weights: {
       profit: (parseNullableNumber(form.sell_selector_weight_profit) ?? 0) / 100,
       capital_release: (parseNullableNumber(form.sell_selector_weight_capital_release) ?? 0) / 100,
@@ -3556,6 +3581,59 @@ export default function RatioBotPage() {
                                       max={100}
                                       value={form.recovery_slot_target_pct}
                                       onChange={(event) => setForm((current) => ({ ...current, recovery_slot_target_pct: event.target.value }))}
+                                    />
+                                  </Field>
+                                </>
+                              ) : null}
+
+                              <Field
+                                label="Wallet-Aware Direction Fallback"
+                                hint="If the bot wants to start in a direction the wallet can't fund, and the OPPOSITE direction is both wallet-funded and independently confirmed by the market trend (not just 'wallet allows it') for a sustained, volatility-scaled window, arm that opposite direction instead of staying idle forever. Never places an order by itself — the normal trigger and reversal-confirmation rules still gate the actual buy/sell."
+                              >
+                                <div className="flex h-10 items-center justify-between rounded-md border px-3">
+                                  <span className="text-sm">{form.wallet_fallback_enabled ? "Enabled" : "Disabled"}</span>
+                                  <Switch
+                                    checked={form.wallet_fallback_enabled}
+                                    onCheckedChange={(checked) => setForm((current) => ({ ...current, wallet_fallback_enabled: checked }))}
+                                  />
+                                </div>
+                              </Field>
+                              {form.wallet_fallback_enabled ? (
+                                <>
+                                  <Field label="Min cooldown between flips (minutes)" hint="Floor on how often this fallback is allowed to flip direction again, even if conditions re-qualify immediately.">
+                                    <Input
+                                      type="number"
+                                      step="1"
+                                      min={1}
+                                      value={form.wallet_fallback_min_cooldown_minutes}
+                                      onChange={(event) => setForm((current) => ({ ...current, wallet_fallback_min_cooldown_minutes: event.target.value }))}
+                                    />
+                                  </Field>
+                                  <Field label="Base observation window (minutes)" hint="Starting point for the dynamic confirmation window before a flip — actual wait scales with measured trend volatility, clamped between the min/max below.">
+                                    <Input
+                                      type="number"
+                                      step="1"
+                                      min={1}
+                                      value={form.wallet_fallback_base_observation_minutes}
+                                      onChange={(event) => setForm((current) => ({ ...current, wallet_fallback_base_observation_minutes: event.target.value }))}
+                                    />
+                                  </Field>
+                                  <Field label="Min observation window (minutes)" hint="Lower clamp on the dynamic window.">
+                                    <Input
+                                      type="number"
+                                      step="1"
+                                      min={1}
+                                      value={form.wallet_fallback_min_observation_minutes}
+                                      onChange={(event) => setForm((current) => ({ ...current, wallet_fallback_min_observation_minutes: event.target.value }))}
+                                    />
+                                  </Field>
+                                  <Field label="Max observation window (minutes)" hint="Upper clamp on the dynamic window.">
+                                    <Input
+                                      type="number"
+                                      step="1"
+                                      min={1}
+                                      value={form.wallet_fallback_max_observation_minutes}
+                                      onChange={(event) => setForm((current) => ({ ...current, wallet_fallback_max_observation_minutes: event.target.value }))}
                                     />
                                   </Field>
                                 </>
