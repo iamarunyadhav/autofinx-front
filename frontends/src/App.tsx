@@ -36,9 +36,12 @@ import LiveExecutionPage from "./pages/LiveExecutionPage";
 import FuturesGroundworkPage from "./pages/FuturesGroundworkPage";
 import PortfolioIntelligencePage from "./pages/PortfolioIntelligencePage";
 import RatioBotPage from "./pages/RatioBotPage";
+import ForexGridBotPage from "./pages/ForexGridBotPage";
+import PepperstoneBotPage from "./pages/PepperstoneBotPage";
 import Fast2XPage from "./pages/Fast2XPage";
 import FutureTradeBotPage from "./pages/FutureTradeBotPage";
 import AuditPage from "./pages/AuditPage";
+import AuditResearchPage from "./pages/AuditResearchPage";
 import JobsPage from "./pages/JobsPage";
 import SettingsPage from "./pages/SettingsPage";
 import AccessPage from "./pages/AccessPage";
@@ -210,6 +213,16 @@ const App = () => (
                 <RatioBotPage />
               </ModuleRoute>
             } />
+            <Route path="/forex-grid" element={
+              <ModuleRoute moduleKey="forex-grid">
+                <ForexGridBotPage />
+              </ModuleRoute>
+            } />
+            <Route path="/pepperstone" element={
+              <ModuleRoute moduleKey="pepperstone">
+                <PepperstoneBotPage />
+              </ModuleRoute>
+            } />
             <Route path="/fast2x" element={
               <ModuleRoute moduleKey="fast2x">
                 <Fast2XPage />
@@ -223,6 +236,11 @@ const App = () => (
             <Route path="/audit" element={
               <ModuleRoute moduleKey="audit">
                 <AuditPage />
+              </ModuleRoute>
+            } />
+            <Route path="/audit-research" element={
+              <ModuleRoute moduleKey="audit-research">
+                <AuditResearchPage />
               </ModuleRoute>
             } />
             <Route path="/payouts/:id" element={

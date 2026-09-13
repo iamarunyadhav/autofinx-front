@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ConnectionCard, AddConnectionModal, EditConnectionModal } from '@/components/connections';
+import { ConnectionCard, AddConnectionModal, EditConnectionModal, ServerDiagnosticsSection } from '@/components/connections';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
   useConnections, 
   useCreateConnection, 
@@ -112,6 +113,13 @@ export default function ConnectionsPage() {
   return (
     <AppShell>
     <div className="p-4 md:p-6 space-y-6">
+      <Tabs defaultValue="exchanges">
+        <TabsList>
+          <TabsTrigger value="exchanges">Exchange Connections</TabsTrigger>
+          <TabsTrigger value="servers">Server Diagnostics</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="exchanges" className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -259,6 +267,12 @@ export default function ConnectionsPage() {
         onSubmit={handleSaveEdit}
         isLoading={updateConnection.isPending}
       />
+        </TabsContent>
+
+        <TabsContent value="servers">
+          <ServerDiagnosticsSection workspaceId={currentWorkspace?.id} />
+        </TabsContent>
+      </Tabs>
     </div>
     </AppShell>
   );
