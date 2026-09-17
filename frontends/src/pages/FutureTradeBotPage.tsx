@@ -909,10 +909,10 @@ export default function FutureTradeBotPage() {
                 <Badge variant={statusVariant(fastBestSignal?.signal)}>{fastBestSignal?.signal || "WAIT"}</Badge>
               </CardHeader>
               <CardContent>
-                <Tabs defaultValue="prime" className="space-y-3">
+                <Tabs defaultValue="candles" className="space-y-3">
                   <TabsList className="grid w-full max-w-md grid-cols-2">
-                    <TabsTrigger value="prime">Prime Graph</TabsTrigger>
                     <TabsTrigger value="candles">Candles</TabsTrigger>
+                    <TabsTrigger value="prime">Prime Graph</TabsTrigger>
                   </TabsList>
                   <TabsContent value="prime" className="m-0">
                     <div className="h-[420px]">

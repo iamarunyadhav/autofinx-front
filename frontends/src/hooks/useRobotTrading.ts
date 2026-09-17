@@ -43,6 +43,10 @@ export interface RobotSessionRecord {
   bot_mode?: "candle_direction" | "timed_expiry";
   stop_loss_pct?: number;
   take_profit_pct?: number | null;
+  // Optional, session-level hard stop-loss forwarded into every QuickTrade
+  // this session opens (live mode only) -- distinct from stop_loss_pct
+  // above, which is the candle-direction bot's own trailing-stop setting.
+  quick_trade_stop_loss_pct?: number | null;
   cooldown_seconds?: number;
   daily_loss_limit?: number | null;
   multi_symbol?: boolean;
@@ -142,6 +146,7 @@ type SessionPayload = {
   bot_mode?: "candle_direction" | "timed_expiry";
   stop_loss_pct?: number;
   take_profit_pct?: number | null;
+  quick_trade_stop_loss_pct?: number | null;
   cooldown_seconds?: number;
   daily_loss_limit?: number | null;
   multi_symbol?: boolean;

@@ -2,19 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { getApiBaseUrl } from "@/lib/api-base";
 import { getAuthToken } from "@/lib/auth";
 import type { CandleData, RobotFeedState } from "@/hooks/useRobotCandleFeed";
-
-function upsertCandle(list: CandleData[], candle: CandleData): CandleData[] {
-  const next = [...list];
-  const idx = next.findIndex((c) => c.time === candle.time);
-  if (idx >= 0) {
-    next[idx] = candle;
-  } else {
-    next.push(candle);
-    next.sort((a, b) => a.time - b.time);
-    if (next.length > 500) next.splice(0, next.length - 500);
-  }
-  return next;
-}
+import {
+  binanceKlineStreamUrl,
+  isCryptoSymbol,
+  parseBinanceKlineMessage,
+  upsertCandle,
+} from "@/hooks/binanceCandleWs";
 
 function matchesRequestedSymbol(payloadSymbol: unknown, requestedSymbol: string): boolean {
   if (payloadSymbol == null || payloadSymbol === "") return true;
@@ -23,9 +16,14 @@ function matchesRequestedSymbol(payloadSymbol: unknown, requestedSymbol: string)
 }
 
 /**
- * Connects to the backend SSE candle feed for Quick Trade.
- * The server opens the Binance Futures WebSocket and streams candles to the
- * browser — no direct browser → Binance connection required.
+ * Live candle feed for Quick Trade's chart.
+ *
+ * Mirrors useRatioBotCandleFeed's / useRobotCandleFeed's proven pattern:
+ * crypto symbols connect a direct browser -> Binance WebSocket for the
+ * lowest latency (Quick Trade's "Live Timed Trade" mode opens Binance
+ * futures positions, so the futures WS host is used here, same as
+ * useRobotCandleFeed). Non-crypto symbols keep using the backend SSE
+ * candle-feed endpoint exactly as before.
  */
 export function useQuickTradeCandleFeed(
   symbol: string,
@@ -56,8 +54,9 @@ export function useQuickTradeCandleFeed(
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
     let activeController: AbortController | null = null;
+    let activeSocket: WebSocket | null = null;
 
-    const apply = (candle: CandleData, latencyMs = 0) => {
+    const apply = (candle: CandleData, latencyMs: number, source: RobotFeedState["source"]) => {
       candlesRef.current = upsertCandle(candlesRef.current, candle);
       setState((s) => ({
         ...s,
@@ -65,17 +64,50 @@ export function useQuickTradeCandleFeed(
         currentCandle: candle,
         connected: true,
         latencyMs,
+        source,
       }));
     };
 
-    const scheduleReconnect = () => {
+    const scheduleReconnect = (connect: () => void) => {
       if (stopped) return;
       attempt += 1;
       const delay = Math.min(15000, 1000 * 2 ** Math.min(attempt, 4));
-      reconnectTimer = setTimeout(() => void connect(), delay);
+      reconnectTimer = setTimeout(connect, delay);
     };
 
-    const connect = async () => {
+    const connectBinanceWebSocket = () => {
+      if (stopped) return;
+      const socket = new WebSocket(binanceKlineStreamUrl(symbol, timeframe, "futures"));
+      activeSocket = socket;
+
+      socket.onopen = () => {
+        attempt = 0;
+        setState((s) => ({ ...s, connected: true, source: "ws" }));
+      };
+
+      socket.onmessage = (event) => {
+        const parsed = parseBinanceKlineMessage(String(event.data));
+        if (!parsed) return;
+        apply(
+          { ...parsed.candle, symbol: symbol.toUpperCase() },
+          Math.max(0, Date.now() - parsed.eventTs),
+          "ws",
+        );
+      };
+
+      socket.onerror = () => {
+        if (stopped) return;
+        setState((s) => ({ ...s, connected: false, source: "ws" }));
+      };
+
+      socket.onclose = () => {
+        if (stopped) return;
+        setState((s) => ({ ...s, connected: false, source: "ws" }));
+        scheduleReconnect(connectBinanceWebSocket);
+      };
+    };
+
+    const connectQuickTradeSse = async () => {
       if (stopped) return;
       const controller = new AbortController();
       activeController = controller;
@@ -149,25 +181,31 @@ export function useQuickTradeCandleFeed(
 
               // Live candle update
               if (payload.candle && typeof payload.candle.time === "number" && matchesRequestedSymbol(payload.candle.symbol, symbol)) {
-                apply({ ...(payload.candle as CandleData), symbol: symbol.toUpperCase() }, payload.latency_ms ?? 0);
+                apply({ ...(payload.candle as CandleData), symbol: symbol.toUpperCase() }, payload.latency_ms ?? 0, "sse");
               }
             } catch {
               /* ignore malformed frame */
             }
           }
         }
+        if (!stopped) scheduleReconnect(() => void connectQuickTradeSse());
       } catch (err) {
         if (stopped || (err as Error)?.name === "AbortError") return;
         setState((s) => ({ ...s, connected: false }));
-        scheduleReconnect();
+        scheduleReconnect(() => void connectQuickTradeSse());
       }
     };
 
-    void connect();
+    if (isCryptoSymbol(symbol)) {
+      connectBinanceWebSocket();
+    } else {
+      void connectQuickTradeSse();
+    }
 
     return () => {
       stopped = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      activeSocket?.close();
       activeController?.abort();
     };
   }, [symbol, timeframe, enabled]);

@@ -85,6 +85,25 @@ function numberFrom(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Estimated round-trip cost for a still-open trade, reused from the exact
+ * entry-fee estimate already stored on the trade at placement time
+ * (`signal_payload.execution_cost`, computed in QuickTradeService — see
+ * `estimated_fee`/`estimated_fee_rate` at entry). Only the entry leg's fee
+ * is known at open time (the exit leg hasn't happened yet), so this doubles
+ * the stored entry fee to approximate the round trip — the same "fee_rate *
+ * 2" assumption already used for the pre-trade round-trip estimate shown in
+ * the stake/duration panel (`TradeForecastService::netEdge()`). This is an
+ * estimate only; the real net figure is computed at settlement from actual
+ * fill prices and fees.
+ */
+function estimatedRoundTripFee(trade: QuickTradeRecord): number | null {
+  const cost = trade.signal_payload?.execution_cost;
+  const entryFee = numberFrom(cost?.entry_fee ?? trade.fees_total ?? null);
+  if (entryFee == null || entryFee <= 0) return null;
+  return entryFee * 2;
+}
+
 function liveFuturesPnl(trade: QuickTradeRecord, currentPrice: number) {
   const entry = Number(trade.entry_price);
   if (!entry) return null;
@@ -94,9 +113,14 @@ function liveFuturesPnl(trade: QuickTradeRecord, currentPrice: number) {
   const value = quantity > 0
     ? priceDelta * quantity
     : ((priceDelta / entry) * Number(trade.stake_amount));
-  const pct = (value / Math.max(Number(trade.stake_amount), 0.00000001)) * 100;
+  const stake = Math.max(Number(trade.stake_amount), 0.00000001);
+  const pct = (value / stake) * 100;
 
-  return { pct, value };
+  const feeEstimate = estimatedRoundTripFee(trade);
+  const netValue = feeEstimate != null ? value - feeEstimate : null;
+  const netPct = netValue != null ? (netValue / stake) * 100 : null;
+
+  return { pct, value, netPct, netValue, feeEstimate };
 }
 
 interface LiveTradeCardProps {
@@ -145,6 +169,11 @@ function LiveTradeCard({ trade, currentPrice }: LiveTradeCardProps) {
               <div className={cn("text-sm font-medium", winning ? "text-emerald-400" : "text-rose-400")}>
                 {winning ? "+" : ""}{formatUsdtPnl(livePnl.value)} USDT
               </div>
+              {livePnl.netValue != null && livePnl.netPct != null && (
+                <div className="mt-0.5 text-[11px] text-slate-500">
+                  ≈ {livePnl.netValue >= 0 ? "+" : ""}{livePnl.netPct.toFixed(3)}% ({livePnl.netValue >= 0 ? "+" : ""}{formatUsdtPnl(livePnl.netValue)} USDT) net after est. fees
+                </div>
+              )}
             </>
           ) : (
             <div className="text-sm text-slate-500">Calculating...</div>
@@ -209,6 +238,17 @@ export default function QuickTradePage() {
   const [timeframe, setTimeframe] = useState("1m");
   const [duration, setDuration] = useState(60);
   const [stake, setStake] = useState(10);
+  // Optional per-trade stop-loss — live mode only. Empty string = feature
+  // off (nothing submitted); a positive number here means "close early if
+  // unrealized loss reaches this % of stake" (sent to the API as a negative
+  // stop_loss_pct).
+  const [stopLossPctInput, setStopLossPctInput] = useState("");
+  // Optional per-trade leverage — live mode only, defaults OFF (1x). No
+  // app-layer upper bound; the backend's LeverageValidationService is the
+  // real, exchange-verified ceiling and rejects (never silently clamps) an
+  // over-limit request.
+  const [leverageEnabled, setLeverageEnabled] = useState(false);
+  const [leverageInput, setLeverageInput] = useState("1");
   const [indicatorSet, setIndicatorSet] = useState<string[]>(["RSI", "MACD"]);
   const [selectedProvider, setSelectedProvider] = useState("binance");
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("auto");
@@ -249,7 +289,23 @@ export default function QuickTradePage() {
     );
   }, [assetClass, duration, metadata, symbol, timeframe, tradingState]);
 
-  // Robot Trade signal analysis — refreshes every 5 s
+  // Backend SSE → Binance WebSocket (server-side) → no direct browser→Binance needed
+  const feed = useQuickTradeCandleFeed(symbol, timeframe, !!symbol);
+
+  // Timestamp of the most recently *closed* candle on the live feed. Only
+  // changes when a candle actually closes (not on every intra-candle price
+  // tick), since `feed.candles` entries are upserted in place by `time`
+  // until `isClosed` flips true — see useQuickTradeCandleFeed.ts.
+  const lastClosedCandleTime = useMemo(() => {
+    for (let i = feed.candles.length - 1; i >= 0; i -= 1) {
+      const c = feed.candles[i];
+      if (c.isClosed) return c.time;
+    }
+    return null;
+  }, [feed.candles]);
+
+  // Robot Trade signal analysis — refetches on interval as a fallback, and
+  // immediately whenever a new candle closes on the live feed above.
   const chartQuery = useQuickTradeChart({
     workspaceId,
     symbol,
@@ -259,10 +315,8 @@ export default function QuickTradePage() {
     mode: activeMode,
     provider: selectedProvider,
     integrationId: selectedIntegrationId === "auto" ? undefined : selectedIntegrationId,
+    candleCloseSignal: lastClosedCandleTime,
   });
-
-  // Backend SSE → Binance WebSocket (server-side) → no direct browser→Binance needed
-  const feed = useQuickTradeCandleFeed(symbol, timeframe, !!symbol);
   // Fallback candles from backend REST when Binance WebSocket isn't reachable from browser
   const fallbackCandles = useMemo<CandleData[]>(() => {
     if (!chartQuery.data?.candles?.length) return [];
@@ -314,6 +368,8 @@ export default function QuickTradePage() {
       side: activeTradeForSymbol.side === "buy" ? "BUY" as const : "SELL" as const,
       pct: pnl.pct,
       value: pnl.value,
+      netPct: pnl.netPct,
+      netValue: pnl.netValue,
     };
   }, [activeTradeForSymbol, currentPrice]);
 
@@ -438,6 +494,19 @@ export default function QuickTradePage() {
 
   const placeTrade = (side: "buy" | "sell") => {
     if (!workspaceId || !symbol) return;
+    const stopLossInputValue = Number(stopLossPctInput);
+    // Live mode only — paper mode has no real position to protect. Sent as a
+    // negative percentage of stake (the API rejects zero/positive values).
+    const stopLossPct =
+      activeMode === "live" && stopLossPctInput.trim() !== "" && Number.isFinite(stopLossInputValue) && stopLossInputValue > 0
+        ? -Math.abs(stopLossInputValue)
+        : undefined;
+
+    // Live mode only — paper mode has no real exchange position, so
+    // leverage is never sent for a paper trade even if the toggle is on.
+    const leverageValue = Number(leverageInput);
+    const leverageActive = activeMode === "live" && leverageEnabled && Number.isFinite(leverageValue) && leverageValue >= 1;
+
     placeQuickTrade.mutate({
       workspace_id: workspaceId,
       symbol,
@@ -450,6 +519,8 @@ export default function QuickTradePage() {
       integration_id: selectedIntegrationId === "auto" ? undefined : selectedIntegrationId,
       indicator_set: indicatorSet,
       idempotency_key: `qt-${workspaceId}-${symbol}-${side}-${timeframe}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      ...(stopLossPct !== undefined ? { stop_loss_pct: stopLossPct } : {}),
+      ...(leverageActive ? { leverage_enabled: true, leverage: leverageValue } : {}),
     });
   };
 
@@ -617,6 +688,11 @@ export default function QuickTradePage() {
                   <div className={cn("text-sm", livePnl.pct >= 0 ? "text-emerald-400" : "text-rose-400")}>
                     {livePnl.value >= 0 ? "+" : ""}{formatUsdtPnl(livePnl.value)} USDT
                   </div>
+                  {livePnl.netValue != null && livePnl.netPct != null && (
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      ≈ {livePnl.netValue >= 0 ? "+" : ""}{livePnl.netPct.toFixed(3)}% ({livePnl.netValue >= 0 ? "+" : ""}{formatUsdtPnl(livePnl.netValue)} USDT) net after est. fees
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -747,6 +823,69 @@ export default function QuickTradePage() {
                           Fee estimate ~{(forecastQuery.data?.net_edge?.actual_cost_usdt ?? 0).toFixed(4)} USDT round trip
                           (~{(forecastQuery.data?.net_edge?.round_trip_fee_pct ?? 0).toFixed(4)}% fee + {(forecastQuery.data?.net_edge?.slippage_buffer_pct ?? 0).toFixed(4)}% slippage buffer).
                           Final PnL uses exchange fills when available.
+                        </div>
+                        <div className="md:col-span-2 space-y-1">
+                          <Label htmlFor="quick-trade-stop-loss" className="text-xs text-slate-400">
+                            Stop Loss % (optional)
+                          </Label>
+                          <Input
+                            id="quick-trade-stop-loss"
+                            type="number"
+                            min={0}
+                            step="0.1"
+                            placeholder="Off"
+                            value={stopLossPctInput}
+                            onChange={(e) => setStopLossPctInput(e.target.value)}
+                            className="border-slate-800 bg-slate-900 text-slate-100"
+                          />
+                          <div className="text-[11px] text-slate-500">
+                            Closes this position early if unrealized loss reaches this % of stake. Leave blank to disable.
+                          </div>
+                        </div>
+                        <div className="md:col-span-2 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <Label htmlFor="quick-trade-leverage" className="text-xs text-slate-400">
+                              Leverage (optional, off = 1x)
+                            </Label>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={leverageEnabled}
+                              onClick={() => setLeverageEnabled((c) => !c)}
+                              className={cn(
+                                "h-5 w-9 rounded-full transition-colors",
+                                leverageEnabled ? "bg-emerald-500" : "bg-slate-700"
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "block h-4 w-4 translate-x-0.5 rounded-full bg-white transition-transform",
+                                  leverageEnabled && "translate-x-4"
+                                )}
+                              />
+                            </button>
+                          </div>
+                          {leverageEnabled && (
+                            <>
+                              <Input
+                                id="quick-trade-leverage"
+                                type="number"
+                                min={1}
+                                step="0.1"
+                                placeholder="1"
+                                value={leverageInput}
+                                onChange={(e) => setLeverageInput(e.target.value)}
+                                className="border-slate-800 bg-slate-900 text-slate-100"
+                              />
+                              <div className="text-[11px] text-slate-500">
+                                Real leverage change on your Binance account before entry. There is no app-side
+                                maximum here — the exchange&apos;s own real max for this symbol/position size is
+                                checked at order time, and the trade is rejected (never silently reduced) if it
+                                doesn&apos;t support the requested leverage. Leverage above {"20"}x requires a
+                                stop-loss % above to also be set.
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
                     )}

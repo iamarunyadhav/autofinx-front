@@ -230,6 +230,13 @@ export interface QuickTradeRecord {
   entry_at: string;
   expires_at: string;
   settled_at?: string | null;
+  // Optional per-trade stop-loss, live mode only. Null = feature off.
+  stop_loss_pct?: number | string | null;
+  stop_loss_triggered_at?: string | null;
+  // Optional per-trade leverage, live mode only. leverage is only meaningful
+  // when leverage_enabled is true; null/false = feature off (1x, unchanged).
+  leverage_enabled?: boolean | null;
+  leverage?: number | string | null;
 }
 
 interface PlaceQuickTradePayload {
@@ -245,6 +252,15 @@ interface PlaceQuickTradePayload {
   integration_id?: string;
   indicator_set?: string[];
   idempotency_key?: string;
+  // Optional per-trade stop-loss — only meaningful (and only sent) for live
+  // mode; a negative percentage of stake, e.g. -2 for a 2% stop.
+  stop_loss_pct?: number;
+  // Optional per-trade leverage — only meaningful (and only sent) for live
+  // mode. No app-layer upper bound; the real ceiling is whatever the
+  // exchange actually supports for this symbol/notional (the backend
+  // rejects, never silently clamps, an over-limit request).
+  leverage_enabled?: boolean;
+  leverage?: number;
 }
 
 export function useQuickTradeMetadata(workspaceId?: string) {
@@ -265,6 +281,15 @@ export function useQuickTradeChart(params: {
   mode?: "paper" | "live";
   provider?: string;
   integrationId?: string;
+  /**
+   * Optional value that changes only when a new candle actually closes on
+   * the live WS/SSE feed (e.g. the timestamp of the most recently closed
+   * candle). Including it in the query key makes the Robot Signal refetch
+   * promptly on a real candle close instead of waiting for the fallback
+   * `refetchInterval` — mirrors how `useQuickTradeForecast` already re-keys
+   * off `lastClose`/`candleCount`. Does not affect the request itself.
+   */
+  candleCloseSignal?: number | null;
 }) {
   const search = new URLSearchParams();
   if (params.workspaceId) search.set("workspace_id", params.workspaceId);
@@ -287,9 +312,14 @@ export function useQuickTradeChart(params: {
       params.provider,
       params.integrationId,
       params.indicatorSet.join(","),
+      params.candleCloseSignal ?? null,
     ],
     queryFn: async () => authorizedFetch(`/quick-trade/chart?${search.toString()}`) as Promise<QuickTradeChartPayload>,
     enabled: !!params.symbol,
+    // Refetches immediately when candleCloseSignal changes (a live candle just
+    // closed on the WS/SSE feed) — the interval below is only a fallback for
+    // when that feed is disconnected/unavailable (non-crypto SSE fallback, WS
+    // drop, etc.), so Robot Signal never stalls entirely.
     refetchInterval: QUICK_TRADE_CHART_REFRESH_MS,
     refetchIntervalInBackground: false,
   });

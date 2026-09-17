@@ -311,12 +311,62 @@ interface ProductionReadinessResult {
   overall: ReadinessVerdict;
 }
 
+// Mirrors ForecastShadowReportService::report()'s real return shape (read
+// fresh from app/Domain/MarketIntelligence/ForecastShadowReportService.php)
+// -- old Quick Trade forecast mechanism vs UnifiedForecastEngine, shadow
+// mode only, resolved against real MarketOhlc candles. Nothing here
+// influences a real trade; this is a read-only, after-the-fact comparison.
+type ForecastDirection = "BUY" | "SELL" | "NEUTRAL" | null;
+type OutcomeStatus = "determined" | "pending" | "unknown";
+type OutcomeDirection = "up" | "down" | "flat" | null;
+
+interface ForecastShadowMechanismSummary {
+  evaluable_samples: number;
+  correct: number;
+  accuracy_pct: number | null;
+  insufficient_data: boolean;
+}
+
+interface ForecastShadowSummary {
+  total_events: number;
+  determinable_events: number;
+  pending_events: number;
+  unknown_events: number;
+  old: ForecastShadowMechanismSummary;
+  new: ForecastShadowMechanismSummary;
+}
+
+interface ForecastShadowRow {
+  id: string;
+  occurred_at: string | null;
+  symbol: string;
+  exchange: string;
+  timeframe: string;
+  horizon_seconds: number;
+  old_direction: ForecastDirection;
+  old_confidence: number | null;
+  new_direction: ForecastDirection;
+  new_confidence: number | null;
+  new_calibrated: boolean;
+  outcome_status: OutcomeStatus;
+  outcome_direction: OutcomeDirection;
+  old_correct: boolean | null;
+  new_correct: boolean | null;
+}
+
+interface ForecastShadowReport {
+  range: { days: number; since: string; until: string };
+  summary: ForecastShadowSummary;
+  rows: ForecastShadowRow[];
+}
+
 const EMPTY_SESSIONS: AuditSession[] = [];
 const EMPTY_EVENTS: AuditEvent[] = [];
 const EMPTY_DECISIONS: RatioBotDecisionWithSnapshot[] = [];
 const EMPTY_INCIDENTS: AuditIncident[] = [];
 const EMPTY_BOTS: RatioBotConfigOption[] = [];
 const EMPTY_PREDICTION_BOTS: PredictionAccuracyBot[] = [];
+const EMPTY_SHADOW_ROWS: ForecastShadowRow[] = [];
 
 // ---------------------------------------------------------------------------
 // Status palette -- same convention as ForexGridBotPage/PepperstoneBotPage:
@@ -1066,6 +1116,7 @@ export default function AuditResearchPage() {
               <TabsTrigger value="explorer">Session Explorer</TabsTrigger>
               <TabsTrigger value="compare">Build Comparison</TabsTrigger>
               <TabsTrigger value="readiness">Production Readiness</TabsTrigger>
+              <TabsTrigger value="forecast_comparison">Forecast Comparison</TabsTrigger>
             </TabsList>
 
             <TabsContent value="explorer" className="space-y-6">
@@ -1539,6 +1590,10 @@ export default function AuditResearchPage() {
 
             <TabsContent value="readiness" className="space-y-6">
               <ProductionReadinessSection workspaceId={workspaceId} ratioBots={ratioBots} />
+            </TabsContent>
+
+            <TabsContent value="forecast_comparison" className="space-y-6">
+              <ForecastShadowComparisonSection workspaceId={workspaceId} />
             </TabsContent>
           </Tabs>
         )}
@@ -2020,6 +2075,209 @@ function ProductionReadinessSection({
           ) : (
             <div className="rounded-2xl border border-dashed p-6 text-sm text-muted-foreground">
               No readiness data available.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Forecast Comparison -- old Quick Trade forecast mechanism vs
+// UnifiedForecastEngine, SHADOW MODE ONLY. Every field rendered below comes
+// straight from ForecastShadowReportService::report() (see the mirrored
+// interfaces above); nothing here is fabricated, and this view has no way
+// to change how a real trade is decided -- it is purely retrospective.
+// ---------------------------------------------------------------------------
+
+const OUTCOME_STATUS_META: Record<OutcomeStatus, { label: string; color: string }> = {
+  determined: { label: "Determined", color: GOOD },
+  pending: { label: "Pending", color: NEUTRAL },
+  unknown: { label: "Unknown (no candle data)", color: NEUTRAL },
+};
+
+function OutcomeStatusBadge({ status }: { status: OutcomeStatus }) {
+  const meta = OUTCOME_STATUS_META[status] ?? OUTCOME_STATUS_META.unknown;
+  return <ColorBadge color={meta.color}>{meta.label}</ColorBadge>;
+}
+
+function DirectionLabel({ direction }: { direction: ForecastDirection }) {
+  if (!direction) return <span className="text-xs text-muted-foreground">None</span>;
+  const color = direction === "BUY" ? GOOD : direction === "SELL" ? CRITICAL : NEUTRAL;
+  return <ColorBadge color={color}>{direction}</ColorBadge>;
+}
+
+function CorrectnessMark({ correct }: { correct: boolean | null }) {
+  if (correct === null) {
+    return <span className="text-xs text-muted-foreground" title="Not applicable -- neutral call, flat outcome, or outcome not yet known">&mdash;</span>;
+  }
+  return correct ? (
+    <CheckCircle2 className="h-4 w-4" style={{ color: GOOD }} />
+  ) : (
+    <XCircle className="h-4 w-4" style={{ color: CRITICAL }} />
+  );
+}
+
+function ForecastAccuracyStat({
+  label,
+  summary,
+}: {
+  label: string;
+  summary: ForecastShadowMechanismSummary;
+}) {
+  return (
+    <div className="rounded-2xl border border-border/70 p-4">
+      <div className="text-xs font-medium uppercase text-muted-foreground">{label}</div>
+      {summary.insufficient_data ? (
+        <>
+          <div className="mt-1 text-lg font-semibold text-muted-foreground">Not enough data yet</div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Only {summary.evaluable_samples} determinable, non-neutral sample{summary.evaluable_samples === 1 ? "" : "s"} so far --
+            reported honestly instead of a misleading percentage.
+          </p>
+        </>
+      ) : (
+        <>
+          <div className="mt-1 text-2xl font-bold">{formatNumber(summary.accuracy_pct, 2)}%</div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {summary.correct} correct out of {summary.evaluable_samples} determinable, non-neutral samples.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+const SHADOW_DAY_OPTIONS = [3, 7, 14, 30];
+
+function ForecastShadowComparisonSection({ workspaceId }: { workspaceId: string }) {
+  const [days, setDays] = useState<number>(7);
+
+  const shadowQuery = useQuery({
+    queryKey: ["audit-research-forecast-shadow-report", workspaceId, days],
+    queryFn: async () => {
+      const response = await api.get<ForecastShadowReport>(
+        `/workspaces/${workspaceId}/audit-research/forecast-shadow-report`,
+        { params: { days } },
+      );
+      return response.data;
+    },
+    enabled: !!workspaceId,
+  });
+
+  const report = shadowQuery.data ?? null;
+  const rows = report?.rows ?? EMPTY_SHADOW_ROWS;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+          <div>
+            <CardTitle className="text-base">Old mechanism vs Unified Forecast Engine (shadow mode)</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              The Unified Forecast Engine never influences a real Quick Trade decision -- it only runs
+              alongside the real forecast and logs a comparison. This view shows what actually happened
+              once each prediction's horizon has elapsed, so accuracy can be judged with real outcomes,
+              not guesses.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={String(days)} onValueChange={(value) => setDays(Number(value))}>
+              <SelectTrigger className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SHADOW_DAY_OPTIONS.map((option) => (
+                  <SelectItem key={option} value={String(option)}>
+                    Last {option} days
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button size="sm" variant="ghost" onClick={() => shadowQuery.refetch()} disabled={shadowQuery.isFetching}>
+              <RefreshCw className={cn("h-4 w-4", shadowQuery.isFetching && "animate-spin")} />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {shadowQuery.isLoading ? (
+            <div className="text-sm text-muted-foreground">Loading forecast comparison...</div>
+          ) : report ? (
+            <>
+              <div className="grid gap-3 md:grid-cols-2">
+                <ForecastAccuracyStat label="Old mechanism accuracy" summary={report.summary.old} />
+                <ForecastAccuracyStat label="Unified Forecast Engine accuracy" summary={report.summary.new} />
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <Badge variant="outline">Total events: {report.summary.total_events}</Badge>
+                <Badge variant="outline">Determinable: {report.summary.determinable_events}</Badge>
+                <Badge variant="outline">Still pending: {report.summary.pending_events}</Badge>
+                {report.summary.unknown_events > 0 ? (
+                  <Badge variant="outline">No candle data: {report.summary.unknown_events}</Badge>
+                ) : null}
+              </div>
+
+              {rows.length === 0 ? (
+                <div className="rounded-2xl border border-dashed p-6 text-sm text-muted-foreground">
+                  No shadow-comparison events recorded in this window yet.
+                </div>
+              ) : (
+                <div className="overflow-auto rounded-xl border border-border/70">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Time</TableHead>
+                        <TableHead>Symbol</TableHead>
+                        <TableHead>Old prediction</TableHead>
+                        <TableHead>New prediction</TableHead>
+                        <TableHead>Actual outcome</TableHead>
+                        <TableHead>Old correct?</TableHead>
+                        <TableHead>New correct?</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {rows.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell className="whitespace-nowrap text-xs">{formatDateTime(row.occurred_at)}</TableCell>
+                          <TableCell className="text-xs">{row.symbol}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <DirectionLabel direction={row.old_direction} />
+                              <span className="text-xs text-muted-foreground">
+                                {row.old_confidence != null ? `${formatNumber(row.old_confidence, 1)}%` : "None"}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <DirectionLabel direction={row.new_direction} />
+                              <span className="text-xs text-muted-foreground">
+                                {row.new_confidence != null ? `${formatNumber(row.new_confidence, 1)}%` : "None"}
+                              </span>
+                              {row.new_calibrated ? <ColorBadge color={GOOD}>Calibrated</ColorBadge> : null}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <OutcomeStatusBadge status={row.outcome_status} />
+                              {row.outcome_direction ? (
+                                <span className="text-xs text-muted-foreground">{row.outcome_direction}</span>
+                              ) : null}
+                            </div>
+                          </TableCell>
+                          <TableCell><CorrectnessMark correct={row.old_correct} /></TableCell>
+                          <TableCell><CorrectnessMark correct={row.new_correct} /></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="rounded-2xl border border-dashed p-6 text-sm text-muted-foreground">
+              No forecast comparison data available.
             </div>
           )}
         </CardContent>

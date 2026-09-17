@@ -90,6 +90,12 @@ export default function RobotTradingPage() {
   const [assetClass, setAssetClass] = useState<AssetClass>("CRYPTO");
   const [stopLossPct, setStopLossPct] = useState(12);
   const [takeProfitPct, setTakeProfitPct] = useState<number | "">("");
+  // Optional per-session hard stop-loss — live mode only. Empty string =
+  // feature off (nothing submitted); a positive number here means "close a
+  // trade this session opened early if unrealized loss reaches this % of
+  // stake" (sent to the API as a negative quick_trade_stop_loss_pct), same
+  // convention as Quick Trade's own per-trade stop-loss.
+  const [quickTradeStopLossPctInput, setQuickTradeStopLossPctInput] = useState("");
   const [cooldownSeconds, setCooldownSeconds] = useState(600);
   const [dailyLossLimit, setDailyLossLimit] = useState<number | "">(5);
   const [multiSymbol, setMultiSymbol] = useState(false);
@@ -375,6 +381,20 @@ export default function RobotTradingPage() {
   const createRobot = async () => {
     if (!workspaceId) return;
 
+    const quickTradeStopLossInputValue = Number(quickTradeStopLossPctInput);
+    // Live mode only — paper mode has no real position to protect. Sent as a
+    // negative percentage of stake (the API rejects zero/positive values).
+    // Always included (null when off) so editing a session can clear a
+    // previously-set value, same pattern as take_profit_pct/daily_loss_limit
+    // below.
+    const quickTradeStopLossPct =
+      activeMode === "live" &&
+      quickTradeStopLossPctInput.trim() !== "" &&
+      Number.isFinite(quickTradeStopLossInputValue) &&
+      quickTradeStopLossInputValue > 0
+        ? -Math.abs(quickTradeStopLossInputValue)
+        : null;
+
     const basePayload = {
       timeframe,
       expiry_seconds: expirySeconds,
@@ -394,6 +414,7 @@ export default function RobotTradingPage() {
       take_profit_pct: takeProfitPct === "" ? null : Number(takeProfitPct),
       cooldown_seconds: cooldownSeconds,
       daily_loss_limit: dailyLossLimit === "" ? null : Math.max(0, Number(dailyLossLimit)),
+      quick_trade_stop_loss_pct: quickTradeStopLossPct,
     };
 
     // Editing an existing session â€” PATCH it in place.
@@ -442,6 +463,9 @@ export default function RobotTradingPage() {
     setBotMode((s.bot_mode ?? "timed_expiry") as "candle_direction" | "timed_expiry");
     setStopLossPct(Number(s.stop_loss_pct ?? 12));
     setTakeProfitPct(s.take_profit_pct == null ? "" : Number(s.take_profit_pct));
+    setQuickTradeStopLossPctInput(
+      s.quick_trade_stop_loss_pct == null ? "" : String(Math.abs(Number(s.quick_trade_stop_loss_pct)))
+    );
     setCooldownSeconds(Number(s.cooldown_seconds ?? 600));
     setDailyLossLimit(s.daily_loss_limit == null ? "" : Number(s.daily_loss_limit));
     setMultiSymbol(false);
@@ -906,6 +930,27 @@ export default function RobotTradingPage() {
                     <Input type="number" min={1} max={10} value={maxConsecutiveLosses} onChange={(event) => setMaxConsecutiveLosses(Number(event.target.value || 0))} className="border-slate-800 bg-slate-900 text-slate-100" />
                   </div>
                 </div>
+
+                {activeMode === "live" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="robot-trade-stop-loss" className="text-xs text-slate-400">
+                      Stop Loss % (optional, per trade)
+                    </Label>
+                    <Input
+                      id="robot-trade-stop-loss"
+                      type="number"
+                      min={0}
+                      step="0.1"
+                      placeholder="Off"
+                      value={quickTradeStopLossPctInput}
+                      onChange={(e) => setQuickTradeStopLossPctInput(e.target.value)}
+                      className="border-slate-800 bg-slate-900 text-slate-100"
+                    />
+                    <div className="text-[11px] text-slate-500">
+                      Closes a trade this session opens early if unrealized loss reaches this % of stake. Leave blank to disable.
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-3">
                   <Label>Technical indicators</Label>
