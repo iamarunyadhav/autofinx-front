@@ -243,6 +243,11 @@ export default function QuickTradePage() {
   // unrealized loss reaches this % of stake" (sent to the API as a negative
   // stop_loss_pct).
   const [stopLossPctInput, setStopLossPctInput] = useState("");
+  // Optional per-trade take-profit — live mode only, mirrors stop-loss above
+  // exactly. Empty string = feature off; a positive number here means
+  // "close early once unrealized profit reaches this % of stake" (sent to
+  // the API as-is — POSITIVE take_profit_pct, opposite sign to stop-loss).
+  const [takeProfitPctInput, setTakeProfitPctInput] = useState("");
   // Optional per-trade leverage — live mode only, defaults OFF (1x). No
   // app-layer upper bound; the backend's LeverageValidationService is the
   // real, exchange-verified ceiling and rejects (never silently clamps) an
@@ -502,6 +507,15 @@ export default function QuickTradePage() {
         ? -Math.abs(stopLossInputValue)
         : undefined;
 
+    const takeProfitInputValue = Number(takeProfitPctInput);
+    // Live mode only — paper mode has no real position to lock in profit on.
+    // Sent as a positive percentage of stake (the API rejects zero/negative
+    // values) — opposite sign convention from stop_loss_pct.
+    const takeProfitPct =
+      activeMode === "live" && takeProfitPctInput.trim() !== "" && Number.isFinite(takeProfitInputValue) && takeProfitInputValue > 0
+        ? Math.abs(takeProfitInputValue)
+        : undefined;
+
     // Live mode only — paper mode has no real exchange position, so
     // leverage is never sent for a paper trade even if the toggle is on.
     const leverageValue = Number(leverageInput);
@@ -520,6 +534,7 @@ export default function QuickTradePage() {
       indicator_set: indicatorSet,
       idempotency_key: `qt-${workspaceId}-${symbol}-${side}-${timeframe}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       ...(stopLossPct !== undefined ? { stop_loss_pct: stopLossPct } : {}),
+      ...(takeProfitPct !== undefined ? { take_profit_pct: takeProfitPct } : {}),
       ...(leverageActive ? { leverage_enabled: true, leverage: leverageValue } : {}),
     });
   };
@@ -840,6 +855,24 @@ export default function QuickTradePage() {
                           />
                           <div className="text-[11px] text-slate-500">
                             Closes this position early if unrealized loss reaches this % of stake. Leave blank to disable.
+                          </div>
+                        </div>
+                        <div className="md:col-span-2 space-y-1">
+                          <Label htmlFor="quick-trade-take-profit" className="text-xs text-slate-400">
+                            Take Profit % (optional)
+                          </Label>
+                          <Input
+                            id="quick-trade-take-profit"
+                            type="number"
+                            min={0}
+                            step="0.1"
+                            placeholder="Off"
+                            value={takeProfitPctInput}
+                            onChange={(e) => setTakeProfitPctInput(e.target.value)}
+                            className="border-slate-800 bg-slate-900 text-slate-100"
+                          />
+                          <div className="text-[11px] text-slate-500">
+                            Closes this position early once unrealized profit reaches this % of stake. Leave blank to disable.
                           </div>
                         </div>
                         <div className="md:col-span-2 space-y-1">

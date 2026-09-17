@@ -233,6 +233,10 @@ export interface QuickTradeRecord {
   // Optional per-trade stop-loss, live mode only. Null = feature off.
   stop_loss_pct?: number | string | null;
   stop_loss_triggered_at?: string | null;
+  // Optional per-trade take-profit, live mode only. Null = feature off.
+  // POSITIVE value (opposite sign convention from stop_loss_pct).
+  take_profit_pct?: number | string | null;
+  take_profit_triggered_at?: string | null;
   // Optional per-trade leverage, live mode only. leverage is only meaningful
   // when leverage_enabled is true; null/false = feature off (1x, unchanged).
   leverage_enabled?: boolean | null;
@@ -255,6 +259,9 @@ interface PlaceQuickTradePayload {
   // Optional per-trade stop-loss — only meaningful (and only sent) for live
   // mode; a negative percentage of stake, e.g. -2 for a 2% stop.
   stop_loss_pct?: number;
+  // Optional per-trade take-profit — only meaningful (and only sent) for live
+  // mode; a POSITIVE percentage of stake, e.g. 5 for a 5% target.
+  take_profit_pct?: number;
   // Optional per-trade leverage — only meaningful (and only sent) for live
   // mode. No app-layer upper bound; the real ceiling is whatever the
   // exchange actually supports for this symbol/notional (the backend

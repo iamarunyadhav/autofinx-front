@@ -420,6 +420,26 @@ interface PnlSummary {
   estimated_slippage_cost?: number | null;
   total_fees?: number | null;
   net_realized_pnl?: number | null;
+  fee_source?: string;
+  funding_source?: string;
+  actual_funding_cost_known?: number | null;
+  actual_net_pnl?: number | null;
+  execution_cost_reconciliation?: {
+    cost_source?: string;
+    checked_at?: string;
+    reason?: string | null;
+    orders?: Array<{
+      exchange_order_id: string;
+      fill_price: number;
+      filled_qty: number;
+      commission_quote: number;
+      commission_by_asset: Record<string, number>;
+      exchange_realized_pnl: number | null;
+      slippage_quote: number | null;
+      source: string;
+      last_fill_time: number;
+    }>;
+  };
 }
 
 interface RuntimeSnapshot {
@@ -3097,16 +3117,37 @@ export default function RatioBotPage() {
                         <DetailRow label="Today realized" value={formatNumber(currentPnl?.today_realized_pnl, 6)} />
                         <DetailRow label="Realized (all-time)" value={formatNumber(currentPnl?.realized_pnl, 6)} />
                         <DetailRow label="Unrealized" value={formatNumber(currentPnl?.unrealized_pnl ?? currentStatus?.unrealized_pnl, 6)} />
-                        <DetailRow label="Total fees" value={formatNumber(currentPnl?.total_fees, 6)} />
+                        <DetailRow label={`Total fees (${currentPnl?.fee_source || "estimated"})`} value={formatNumber(currentPnl?.total_fees, 6)} />
+                        <DetailRow label={`Funding cost (${currentPnl?.funding_source || "unavailable"})`} value={currentPnl?.funding_source === "real" ? formatNumber(currentPnl.actual_funding_cost_known, 6) : "Pending / not applicable"} />
                         <DetailRow label="Estimated slippage cost" value={formatNumber(currentPnl?.estimated_slippage_cost, 6)} />
                         <DetailRow
-                          label="Net realized"
+                          label="Net realized (legacy estimate; excludes funding)"
                           value={
                             <span className={(currentPnl?.net_realized_pnl ?? 0) >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"}>
                               {formatNumber(currentPnl?.net_realized_pnl, 6)}
                             </span>
                           }
                         />
+                        <DetailRow label="Exchange-reconciled net PnL" value={currentPnl?.actual_net_pnl != null ? formatNumber(currentPnl.actual_net_pnl, 6) : "Not verified"} />
+                        <DetailRow label="Cost reconciliation" value={currentPnl?.execution_cost_reconciliation?.cost_source || "Pending"} />
+                        <DetailRow label="Costs checked at" value={currentPnl?.execution_cost_reconciliation?.checked_at || "Not yet checked"} />
+                        {currentPnl?.execution_cost_reconciliation?.reason && (
+                          <p className="text-xs text-amber-700 dark:text-amber-300">{currentPnl.execution_cost_reconciliation.reason}</p>
+                        )}
+                        {!!currentPnl?.execution_cost_reconciliation?.orders?.length && (
+                          <details className="text-xs">
+                            <summary className="cursor-pointer">Execution cost audit (latest 50 orders)</summary>
+                            <p className="my-2 text-muted-foreground">Slippage is included in fill-price PnL, not subtracted again. Funding is reconciled at position level.</p>
+                            {currentPnl.execution_cost_reconciliation.orders.map((order) => (
+                              <div key={order.exchange_order_id} className="space-y-1 border-t py-2">
+                                <div>Order {order.exchange_order_id} · {new Date(order.last_fill_time).toLocaleString()} · {order.source}</div>
+                                <div>Fill {formatNumber(order.fill_price, 8)} × {formatNumber(order.filled_qty, 8)}</div>
+                                <div>Fees: {Object.entries(order.commission_by_asset).map(([asset, amount]) => `${formatNumber(amount, 8)} ${asset}`).join(", ")}</div>
+                                <div>Exchange realized PnL: {formatNumber(order.exchange_realized_pnl, 8)} · Fill − reference: {formatNumber(order.slippage_quote, 8)}</div>
+                              </div>
+                            ))}
+                          </details>
+                        )}
                         <DetailRow label="Current side" value={prettyLabel(currentPnl?.current_position_side || currentStatus?.current_position_side)} />
                         <DetailRow label="Current qty" value={formatNumber(currentPnl?.current_position_qty ?? currentStatus?.current_position_qty, 6)} />
                         <DetailRow label="Kill switch" value={form.kill_switch ? "Enabled" : "Off"} />
