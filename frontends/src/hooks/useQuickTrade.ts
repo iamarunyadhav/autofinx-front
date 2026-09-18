@@ -207,6 +207,11 @@ export interface QuickTradeRecord {
   profit_loss: number;
   payout_amount: number;
   fees_total?: number | null;
+  gross_pnl?: number | string | null;
+  entry_fee_actual?: number | string | null;
+  exit_fee_actual?: number | string | null;
+  funding_fee_actual?: number | string | null;
+  fee_source?: string | null;
   entry_trade_id?: string | null;
   close_trade_id?: string | null;
   signal_payload?: (SignalPreview & {

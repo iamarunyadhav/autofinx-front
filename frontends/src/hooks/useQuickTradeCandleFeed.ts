@@ -29,8 +29,8 @@ export function useQuickTradeCandleFeed(
   symbol: string,
   timeframe: string,
   enabled: boolean,
-): RobotFeedState {
-  const [state, setState] = useState<RobotFeedState>({
+): RobotFeedState & { lastPriceAt?: number } {
+  const [state, setState] = useState<RobotFeedState & { lastPriceAt?: number }>({
     candles: [],
     currentCandle: null,
     lastSignal: null,
@@ -62,6 +62,7 @@ export function useQuickTradeCandleFeed(
         ...s,
         candles: candlesRef.current,
         currentCandle: candle,
+        lastPriceAt: Date.now() - Math.max(0, latencyMs),
         connected: true,
         latencyMs,
         source,

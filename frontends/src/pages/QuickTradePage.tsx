@@ -39,6 +39,8 @@ import { AssetClassToggle } from "@/components/trading/AssetClassToggle";
 import { ProviderSelect } from "@/components/trading/ProviderSelect";
 import type { AssetClass, ProviderCatalogEntry } from "@/hooks/useProviderCatalog";
 import { cn } from "@/lib/utils";
+import { quickTradeCosts } from "@/lib/quickTradeCosts";
+import { QuickTradeResearchPanel } from "@/components/trading/QuickTradeResearchPanel";
 
 function useCountdown(expiresAt: string | undefined) {
   const [secs, setSecs] = useState(0);
@@ -81,30 +83,13 @@ function formatUsdtPnl(value: number) {
 }
 
 function numberFrom(value: unknown): number | null {
+  if (value == null || value === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
 
-/**
- * Estimated round-trip cost for a still-open trade, reused from the exact
- * entry-fee estimate already stored on the trade at placement time
- * (`signal_payload.execution_cost`, computed in QuickTradeService — see
- * `estimated_fee`/`estimated_fee_rate` at entry). Only the entry leg's fee
- * is known at open time (the exit leg hasn't happened yet), so this doubles
- * the stored entry fee to approximate the round trip — the same "fee_rate *
- * 2" assumption already used for the pre-trade round-trip estimate shown in
- * the stake/duration panel (`TradeForecastService::netEdge()`). This is an
- * estimate only; the real net figure is computed at settlement from actual
- * fill prices and fees.
- */
-function estimatedRoundTripFee(trade: QuickTradeRecord): number | null {
-  const cost = trade.signal_payload?.execution_cost;
-  const entryFee = numberFrom(cost?.entry_fee ?? trade.fees_total ?? null);
-  if (entryFee == null || entryFee <= 0) return null;
-  return entryFee * 2;
-}
-
-function liveFuturesPnl(trade: QuickTradeRecord, currentPrice: number) {
+/** Quote-based projection; exit commission/slippage are estimates, not final settlement. */
+function liveFuturesPnl(trade: QuickTradeRecord, currentPrice: number, slippagePct: number | null = null) {
   const entry = Number(trade.entry_price);
   if (!entry) return null;
 
@@ -116,28 +101,32 @@ function liveFuturesPnl(trade: QuickTradeRecord, currentPrice: number) {
   const stake = Math.max(Number(trade.stake_amount), 0.00000001);
   const pct = (value / stake) * 100;
 
-  const feeEstimate = estimatedRoundTripFee(trade);
-  const netValue = feeEstimate != null ? value - feeEstimate : null;
+  const projection = quickTradeCosts(trade, currentPrice, slippagePct);
+  const feeEstimate = projection?.totalCost ?? null;
+  const netValue = projection?.net ?? null;
   const netPct = netValue != null ? (netValue / stake) * 100 : null;
 
-  return { pct, value, netPct, netValue, feeEstimate };
+  return { pct, value, netPct, netValue, feeEstimate, projection };
 }
 
 interface LiveTradeCardProps {
   trade: QuickTradeRecord;
   currentPrice: number | undefined;
+  slippagePct: number | null;
+  walletBalance?: number;
+  walletCurrency?: string;
 }
 
-function LiveTradeCard({ trade, currentPrice }: LiveTradeCardProps) {
+function LiveTradeCard({ trade, currentPrice, slippagePct, walletBalance, walletCurrency }: LiveTradeCardProps) {
   const countdown = useCountdown(trade.expires_at);
   const totalSecs = trade.expiry_seconds ?? 60;
 
   const livePnl = useMemo(() => {
     if (!currentPrice) return null;
-    return liveFuturesPnl(trade, currentPrice);
-  }, [currentPrice, trade]);
+    return liveFuturesPnl(trade, currentPrice, slippagePct);
+  }, [currentPrice, trade, slippagePct]);
 
-  const winning = (livePnl?.pct ?? 0) >= 0;
+  const winning = livePnl?.netValue != null && livePnl.netValue >= 0;
   const isBuy = trade.side === "buy";
 
   return (
@@ -164,25 +153,36 @@ function LiveTradeCard({ trade, currentPrice }: LiveTradeCardProps) {
           {livePnl ? (
             <>
               <div className={cn("text-lg font-bold", winning ? "text-emerald-300" : "text-rose-300")}>
-                {winning ? "+" : ""}{livePnl.pct.toFixed(3)}%
+                {livePnl.netPct == null ? "Net unavailable" : `${winning ? "+" : ""}${livePnl.netPct.toFixed(3)}%`}
               </div>
               <div className={cn("text-sm font-medium", winning ? "text-emerald-400" : "text-rose-400")}>
-                {winning ? "+" : ""}{formatUsdtPnl(livePnl.value)} USDT
+                {livePnl.netValue == null ? "Costs not verified" : `${winning ? "+" : ""}${formatUsdtPnl(livePnl.netValue)} ${trade.quote_currency || "USDT"} est. net`}
               </div>
               {livePnl.netValue != null && livePnl.netPct != null && (
                 <div className="mt-0.5 text-[11px] text-slate-500">
-                  ≈ {livePnl.netValue >= 0 ? "+" : ""}{livePnl.netPct.toFixed(3)}% ({livePnl.netValue >= 0 ? "+" : ""}{formatUsdtPnl(livePnl.netValue)} USDT) net after est. fees
+                  Gross before costs: {formatUsdtPnl(livePnl.value)} {trade.quote_currency || "USDT"}
                 </div>
               )}
             </>
           ) : (
-            <div className="text-sm text-slate-500">Calculating...</div>
+            <div className="text-sm text-slate-500">Fresh quote / live cost data unavailable</div>
           )}
           <div className="mt-0.5 text-xs text-slate-600">
             {formatDistanceToNowStrict(new Date(trade.entry_at), { addSuffix: true })}
           </div>
         </div>
       </div>
+      {livePnl?.projection && (
+        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-800 pt-3 text-xs text-slate-300">
+          <div>Entry fee ({livePnl.projection.entryFeeSource}): {livePnl.projection.entryFee == null ? "Unknown" : formatUsdtPnl(livePnl.projection.entryFee)}</div>
+          <div>Exit fee (est.): {livePnl.projection.exitFee == null ? "Unknown" : formatUsdtPnl(livePnl.projection.exitFee)}</div>
+          <div>Exit slippage buffer: {livePnl.projection.exitSlippage == null ? "Unknown" : formatUsdtPnl(livePnl.projection.exitSlippage)}</div>
+          <div>Funding: {livePnl.projection.funding == null ? "Not reconciled" : formatUsdtPnl(livePnl.projection.funding)}</div>
+          <div className="col-span-2 font-semibold">Stake + est. net: {livePnl.projection.stakeAfterCosts == null ? "Unknown" : formatUsdtPnl(livePnl.projection.stakeAfterCosts)} {trade.quote_currency || "USDT"} — not wallet balance</div>
+          <div className="col-span-2 font-semibold text-cyan-300">Available wallet balance: {walletBalance == null ? "Unavailable" : `${walletCurrency || trade.quote_currency || "USDT"} ${walletBalance.toFixed(2)}`}</div>
+          <p className="col-span-2 text-slate-400">Entry slippage is already in the fill price. Exit costs are estimates; {livePnl.projection.fundingUnknown ? "unknown funding / other charges are excluded. " : ""}Final exchange settlement may differ.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -339,6 +339,16 @@ export default function QuickTradePage() {
   // Use live WebSocket candles when available, otherwise fall back to backend candles
   const chartCandles = feed.candles.length > 0 ? feed.candles : fallbackCandles;
   const currentPrice = feed.currentCandle?.close ?? chartQuery.data?.quote?.price;
+  const [priceClock, setPriceClock] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setPriceClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const restQuoteAt = Date.parse(chartQuery.data?.quote?.occurred_at ?? "");
+  const freshPrice = feed.currentCandle?.symbol === symbol && feed.lastPriceAt && priceClock - feed.lastPriceAt <= 5000
+    ? feed.currentCandle?.close
+    : chartQuery.data?.symbol === symbol && Number.isFinite(restQuoteAt) && priceClock - restQuoteAt >= -1000 && priceClock - restQuoteAt <= 10000
+      ? chartQuery.data?.quote?.price : undefined;
 
   const activeTrades = useQuickTradeActive(workspaceId);
   const historyTrades = useQuickTradeHistory(workspaceId, undefined, undefined, 8);
@@ -363,20 +373,6 @@ export default function QuickTradePage() {
     () => (activeTrades.data ?? []).find((t) => t.symbol === symbol && t.status === "open"),
     [activeTrades.data, symbol]
   );
-
-  // Live unrealized P&L — shown on chart and in signal card
-  const livePnl = useMemo(() => {
-    if (!activeTradeForSymbol || !currentPrice) return null;
-    const pnl = liveFuturesPnl(activeTradeForSymbol, currentPrice);
-    if (!pnl) return null;
-    return {
-      side: activeTradeForSymbol.side === "buy" ? "BUY" as const : "SELL" as const,
-      pct: pnl.pct,
-      value: pnl.value,
-      netPct: pnl.netPct,
-      netValue: pnl.netValue,
-    };
-  }, [activeTradeForSymbol, currentPrice]);
 
   // Chart entry markers for all open trades of this symbol
   const chartMarkers = useMemo<ChartMarker[]>(
@@ -461,6 +457,14 @@ export default function QuickTradePage() {
     expirySeconds: duration,
     stakeAmount: effectiveStake,
   });
+  const slippageBufferPct = forecastQuery.data?.net_edge?.slippage_buffer_pct ?? null;
+  const livePnl = useMemo(() => {
+    if (!activeTradeForSymbol || !freshPrice) return null;
+    const pnl = liveFuturesPnl(activeTradeForSymbol, freshPrice, slippageBufferPct);
+    if (pnl?.netValue == null || pnl.netPct == null) return null;
+    return { side: activeTradeForSymbol.side === "buy" ? "BUY" as const : "SELL" as const,
+      pct: pnl.netPct, value: pnl.netValue, netPct: pnl.netPct, netValue: pnl.netValue };
+  }, [activeTradeForSymbol, freshPrice, slippageBufferPct]);
 
   const integrationLabel =
     providerIntegrations.find((i) => i.id === selectedIntegrationId)?.display_name ??
@@ -696,7 +700,7 @@ export default function QuickTradePage() {
                   "rounded-2xl border px-4 py-3 text-right",
                   livePnl.pct >= 0 ? "border-emerald-500/30 bg-emerald-500/10" : "border-rose-500/30 bg-rose-500/10"
                 )}>
-                  <div className="text-xs uppercase tracking-wider text-slate-500">Unrealized P&L</div>
+                  <div className="text-xs uppercase tracking-wider text-slate-500">Estimated net P&L after known costs</div>
                   <div className={cn("text-2xl font-bold", livePnl.pct >= 0 ? "text-emerald-300" : "text-rose-300")}>
                     {livePnl.pct >= 0 ? "+" : ""}{livePnl.pct.toFixed(3)}%
                   </div>
@@ -705,7 +709,7 @@ export default function QuickTradePage() {
                   </div>
                   {livePnl.netValue != null && livePnl.netPct != null && (
                     <div className="mt-1 text-[11px] text-slate-500">
-                      ≈ {livePnl.netValue >= 0 ? "+" : ""}{livePnl.netPct.toFixed(3)}% ({livePnl.netValue >= 0 ? "+" : ""}{formatUsdtPnl(livePnl.netValue)} USDT) net after est. fees
+                      Includes estimated exit fee/slippage. Unreconciled funding and other charges excluded.
                     </div>
                   )}
                 </div>
@@ -965,7 +969,7 @@ export default function QuickTradePage() {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {activeForSymbol.map((t) => (
-                      <LiveTradeCard key={t.id} trade={t} currentPrice={currentPrice} />
+                      <LiveTradeCard key={t.id} trade={t} currentPrice={freshPrice} slippagePct={slippageBufferPct} walletBalance={balance} walletCurrency={selectedBalance?.currency} />
                     ))}
                   </CardContent>
                 </Card>
@@ -982,7 +986,7 @@ export default function QuickTradePage() {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {activeOther.map((t) => (
-                      <LiveTradeCard key={t.id} trade={t} currentPrice={undefined} />
+                      <LiveTradeCard key={t.id} trade={t} currentPrice={undefined} slippagePct={slippageBufferPct} walletBalance={balance} walletCurrency={selectedBalance?.currency} />
                     ))}
                   </CardContent>
                 </Card>
@@ -1064,10 +1068,11 @@ export default function QuickTradePage() {
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-base">
                     History
+                    <a href="#quick-trade-research" className="ml-auto text-xs text-cyan-300 underline">Export / analyze trades</a>
                     {(() => {
                       const hist = historyTrades.data ?? [];
                       const wins = hist.filter((t) => Number(t.profit_loss) > 0).length;
-                      const total = hist.filter((t) => t.status === "settled").length;
+                      const total = hist.filter((t) => t.settled_at != null && t.status !== "open").length;
                       if (!total) return null;
                       return (
                         <Badge className="bg-slate-800 text-slate-300">
@@ -1086,6 +1091,9 @@ export default function QuickTradePage() {
               </Card>
             </div>
           </div>
+        </div>
+        <div id="quick-trade-research" className="mx-auto w-full max-w-[1600px] px-4 pb-20">
+          <QuickTradeResearchPanel key={`${workspaceId}:${symbol}`} workspaceId={workspaceId} symbol={symbol} />
         </div>
         <MobileTradeNav />
       </div>
