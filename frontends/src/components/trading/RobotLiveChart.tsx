@@ -117,6 +117,17 @@ function normalizeBars(candles: CandleData[]): CandlestickData<Time>[] {
   });
 }
 
+/** Strict field-by-field equality for two already-normalized bars. */
+function barsEqual(a: CandlestickData<Time>, b: CandlestickData<Time>): boolean {
+  return (
+    Number(a.time) === Number(b.time) &&
+    a.open === b.open &&
+    a.high === b.high &&
+    a.low === b.low &&
+    a.close === b.close
+  );
+}
+
 /**
  * Dark-theme candlestick chart for the Robot Trade page. Renders the live feed
  * plus entry / trailing-stop / take-profit price lines that track the position.
@@ -145,6 +156,7 @@ export function RobotLiveChart({
   }>({ mid: null, low: null, high: null });
   const lastViewportKeyRef = useRef<string | null>(null);
   const lastBarTimeRef = useRef<number | null>(null);
+  const prevBarsRef = useRef<CandlestickData<Time>[]>([]);
 
   // Create the chart once.
   useEffect(() => {
@@ -213,6 +225,7 @@ export function RobotLiveChart({
       seriesRef.current = null;
       lastViewportKeyRef.current = null;
       lastBarTimeRef.current = null;
+      prevBarsRef.current = [];
       linesRef.current = { entry: null, stop: null, tp: null };
       extraLinesRef.current = {};
       forecastSeriesRef.current = { mid: null, low: null, high: null };
@@ -227,10 +240,51 @@ export function RobotLiveChart({
       series.setData([]);
       lastViewportKeyRef.current = null;
       lastBarTimeRef.current = null;
+      prevBarsRef.current = [];
       return;
     }
     const bars = normalizeBars(candles);
-    series.setData(bars);
+    const prevBars = prevBarsRef.current;
+
+    // Cheap path: patch just the last bar via series.update() instead of
+    // replacing the whole dataset via series.setData() when only the most
+    // recent bar changed (a live tick) or exactly one new bar was appended
+    // (a candle closed). Fall back to the full replace for everything else —
+    // first load, symbol/timeframe swap, or normalizeBars' rolling filter
+    // changing which earlier bars survive.
+    let patchedLastBarOnly = false;
+    if (prevBars.length > 0 && bars.length > 0) {
+      if (bars.length === prevBars.length) {
+        let prefixMatches = true;
+        for (let i = 0; i < bars.length - 1; i++) {
+          if (!barsEqual(bars[i], prevBars[i])) {
+            prefixMatches = false;
+            break;
+          }
+        }
+        if (prefixMatches) {
+          series.update(bars[bars.length - 1]);
+          patchedLastBarOnly = true;
+        }
+      } else if (bars.length === prevBars.length + 1) {
+        let prefixMatches = true;
+        for (let i = 0; i < prevBars.length; i++) {
+          if (!barsEqual(bars[i], prevBars[i])) {
+            prefixMatches = false;
+            break;
+          }
+        }
+        if (prefixMatches) {
+          series.update(bars[bars.length - 1]);
+          patchedLastBarOnly = true;
+        }
+      }
+    }
+    if (!patchedLastBarOnly) {
+      series.setData(bars);
+    }
+    prevBarsRef.current = bars;
+
     const firstTime = Number(bars.at(0)?.time ?? 0);
     const lastTime = Number(bars.at(-1)?.time ?? 0);
     const viewportKey = `${firstTime}:${lastTime}:${bars.length}`;

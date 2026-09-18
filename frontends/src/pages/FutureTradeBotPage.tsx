@@ -24,6 +24,8 @@ import { useFutureTradeBot, type FutureTradeBinanceHealth, type FutureTradeConfi
 import type { CandleData } from "@/hooks/useRobotCandleFeed";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { cn } from "@/lib/utils";
+import { ForecastComparisonCard } from "@/components/trading/ForecastComparisonCard";
+import { useForecastComparison } from "@/hooks/useQuickTrade";
 
 const FUTURE_TRADE_ALL_SYMBOLS = [
   "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
@@ -603,6 +605,15 @@ export default function FutureTradeBotPage() {
       text: `${signal} ${n(displaySignalConfidence * 100, 0)}%`,
     }];
   }, [candleChartCandles, displaySignal, displaySignalConfidence]);
+  const [predictionSource, setPredictionSource] = useState<"current" | "unified">("current");
+  const forecastComparison = useForecastComparison({
+    botType: "future_trade",
+    symbol: String(fastChart?.symbol ?? status?.currentSymbol ?? ""),
+    timeframe: String(fastChart?.timeframe ?? settings.timeframe ?? "1m"),
+    expirySeconds: 300,
+    candles: candleChartCandles.map((c) => ({ open: c.open, high: c.high, low: c.low, close: c.close })),
+    signal: { direction: displaySignal, confidence: displaySignalConfidence },
+  });
   const candleChartSide = ["BUY", "SELL"].includes(String(status?.positionSide ?? "").toUpperCase())
     ? String(status?.positionSide).toUpperCase() as "BUY" | "SELL"
     : null;
@@ -944,6 +955,7 @@ export default function FutureTradeBotPage() {
                     </div>
                   </TabsContent>
                 </Tabs>
+                <div className="mt-4"><ForecastComparisonCard current={forecastComparison.data?.current} unified={forecastComparison.data?.unified} agreement={forecastComparison.data?.comparison.agreement} selected={predictionSource} onSelect={setPredictionSource} /></div>
               </CardContent>
               <div className="px-6 pb-4 text-xs text-muted-foreground">
                 Chart debug: latestTickPrice={fastChartDebug.latestTickPrice ?? "-"} | chartUpdatedAt={fastChartDebug.chartUpdatedAt ?? "-"} | lastCandleClose={fastChartDebug.lastCandleClose ?? "-"} | candles={candleChartCandles.length} | isFormingCandle={String(fastChartDebug.isFormingCandle)}

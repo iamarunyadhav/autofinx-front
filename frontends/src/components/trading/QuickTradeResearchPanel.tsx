@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { authorizedFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,9 @@ type ResearchRow = {
   trade_id: string; symbol: string; mode: string; side: string; entry_at: string; status: string;
   entry_price: number; exit_price: number | null; stake_amount: number; quantity: number | null;
   net_pnl_booked: number | null; gross_pnl: number | string | null; timeframe: string; expiry_seconds: number;
+  prediction_direction?: string | null; prediction_confidence?: number | null; actual_trade_direction?: string | null;
+  direction_match_at_trade_exit?: boolean | null; prediction_horizon_direction?: string | null;
+  prediction_horizon_direction_correct?: boolean | null; trade_result?: string; net_profit_positive?: boolean | null;
   fees: { source: string; entry_actual: string | number | null; exit_actual: string | number | null; funding_actual_cost: string | number | null; total_used: string | number | null };
   primary_comparison: Comparison; shadow_comparison: Comparison;
   timeline: Array<Record<string, unknown>>;
@@ -46,7 +49,11 @@ function csv(rows: Array<Record<string, unknown>>) {
   return "\uFEFF" + [headers.map(csvCell).join(","), ...rows.map((row) => headers.map((key) => csvCell(row[key])).join(","))].join("\r\n");
 }
 
-export function QuickTradeResearchPanel({ workspaceId, symbol }: { workspaceId?: string; symbol: string }) {
+// Memoized: this panel is only used on QuickTradePage, which re-renders on
+// every WS price tick — without memo this whole export/analysis table
+// (and its own query) would needlessly re-render every tick even though
+// its props (workspaceId, symbol) rarely change.
+export const QuickTradeResearchPanel = memo(function QuickTradeResearchPanel({ workspaceId, symbol }: { workspaceId?: string; symbol: string }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [busy, setBusy] = useState(false);
@@ -83,9 +90,20 @@ export function QuickTradeResearchPanel({ workspaceId, symbol }: { workspaceId?:
         if (next) await new Promise((resolve) => window.setTimeout(resolve, 2500));
       } while (next);
       const name = `quick-trades-${symbol}-${new Date().toISOString().replaceAll(":", "-")}`;
+      const evaluated = all.filter((row) => row.primary_comparison.direction_correct !== null);
+      const directionCorrect = evaluated.filter((row) => row.primary_comparison.direction_correct === true).length;
+      const netRows = all.filter((row) => row.net_profit_positive !== null);
+      const netWins = netRows.filter((row) => row.net_profit_positive === true).length;
+      const totalNet = all.reduce((sum, row) => sum + (Number(row.net_pnl_booked) || 0), 0);
+      const auditSummary = { total_trades: all.length, evaluated_horizon_predictions: evaluated.length,
+        horizon_direction_correct: directionCorrect, horizon_direction_accuracy_pct: evaluated.length ? Number((directionCorrect / evaluated.length * 100).toFixed(2)) : null,
+        settled_net_profit_trades: netRows.length, net_profit_wins: netWins,
+        net_profit_accuracy_pct: netRows.length ? Number((netWins / netRows.length * 100).toFixed(2)) : null,
+        total_net_pnl: Number(totalNet.toFixed(8)), net_profitable: totalNet > 0,
+        note: "Direction accuracy and net-profit accuracy are separate. Unknown data is excluded, never counted as false." };
       if (format === "json") {
         saveFile(`${name}.json`, JSON.stringify({ schema_version: 1, exported_at: new Date().toISOString(), as_of: cutoff,
-          filters, trade_count: all.length, training_note: "Pre-entry features and post-entry labels are separate. Unknown is not false. No automatic training or live model promotion.", trades: all }, null, 2), "application/json");
+          filters, trade_count: all.length, audit_summary: auditSummary, training_note: "Pre-entry features and post-entry labels are separate. Unknown is not false. No automatic training or live model promotion.", trades: all }, null, 2), "application/json");
       } else if (format === "summary") {
         saveFile(`${name}-summary.csv`, csv(all.map((row) => ({ trade_id: row.trade_id, symbol: row.symbol,
           mode: row.mode, side: row.side, entry_at: row.entry_at, entry_price: row.entry_price, exit_price: row.exit_price,
@@ -93,6 +111,10 @@ export function QuickTradeResearchPanel({ workspaceId, symbol }: { workspaceId?:
           gross_pnl: row.gross_pnl, net_pnl_booked: row.net_pnl_booked, ...row.fees,
           primary_direction_correct: row.primary_comparison.direction_correct,
           shadow_direction_correct: row.shadow_comparison.direction_correct,
+          prediction_direction: row.prediction_direction, prediction_confidence: row.prediction_confidence,
+          actual_trade_direction: row.actual_trade_direction, direction_match_at_trade_exit: row.direction_match_at_trade_exit,
+          prediction_horizon_direction: row.prediction_horizon_direction, prediction_horizon_direction_correct: row.prediction_horizon_direction_correct,
+          trade_result: row.trade_result, net_profit_positive: row.net_profit_positive,
           predicted_price: row.primary_comparison.predicted_price, actual_horizon_price: row.primary_comparison.actual_price,
           price_in_predicted_range: row.primary_comparison.price_in_predicted_range,
           price_error_pct: row.primary_comparison.price_error_pct, training_eligible: row.data_quality.training_eligible,
@@ -133,27 +155,27 @@ export function QuickTradeResearchPanel({ workspaceId, symbol }: { workspaceId?:
         })}</div>
         <p className="text-xs text-slate-400">Summary covers this page's live trades only, not overall accuracy. Paper data is marked synthetic. Funding/fee source must be checked before training on net-profit labels.</p>
         <div className="overflow-x-auto"><table className="w-full whitespace-nowrap text-left text-xs"><thead><tr>
-          {["Select", "Entry / direction", "Mode", "Gross / booked net", "Fee source", "Prediction / actual", "Original correct", "Shadow correct", "Price range correct", "Samples"].map((title) => <th key={title} className="p-2">{title}</th>)}
+          {["Select", "Entry / signal", "Confidence", "Actual direction", "Gross / net", "Profit/Loss", "Direction match", "Horizon correct", "Fee source", "Samples"].map((title) => <th key={title} className="p-2">{title}</th>)}
         </tr></thead><tbody>{report.data.rows.map((row) => <tr key={row.trade_id} className="border-t border-slate-800">
           <td className="p-2"><input type="checkbox" aria-label={`Select trade ${row.trade_id}`} checked={selected.includes(row.trade_id)} onChange={(e) => setSelected((ids) => e.target.checked ? [...ids, row.trade_id] : ids.filter((id) => id !== row.trade_id))} /></td>
           <td className="p-2"><button className="underline" onClick={() => setDetail(row)}>{new Date(row.entry_at).toLocaleString()} · {row.side}</button></td>
-          <td className="p-2">{row.mode}</td><td className="p-2">{number(row.gross_pnl)} / {number(row.net_pnl_booked)}</td>
-          <td className="p-2">{row.fees.source}</td><td className="p-2">{number(row.primary_comparison.predicted_price)} / {number(row.primary_comparison.actual_price)}</td>
-          <td className="p-2" title={row.primary_comparison.status}>{truth(row.primary_comparison.direction_correct)}</td>
-          <td className="p-2" title={row.shadow_comparison.status}>{truth(row.shadow_comparison.direction_correct)}</td>
-          <td className="p-2">{truth(row.primary_comparison.price_in_predicted_range)}</td><td className="p-2">{row.data_quality.sample_count}</td>
+          <td className="p-2">{row.mode} · {row.prediction_direction ?? row.side}</td><td className="p-2">{number(row.prediction_confidence)}</td>
+          <td className="p-2">{row.actual_trade_direction ?? "Unknown"}</td><td className="p-2">{number(row.gross_pnl)} / {number(row.net_pnl_booked)}</td>
+          <td className={row.net_profit_positive === true ? "p-2 text-emerald-300" : row.net_profit_positive === false ? "p-2 text-rose-300" : "p-2"}>{row.trade_result ?? "Unknown"}</td>
+          <td className="p-2">{truth(row.direction_match_at_trade_exit)}</td><td className="p-2">{truth(row.prediction_horizon_direction_correct)}</td>
+          <td className="p-2">{row.fees.source}</td><td className="p-2">{row.data_quality.sample_count}</td>
         </tr>)}</tbody></table></div>
         {!report.data.rows.length && <p className="text-sm text-slate-400">No settled trades match these filters.</p>}
-        {detail && <section className="space-y-3 rounded-xl border border-slate-700 p-3">
+        {detail ? <section className="space-y-3 rounded-xl border border-slate-700 p-3">
           <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold">Trade details — {detail.trade_id}</h3><Button variant="outline" onClick={() => setDetail(null)}>Close details</Button></div>
           <p className="text-xs">Gross: {number(detail.gross_pnl)} · Booked net: {number(detail.net_pnl_booked)} · Cost source: {detail.fees.source}. Quote PnL is gross, not a reconciled net balance.</p>
           <div className="max-h-80 overflow-auto"><table className="w-full whitespace-nowrap text-left text-xs"><thead><tr>{["Time", "Observation", "Price", "Direction from entry", "Gross at quote"].map((heading) => <th key={heading} className="p-2">{heading}</th>)}</tr></thead>
             <tbody>{detail.timeline.map((point, index) => <tr key={index} className="border-t border-slate-800"><td className="p-2">{String(point.time ?? "Unknown")}</td><td className="p-2">{String(point.kind ?? "Unknown")}</td><td className="p-2">{number(point.price)}</td><td className="p-2">{String(point.direction_from_entry ?? "—")}</td><td className="p-2">{number(point.gross_pnl_at_quote)}</td></tr>)}</tbody></table></div>
           <details><summary className="cursor-pointer text-xs">Saved configuration, forecasts, costs and data quality</summary><pre className="max-h-96 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify({ snapshot: detail.research_snapshot, fees: detail.fees, slippage: detail.slippage, primary: detail.primary_comparison, shadow: detail.shadow_comparison, quality: detail.data_quality }, null, 2)}</pre></details>
-        </section>}
+        </section> : null}
         <Button variant="outline" disabled={!report.data.has_more || report.isFetching || busy} onClick={() => { setAsOf(report.data.as_of); setCursor(report.data.next_cursor); setSelected([]); }}>Next page</Button>
       </>}
       <p className="text-xs text-slate-400">More platform analysis: <Link className="underline" to="/audit-research">Audit Research</Link>. This screen does not train or enable a live model.</p>
     </CardContent>
   </Card>;
-}
+});

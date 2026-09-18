@@ -178,6 +178,47 @@ export interface NetEdgePayload {
 export interface QuickTradeForecastPayload {
   forecast: ForecastPayload;
   net_edge: NetEdgePayload;
+  unified?: UnifiedForecastPayload | null;
+  comparison?: { direction_agreement: boolean | null; agreement: "AGREE" | "DISAGREE" | "UNAVAILABLE" };
+}
+
+export interface UnifiedForecastPayload {
+  source: "unified";
+  mode: "shadow";
+  direction?: string | null;
+  confidence?: number | null;
+  status?: string | null;
+  price_target_available: false;
+  horizon_seconds?: number;
+}
+
+export interface ForecastComparisonPayload {
+  current: ForecastPayload & { source: "current"; mode: "primary"; price_target_available: true };
+  unified: UnifiedForecastPayload | null;
+  comparison: { direction_agreement: boolean | null; agreement: "AGREE" | "DISAGREE" | "UNAVAILABLE" };
+  execution_source: "unchanged_existing_engine";
+}
+
+export function useForecastComparison(params: {
+  botType: "robot_trade" | "future_trade";
+  symbol: string;
+  timeframe: string;
+  expirySeconds: number;
+  candles: ForecastCandle[];
+  signal?: { direction?: string | null; confidence?: number | null };
+}) {
+  const lastClose = params.candles.at(-1)?.close ?? null;
+  return useQuery({
+    queryKey: ["forecast-comparison", params.botType, params.symbol, params.timeframe, params.expirySeconds, lastClose, params.candles.length, params.signal?.direction],
+    queryFn: () => authorizedFetch("/forecast/comparison", "POST", {
+      bot_type: params.botType, symbol: params.symbol, timeframe: params.timeframe,
+      expiry_seconds: params.expirySeconds, candles: params.candles, signal: params.signal,
+      exchange: "binance",
+    }) as Promise<ForecastComparisonPayload>,
+    enabled: params.candles.length >= 10 && !!params.symbol,
+    refetchInterval: QUICK_TRADE_HISTORY_REFRESH_MS,
+    refetchIntervalInBackground: false,
+  });
 }
 
 export interface QuickTradeRecord {
@@ -350,6 +391,7 @@ export function useQuickTradeForecast(params: {
   timeframe: string;
   expirySeconds: number;
   stakeAmount: number;
+  symbol?: string;
 }) {
   const candleCount = params.candles?.length ?? 0;
   const lastClose = candleCount > 0 ? params.candles[candleCount - 1]?.close : null;
@@ -362,6 +404,7 @@ export function useQuickTradeForecast(params: {
       params.timeframe,
       params.expirySeconds,
       params.stakeAmount,
+      params.symbol,
       params.signal?.direction,
       params.signal?.confidence,
     ],
@@ -374,6 +417,8 @@ export function useQuickTradeForecast(params: {
         timeframe: params.timeframe,
         expiry_seconds: params.expirySeconds,
         stake_amount: params.stakeAmount,
+        symbol: params.symbol,
+        exchange: "binance",
       }) as Promise<QuickTradeForecastPayload>,
     enabled: candleCount >= 10 && params.stakeAmount > 0,
     refetchInterval: QUICK_TRADE_HISTORY_REFRESH_MS,

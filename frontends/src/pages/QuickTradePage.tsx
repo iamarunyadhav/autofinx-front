@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout";
 import { ExecutionSafetyControls, type ExecutionSafetyValues } from "@/components/trading/ExecutionSafetyControls";
@@ -41,6 +41,7 @@ import type { AssetClass, ProviderCatalogEntry } from "@/hooks/useProviderCatalo
 import { cn } from "@/lib/utils";
 import { quickTradeCosts } from "@/lib/quickTradeCosts";
 import { QuickTradeResearchPanel } from "@/components/trading/QuickTradeResearchPanel";
+import { ForecastComparisonCard } from "@/components/trading/ForecastComparisonCard";
 
 function useCountdown(expiresAt: string | undefined) {
   const [secs, setSecs] = useState(0);
@@ -117,7 +118,10 @@ interface LiveTradeCardProps {
   walletCurrency?: string;
 }
 
-function LiveTradeCard({ trade, currentPrice, slippagePct, walletBalance, walletCurrency }: LiveTradeCardProps) {
+// Memoized: re-renders only when its own props actually change (currentPrice
+// ticks for the active symbol's card), not when unrelated page state (stake
+// input, indicators, safety guard settings, etc.) changes.
+const LiveTradeCard = memo(function LiveTradeCard({ trade, currentPrice, slippagePct, walletBalance, walletCurrency }: LiveTradeCardProps) {
   const countdown = useCountdown(trade.expires_at);
   const totalSecs = trade.expiry_seconds ?? 60;
 
@@ -185,9 +189,11 @@ function LiveTradeCard({ trade, currentPrice, slippagePct, walletBalance, wallet
       )}
     </div>
   );
-}
+});
 
-function HistoryTradeCard({ trade }: { trade: QuickTradeRecord }) {
+// Memoized: history rows never depend on the live tick, so once rendered a
+// row should never re-render just because the page's WS feed ticked.
+const HistoryTradeCard = memo(function HistoryTradeCard({ trade }: { trade: QuickTradeRecord }) {
   const pnl = Number(trade.profit_loss || 0);
   const won = pnl > 0;
   return (
@@ -221,7 +227,124 @@ function HistoryTradeCard({ trade }: { trade: QuickTradeRecord }) {
       </div>
     </div>
   );
+});
+
+interface IndicatorsCardProps {
+  indicators: Array<{ key: string; label: string; description: string }>;
+  indicatorSet: string[];
+  supportingIndicators?: string[];
+  conflictingIndicators?: string[];
+  onToggle: (key: string, checked: boolean) => void;
 }
+
+// Memoized: the indicator checklist only depends on metadata + the current
+// signal preview (which updates once per closed candle, not per WS tick) —
+// it must not re-render on every live-price tick.
+const IndicatorsCard = memo(function IndicatorsCard({
+  indicators,
+  indicatorSet,
+  supportingIndicators,
+  conflictingIndicators,
+  onToggle,
+}: IndicatorsCardProps) {
+  return (
+    <Card className="border-slate-800 bg-slate-950 text-slate-50">
+      <CardHeader className="pb-2"><CardTitle className="text-base">Indicators</CardTitle></CardHeader>
+      <CardContent className="space-y-2">
+        {indicators.filter((item) => item.key !== "HEIKIN_ASHI").map((ind) => {
+          const checked = indicatorSet.includes(ind.key);
+          const bull = supportingIndicators?.includes(ind.key);
+          const bear = conflictingIndicators?.includes(ind.key);
+          return (
+            <label key={ind.key} className={cn(
+              "flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-2.5 transition-colors",
+              bull ? "border-emerald-500/30 bg-emerald-500/5" : bear ? "border-rose-500/30 bg-rose-500/5" : "border-slate-800 bg-slate-900/70"
+            )}>
+              <Checkbox checked={checked} onCheckedChange={(v) => onToggle(ind.key, Boolean(v))} />
+              <div>
+                <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
+                  {ind.label}
+                  {bull && <span className="text-xs text-emerald-400">▲</span>}
+                  {bear && <span className="text-xs text-rose-400">▼</span>}
+                </div>
+                <div className="text-xs text-slate-500">{ind.description}</div>
+              </div>
+            </label>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+});
+
+interface TradeContextCardProps {
+  activeMode: "paper" | "live";
+  selectedProvider: string;
+  integrationLabel: string;
+  payoutRate?: number;
+  balanceCurrency: string;
+  balance: number;
+}
+
+// Memoized: static reference/context data — never touched by the live tick.
+const TradeContextCard = memo(function TradeContextCard({
+  activeMode,
+  selectedProvider,
+  integrationLabel,
+  payoutRate,
+  balanceCurrency,
+  balance,
+}: TradeContextCardProps) {
+  const rows: Array<[string, string]> = [
+    ["Execution", activeMode === "live" ? "Timed futures" : "Paper expiry"],
+    [activeMode === "live" ? "Venue" : "Payout", activeMode === "live" ? `${selectedProvider.toUpperCase()} / ${integrationLabel}` : `${((payoutRate ?? 0.91) * 100).toFixed(0)}%`],
+    ["Balance", `${balanceCurrency} ${balance.toFixed(2)}`],
+    ["Mode", activeMode.toUpperCase()],
+  ];
+  return (
+    <Card className="border-slate-800 bg-slate-950 text-slate-50">
+      <CardHeader className="pb-2"><CardTitle className="text-base">Trade context</CardTitle></CardHeader>
+      <CardContent className="space-y-2 text-sm text-slate-300">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex items-center justify-between rounded-2xl bg-slate-900 px-4 py-2.5">
+            <span className="text-slate-500">{k}</span><span>{v}</span>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+});
+
+interface HistoryCardProps {
+  trades: QuickTradeRecord[];
+}
+
+// Memoized: settled trade history never depends on the live tick.
+const HistoryCard = memo(function HistoryCard({ trades }: HistoryCardProps) {
+  const wins = trades.filter((t) => Number(t.profit_loss) > 0).length;
+  const total = trades.filter((t) => t.settled_at != null && t.status !== "open").length;
+  return (
+    <Card className="border-slate-800 bg-slate-950 text-slate-50">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          History
+          <a href="#quick-trade-research" className="ml-auto text-xs text-cyan-300 underline">Export / analyze trades</a>
+          {total > 0 && (
+            <Badge className="bg-slate-800 text-slate-300">
+              {wins}/{total} won
+            </Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {trades.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-slate-800 p-4 text-center text-sm text-slate-600">No trades yet</div>
+        )}
+        {trades.map((t) => <HistoryTradeCard key={t.id} trade={t} />)}
+      </CardContent>
+    </Card>
+  );
+});
 
 export default function QuickTradePage() {
   const navigate = useNavigate();
@@ -236,6 +359,7 @@ export default function QuickTradePage() {
 
   const [symbol, setSymbol] = useState("");
   const [timeframe, setTimeframe] = useState("1m");
+  const [predictionSource, setPredictionSource] = useState<"current" | "unified">("current");
   const [duration, setDuration] = useState(60);
   const [stake, setStake] = useState(10);
   // Optional per-trade stop-loss — live mode only. Empty string = feature
@@ -456,6 +580,7 @@ export default function QuickTradePage() {
     timeframe,
     expirySeconds: duration,
     stakeAmount: effectiveStake,
+    symbol,
   });
   const slippageBufferPct = forecastQuery.data?.net_edge?.slippage_buffer_pct ?? null;
   const livePnl = useMemo(() => {
@@ -551,10 +676,26 @@ export default function QuickTradePage() {
     ? `$${currentPrice.toFixed(currentPrice > 100 ? 2 : 4)}`
     : "—";
 
-  const allActiveTrades = activeTrades.data ?? [];
-  const activeForSymbol = allActiveTrades.filter((t) => t.symbol === symbol && t.status === "open");
-  const activeOther = allActiveTrades.filter((t) => t.symbol !== symbol && t.status === "open");
+  // Memoized so these arrays keep a stable reference across ticks (the WS
+  // feed/price re-render doesn't touch activeTrades.data), letting the
+  // memoized LiveTradeCard list below skip re-rendering when nothing about
+  // the active trades actually changed.
+  const allActiveTrades = useMemo(() => activeTrades.data ?? [], [activeTrades.data]);
+  const activeForSymbol = useMemo(
+    () => allActiveTrades.filter((t) => t.symbol === symbol && t.status === "open"),
+    [allActiveTrades, symbol]
+  );
+  const activeOther = useMemo(
+    () => allActiveTrades.filter((t) => t.symbol !== symbol && t.status === "open"),
+    [allActiveTrades, symbol]
+  );
   const estimatedQuantity = currentPrice ? Math.max(minStake, stake) / currentPrice : null;
+
+  // Stable callback for the memoized IndicatorsCard — a new inline arrow
+  // function every render would defeat React.memo on that component.
+  const handleIndicatorToggle = useCallback((key: string, checked: boolean) => {
+    setIndicatorSet((cur) => (checked ? Array.from(new Set([...cur, key])) : cur.filter((e) => e !== key)));
+  }, []);
 
   return (
     <AppShell>
@@ -722,6 +863,7 @@ export default function QuickTradePage() {
             <NearTermForecastCard forecast={forecastQuery.data?.forecast} />
             <ProfitCalculatorCard netEdge={forecastQuery.data?.net_edge} />
           </div>
+          <ForecastComparisonCard current={forecastQuery.data?.forecast} unified={forecastQuery.data?.unified} agreement={forecastQuery.data?.comparison?.agreement} selected={predictionSource} onSelect={setPredictionSource} />
 
           {/* ── Main grid ── */}
           <div className="grid gap-5 xl:grid-cols-[1.3fr_0.7fr]">
@@ -1018,77 +1160,25 @@ export default function QuickTradePage() {
                 busy={updateRuntimeSafety.isPending}
               />
 
-              <Card className="border-slate-800 bg-slate-950 text-slate-50">
-                <CardHeader className="pb-2"><CardTitle className="text-base">Indicators</CardTitle></CardHeader>
-                <CardContent className="space-y-2">
-                  {(metadata?.indicators ?? []).filter((item) => item.key !== "HEIKIN_ASHI").map((ind) => {
-                    const checked = indicatorSet.includes(ind.key);
-                    const bull = signal?.supporting_indicators?.includes(ind.key);
-                    const bear = signal?.conflicting_indicators?.includes(ind.key);
-                    return (
-                      <label key={ind.key} className={cn(
-                        "flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-2.5 transition-colors",
-                        bull ? "border-emerald-500/30 bg-emerald-500/5" : bear ? "border-rose-500/30 bg-rose-500/5" : "border-slate-800 bg-slate-900/70"
-                      )}>
-                        <Checkbox checked={checked} onCheckedChange={(v) => {
-                          setIndicatorSet((cur) => v ? Array.from(new Set([...cur, ind.key])) : cur.filter((e) => e !== ind.key));
-                        }} />
-                        <div>
-                          <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
-                            {ind.label}
-                            {bull && <span className="text-xs text-emerald-400">▲</span>}
-                            {bear && <span className="text-xs text-rose-400">▼</span>}
-                          </div>
-                          <div className="text-xs text-slate-500">{ind.description}</div>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </CardContent>
-              </Card>
+              <IndicatorsCard
+                indicators={metadata?.indicators ?? []}
+                indicatorSet={indicatorSet}
+                supportingIndicators={signal?.supporting_indicators}
+                conflictingIndicators={signal?.conflicting_indicators}
+                onToggle={handleIndicatorToggle}
+              />
 
-              <Card className="border-slate-800 bg-slate-950 text-slate-50">
-                <CardHeader className="pb-2"><CardTitle className="text-base">Trade context</CardTitle></CardHeader>
-                <CardContent className="space-y-2 text-sm text-slate-300">
-                  {[
-                    ["Execution", activeMode === "live" ? "Timed futures" : "Paper expiry"],
-                    [activeMode === "live" ? "Venue" : "Payout", activeMode === "live" ? `${selectedProvider.toUpperCase()} / ${integrationLabel}` : `${((selectedSymbol?.payout_rate ?? 0.91) * 100).toFixed(0)}%`],
-                    ["Balance", `${selectedBalance?.currency ?? "USD"} ${balance.toFixed(2)}`],
-                    ["Mode", activeMode.toUpperCase()],
-                  ].map(([k, v]) => (
-                    <div key={k} className="flex items-center justify-between rounded-2xl bg-slate-900 px-4 py-2.5">
-                      <span className="text-slate-500">{k}</span><span>{v}</span>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
+              <TradeContextCard
+                activeMode={activeMode}
+                selectedProvider={selectedProvider}
+                integrationLabel={integrationLabel}
+                payoutRate={selectedSymbol?.payout_rate}
+                balanceCurrency={selectedBalance?.currency ?? "USD"}
+                balance={balance}
+              />
 
               {/* Recent history */}
-              <Card className="border-slate-800 bg-slate-950 text-slate-50">
-                <CardHeader className="pb-2">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    History
-                    <a href="#quick-trade-research" className="ml-auto text-xs text-cyan-300 underline">Export / analyze trades</a>
-                    {(() => {
-                      const hist = historyTrades.data ?? [];
-                      const wins = hist.filter((t) => Number(t.profit_loss) > 0).length;
-                      const total = hist.filter((t) => t.settled_at != null && t.status !== "open").length;
-                      if (!total) return null;
-                      return (
-                        <Badge className="bg-slate-800 text-slate-300">
-                          {wins}/{total} won
-                        </Badge>
-                      );
-                    })()}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {(historyTrades.data ?? []).length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-slate-800 p-4 text-center text-sm text-slate-600">No trades yet</div>
-                  )}
-                  {(historyTrades.data ?? []).map((t) => <HistoryTradeCard key={t.id} trade={t} />)}
-                </CardContent>
-              </Card>
+              <HistoryCard trades={historyTrades.data ?? []} />
             </div>
           </div>
         </div>

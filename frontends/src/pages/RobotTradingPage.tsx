@@ -3,6 +3,7 @@ import { AppShell } from "@/components/layout";
 import { ExecutionSafetyControls, type ExecutionSafetyValues } from "@/components/trading/ExecutionSafetyControls";
 import { MobileTradeNav } from "@/components/trading/MobileTradeNav";
 import { NearTermForecastCard } from "@/components/trading/NearTermForecastCard";
+import { ForecastComparisonCard } from "@/components/trading/ForecastComparisonCard";
 import { TradeDealList } from "@/components/trading/TradeDealList";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { useBalances } from "@/hooks/useWallet";
 import { useRiskProfiles } from "@/hooks/useRisk";
 import { useUpdateTradingSettings } from "@/hooks/useTradingMode";
-import { useQuickTradeChart, useQuickTradeMetadata, useSettleQuickTrades } from "@/hooks/useQuickTrade";
+import { useForecastComparison, useQuickTradeChart, useQuickTradeMetadata, useSettleQuickTrades } from "@/hooks/useQuickTrade";
 import {
   useCreateRobotSession,
   useDeleteRobotSession,
@@ -248,6 +249,13 @@ export default function RobotTradingPage() {
   }, [chartQuery.data?.candles]);
 
   const chartCandles = feed.candles.length > 0 ? feed.candles : fallbackCandles;
+  const [predictionSource, setPredictionSource] = useState<"current" | "unified">("current");
+  const forecastComparison = useForecastComparison({
+    botType: "robot_trade", symbol: chartSymbol, timeframe: chartTimeframe,
+    expirySeconds: Math.max(5, Number(selectedSession?.expiry_seconds ?? 60)),
+    candles: chartCandles.map((c) => ({ open: c.open, high: c.high, low: c.low, close: c.close })),
+    signal: liveStats?.last_decision ? { direction: liveStats.last_decision.action, confidence: liveStats.last_decision.confidence } : undefined,
+  });
   const chartLivePosition = selectedSession?.symbol === chartSymbol ? livePosition : null;
 
   const takeProfitPrice = useMemo(() => {
@@ -1089,6 +1097,7 @@ export default function RobotTradingPage() {
                     </div>
 
                     <NearTermForecastCard forecast={liveStats?.forecast} />
+                    <ForecastComparisonCard current={forecastComparison.data?.current ?? liveStats?.forecast} unified={forecastComparison.data?.unified} agreement={forecastComparison.data?.comparison.agreement} selected={predictionSource} onSelect={setPredictionSource} />
 
                     {chartLivePosition ? (
                       <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
