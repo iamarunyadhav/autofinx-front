@@ -138,7 +138,7 @@ const LiveTradeCard = memo(function LiveTradeCard({ trade, currentPrice, slippag
       "rounded-3xl border p-4 transition-all",
       winning ? "border-emerald-500/25 bg-emerald-500/5" : "border-rose-500/25 bg-rose-500/5"
     )}>
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <CountdownRing secs={countdown} totalSecs={totalSecs} />
           <div>
@@ -201,7 +201,7 @@ const HistoryTradeCard = memo(function HistoryTradeCard({ trade }: { trade: Quic
       "rounded-3xl border p-4",
       won ? "border-emerald-500/20 bg-emerald-500/5" : pnl < 0 ? "border-rose-500/20 bg-rose-500/5" : "border-slate-800 bg-slate-900/50"
     )}>
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className={cn(
             "flex h-10 w-10 items-center justify-center rounded-full text-lg",
@@ -806,7 +806,7 @@ export default function QuickTradePage() {
               {/* Signal label */}
               <div className="flex items-center gap-4">
                 <div className={cn(
-                  "text-5xl font-black",
+                  "text-4xl font-black sm:text-5xl",
                   isBuy ? "text-emerald-300" : isSell ? "text-rose-300" : "text-slate-500"
                 )}>
                   {isBuy ? "↑ BUY" : isSell ? "↓ SELL" : "WAIT"}
@@ -943,12 +943,12 @@ export default function QuickTradePage() {
                   <CardHeader className="pb-2"><CardTitle className="text-base">Duration</CardTitle></CardHeader>
                   <CardContent>
                     <div className="flex items-center justify-between rounded-3xl border border-slate-800 bg-slate-900 p-3">
-                      <Button variant="ghost" className="h-10 w-10 rounded-full text-2xl text-slate-100" onClick={() => stepDuration("prev")}>-</Button>
+                      <Button variant="ghost" className="h-11 w-11 rounded-full text-2xl text-slate-100 lg:h-10 lg:w-10" onClick={() => stepDuration("prev")}>-</Button>
                       <div className="text-center">
                         <div className="text-2xl font-bold">{metadata?.durations.find((e) => e.seconds === duration)?.label ?? `${duration}s`}</div>
                         <div className="text-xs text-slate-500">{activeMode === "live" ? "Auto-close" : "Expiry"}</div>
                       </div>
-                      <Button variant="ghost" className="h-10 w-10 rounded-full text-2xl text-slate-100" onClick={() => stepDuration("next")}>+</Button>
+                      <Button variant="ghost" className="h-11 w-11 rounded-full text-2xl text-slate-100 lg:h-10 lg:w-10" onClick={() => stepDuration("next")}>+</Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -956,14 +956,14 @@ export default function QuickTradePage() {
                   <CardHeader className="pb-2"><CardTitle className="text-base">Stake</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
                     <div className="flex items-center justify-between rounded-3xl border border-slate-800 bg-slate-900 p-3">
-                      <Button variant="ghost" className="h-10 w-10 rounded-full text-2xl text-slate-100" onClick={() => setStake((c) => Math.max(minStake, c - amountStep))}>-</Button>
+                      <Button variant="ghost" className="h-11 w-11 rounded-full text-2xl text-slate-100 lg:h-10 lg:w-10" onClick={() => setStake((c) => Math.max(minStake, c - amountStep))}>-</Button>
                       <div className="text-center">
                         <div className="text-2xl font-bold">${stake.toFixed(2)}</div>
                         <div className="text-xs text-slate-500">
                           Bal: {selectedBalance?.currency ?? "USD"} {balance.toFixed(2)}
                         </div>
                       </div>
-                      <Button variant="ghost" className="h-10 w-10 rounded-full text-2xl text-slate-100" onClick={() => setStake((c) => c + amountStep)}>+</Button>
+                      <Button variant="ghost" className="h-11 w-11 rounded-full text-2xl text-slate-100 lg:h-10 lg:w-10" onClick={() => setStake((c) => c + amountStep)}>+</Button>
                     </div>
                     <Input
                       type="number"
@@ -980,12 +980,12 @@ export default function QuickTradePage() {
                         <div className="rounded-xl bg-slate-900 px-3 py-2">
                           Qty {estimatedQuantity ? estimatedQuantity.toFixed(6) : "waiting"}
                         </div>
-                        <div className="rounded-xl bg-slate-900 px-3 py-2 md:col-span-2">
+                        <div className="rounded-xl bg-slate-900 px-3 py-2 col-span-2">
                           Fee estimate ~{(forecastQuery.data?.net_edge?.actual_cost_usdt ?? 0).toFixed(4)} USDT round trip
                           (~{(forecastQuery.data?.net_edge?.round_trip_fee_pct ?? 0).toFixed(4)}% fee + {(forecastQuery.data?.net_edge?.slippage_buffer_pct ?? 0).toFixed(4)}% slippage buffer).
                           Final PnL uses exchange fills when available.
                         </div>
-                        <div className="md:col-span-2 space-y-1">
+                        <div className="col-span-2 space-y-1">
                           <Label htmlFor="quick-trade-stop-loss" className="text-xs text-slate-400">
                             Stop Loss % (optional)
                           </Label>
@@ -1003,7 +1003,7 @@ export default function QuickTradePage() {
                             Closes this position early if unrealized loss reaches this % of stake. Leave blank to disable.
                           </div>
                         </div>
-                        <div className="md:col-span-2 space-y-1">
+                        <div className="col-span-2 space-y-1">
                           <Label htmlFor="quick-trade-take-profit" className="text-xs text-slate-400">
                             Take Profit % (optional)
                           </Label>
@@ -1021,7 +1021,7 @@ export default function QuickTradePage() {
                             Closes this position early once unrealized profit reaches this % of stake. Leave blank to disable.
                           </div>
                         </div>
-                        <div className="md:col-span-2 space-y-1">
+                        <div className="col-span-2 space-y-1">
                           <div className="flex items-center justify-between">
                             <Label htmlFor="quick-trade-leverage" className="text-xs text-slate-400">
                               Leverage (optional, off = 1x)

@@ -336,11 +336,11 @@ function Fast2XControlPanel({ busy, onStart, onPause, onStop, onEmergency, onRes
     <Card>
       <CardHeader><CardTitle className="text-base">Controls</CardTitle></CardHeader>
       <CardContent className="grid grid-cols-2 gap-2">
-        <Button disabled={busy} onClick={onStart}><Play className="mr-2 h-4 w-4" />Start Bot</Button>
-        <Button disabled={busy} variant="secondary" onClick={onPause}><Pause className="mr-2 h-4 w-4" />Pause Bot</Button>
-        <Button disabled={busy} variant="outline" onClick={onStop}><Square className="mr-2 h-4 w-4" />Stop Bot</Button>
-        <Button disabled={busy} variant="destructive" onClick={onEmergency}><ShieldAlert className="mr-2 h-4 w-4" />Emergency</Button>
-        <Button disabled={busy} variant="outline" className="col-span-2" onClick={onReset}><RotateCcw className="mr-2 h-4 w-4" />Reset Paper Trading</Button>
+        <Button className="h-11" disabled={busy} onClick={onStart}><Play className="mr-2 h-4 w-4" />Start Bot</Button>
+        <Button className="h-11" disabled={busy} variant="secondary" onClick={onPause}><Pause className="mr-2 h-4 w-4" />Pause Bot</Button>
+        <Button className="h-11" disabled={busy} variant="outline" onClick={onStop}><Square className="mr-2 h-4 w-4" />Stop Bot</Button>
+        <Button className="h-11" disabled={busy} variant="destructive" onClick={onEmergency}><ShieldAlert className="mr-2 h-4 w-4" />Emergency</Button>
+        <Button disabled={busy} variant="outline" className="col-span-2 h-11" onClick={onReset}><RotateCcw className="mr-2 h-4 w-4" />Reset Paper Trading</Button>
       </CardContent>
     </Card>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ColorType,
   CrosshairMode,
@@ -129,6 +129,29 @@ function barsEqual(a: CandlestickData<Time>, b: CandlestickData<Time>): boolean 
 }
 
 /**
+ * Tracks whether the viewport is below the Tailwind `sm` breakpoint (640px).
+ * Only flips on an actual breakpoint crossing (via `matchMedia`), not on
+ * every pixel of resize, so it can safely sit in the chart-recreation
+ * effect's dependency array without thrashing the chart during ordinary
+ * window resizing.
+ */
+function useIsNarrowViewport(): boolean {
+  const [isNarrow, setIsNarrow] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia("(max-width: 639px)");
+    const handleChange = (event: MediaQueryListEvent) => setIsNarrow(event.matches);
+    mql.addEventListener("change", handleChange);
+    return () => mql.removeEventListener("change", handleChange);
+  }, []);
+
+  return isNarrow;
+}
+
+/**
  * Dark-theme candlestick chart for the Robot Trade page. Renders the live feed
  * plus entry / trailing-stop / take-profit price lines that track the position.
  */
@@ -158,6 +181,12 @@ export function RobotLiveChart({
   const lastBarTimeRef = useRef<number | null>(null);
   const prevBarsRef = useRef<CandlestickData<Time>[]>([]);
 
+  // On phone-width viewports, cap the chart height so it doesn't dominate the
+  // whole screen — pure sizing, doesn't touch data/update logic below. Callers
+  // that pass an already-short `height` (e.g. 340) are left alone.
+  const isNarrowViewport = useIsNarrowViewport();
+  const effectiveHeight = isNarrowViewport ? Math.min(height, 280) : height;
+
   // Create the chart once.
   useEffect(() => {
     const container = containerRef.current;
@@ -165,7 +194,7 @@ export function RobotLiveChart({
 
     const chart = createChart(container, {
       width: container.clientWidth,
-      height,
+      height: effectiveHeight,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: "#94a3b8",
@@ -230,7 +259,7 @@ export function RobotLiveChart({
       extraLinesRef.current = {};
       forecastSeriesRef.current = { mid: null, low: null, high: null };
     };
-  }, [height]);
+  }, [effectiveHeight]);
 
   // Push candle data.
   useEffect(() => {
@@ -425,11 +454,11 @@ export function RobotLiveChart({
   const pnlUp = (pnl?.pct ?? 0) >= 0;
 
   return (
-    <div className="relative w-full" style={{ height }}>
+    <div className="relative w-full" style={{ height: effectiveHeight }}>
       <div ref={containerRef} className="h-full w-full" />
       {pnl && (
         <div
-          className={`pointer-events-none absolute left-3 top-3 rounded-lg px-3 py-1.5 text-sm font-semibold backdrop-blur ${
+          className={`pointer-events-none absolute left-2 top-2 max-w-[60%] truncate whitespace-nowrap rounded-lg px-2 py-1 text-xs font-semibold backdrop-blur sm:left-3 sm:top-3 sm:max-w-[70%] sm:px-3 sm:py-1.5 sm:text-sm ${
             pnlUp ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300"
           }`}
         >

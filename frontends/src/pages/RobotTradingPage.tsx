@@ -1112,7 +1112,7 @@ export default function RobotTradingPage() {
                           </div>
                           <Button
                             size="sm"
-                            className="rounded-xl bg-rose-500 text-white hover:bg-rose-400"
+                            className="h-11 rounded-xl bg-rose-500 text-white hover:bg-rose-400"
                             onClick={() => selectedSession && forceClose.mutate(selectedSession.id)}
                             disabled={forceClose.isPending || !selectedSession}
                           >
@@ -1139,19 +1139,19 @@ export default function RobotTradingPage() {
                             <div className="text-xs uppercase tracking-wide text-slate-500">In trade</div>
                             <div className="text-lg font-semibold text-slate-200">
                               {Math.floor(chartLivePosition.seconds_in_trade / 60)}m {chartLivePosition.seconds_in_trade % 60}s
-              </div>
-            </div>
-            {activeMode === "live" && robotRuntimeRed && (
-              <div className="mt-4 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-                Live robot start is blocked because backend market feed is red. Evaluator: {runtimeHealth.data?.robot_trade?.evaluator ?? "unknown"}, backend feed: {runtimeHealth.data?.robot_trade?.market_feed ?? "unknown"}. Warnings will auto-repair in the background; hard stale feed still blocks entries.
-              </div>
-            )}
-            {activeMode === "live" && runtimeHealth.data?.robot_trade?.market_feed !== "green" && feed.connected && (
-              <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-200">
-                Chart WebSocket is connected, but backend market feed is not green. Robot live entry will stay blocked to prevent chart/server price mismatch.
-              </div>
-            )}
-          </div>
+                            </div>
+                          </div>
+                        </div>
+                        {activeMode === "live" && robotRuntimeRed && (
+                          <div className="mt-4 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+                            Live robot start is blocked because backend market feed is red. Evaluator: {runtimeHealth.data?.robot_trade?.evaluator ?? "unknown"}, backend feed: {runtimeHealth.data?.robot_trade?.market_feed ?? "unknown"}. Warnings will auto-repair in the background; hard stale feed still blocks entries.
+                          </div>
+                        )}
+                        {activeMode === "live" && runtimeHealth.data?.robot_trade?.market_feed !== "green" && feed.connected && (
+                          <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-200">
+                            Chart WebSocket is connected, but backend market feed is not green. Robot live entry will stay blocked to prevent chart/server price mismatch.
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="rounded-2xl border border-dashed border-slate-800 p-4 space-y-3">

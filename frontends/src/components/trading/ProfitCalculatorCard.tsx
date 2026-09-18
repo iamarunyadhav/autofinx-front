@@ -20,7 +20,7 @@ export function ProfitCalculatorCard({ netEdge }: { netEdge?: NetEdgePayload | n
     <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3">
       <div className="text-xs uppercase tracking-wide text-slate-500">Profit calculator</div>
 
-      <div className="mt-3 grid grid-cols-2 gap-3">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1">
           <Label className="text-xs text-slate-400">Target profit ($)</Label>
           <Input
@@ -57,7 +57,7 @@ export function ProfitCalculatorCard({ netEdge }: { netEdge?: NetEdgePayload | n
         <div className="mt-3 text-xs text-slate-500">Waiting for a fresh signal to estimate profit.</div>
       ) : (
         <>
-          <div className="mt-3 grid grid-cols-3 gap-3 text-right">
+          <div className="mt-3 grid grid-cols-1 gap-3 text-left sm:grid-cols-3 sm:text-right">
             <div>
               <div className="text-xs text-slate-500">Expected gross</div>
               <div className="text-sm font-semibold text-slate-200">{formatUsdt(projection.grossUsdt)}</div>

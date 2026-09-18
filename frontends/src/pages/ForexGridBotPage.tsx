@@ -404,7 +404,7 @@ function GridLevelLadder({ levels }: { levels: ForexGridBotLevel[] }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <span className={cn("inline-block h-2 w-6 rounded-full", BUY_BG)} />
           <TrendingUp className={cn("h-3.5 w-3.5", BUY_TEXT)} /> Buy
@@ -858,6 +858,7 @@ export default function ForexGridBotPage() {
                       <div className="flex flex-wrap gap-2">
                         <Button
                           size="sm"
+                          className="h-11 sm:h-8"
                           onClick={() => lifecycleMutation.mutate({ botId: selectedBot.id, action: "start" })}
                           disabled={isBusy}
                         >
@@ -867,6 +868,7 @@ export default function ForexGridBotPage() {
                         <Button
                           size="sm"
                           variant="outline"
+                          className="h-11 sm:h-8"
                           onClick={() => lifecycleMutation.mutate({ botId: selectedBot.id, action: "pause" })}
                           disabled={isBusy}
                         >
@@ -876,6 +878,7 @@ export default function ForexGridBotPage() {
                         <Button
                           size="sm"
                           variant="outline"
+                          className="h-11 sm:h-8"
                           onClick={() => lifecycleMutation.mutate({ botId: selectedBot.id, action: "stop" })}
                           disabled={isBusy}
                         >
@@ -885,6 +888,7 @@ export default function ForexGridBotPage() {
                         <Button
                           size="sm"
                           variant="destructive"
+                          className="h-11 sm:h-8"
                           onClick={() => killSwitchMutation.mutate(selectedBot.id)}
                           disabled={isBusy}
                         >
@@ -894,7 +898,7 @@ export default function ForexGridBotPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="text-destructive"
+                          className="h-11 sm:h-8 text-destructive"
                           onClick={() => {
                             if (window.confirm("Delete this grid bot? This removes its config, levels, and events.")) {
                               deleteMutation.mutate(selectedBot.id);
@@ -931,7 +935,7 @@ export default function ForexGridBotPage() {
                       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
                         <Card>
                           <CardHeader>
-                            <div className="flex items-center justify-between">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
                               <CardTitle className="text-base">Grid level ladder</CardTitle>
                               <div className="flex gap-1 rounded-lg border border-border/70 p-1">
                                 <Button

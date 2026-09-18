@@ -109,13 +109,13 @@ export function ExecutionSafetyControls({
 
   return (
     <Card className={cn("border-slate-800 bg-slate-950 text-slate-50", className)}>
-      <CardHeader>
+      <CardHeader className="px-4 sm:px-6">
         <CardTitle className="flex items-center gap-2 text-base">
           <ShieldAlert className="h-4 w-4" />
           {title}
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4 text-sm">
+      <CardContent className="space-y-4 px-4 text-sm sm:px-6">
         <div className="grid gap-3 sm:grid-cols-2">
           <GuardOptionGroup
             label={primaryGuardLabel}
@@ -132,33 +132,35 @@ export function ExecutionSafetyControls({
         </div>
 
         <div className="overflow-hidden rounded-md border border-slate-800">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-900/80 text-slate-400">
-              <tr>
-                <th className="px-3 py-2 font-medium">Check</th>
-                <th className="px-3 py-2 font-medium">Current</th>
-                <th className="px-3 py-2 font-medium">Limit</th>
-                <th className="px-3 py-2 font-medium">State</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.key} className="border-t border-slate-800">
-                  <td className="px-3 py-2">
-                    <div className="font-medium text-slate-100">{row.name}</div>
-                    <div className="mt-0.5 text-[11px] text-slate-500">{row.detail}</div>
-                  </td>
-                  <td className="px-3 py-2 font-mono text-slate-200">{row.current}</td>
-                  <td className="px-3 py-2 font-mono text-slate-300">{row.limit}</td>
-                  <td className="px-3 py-2">
-                    <Badge className={row.ok ? "bg-emerald-500/10 text-emerald-300" : "bg-rose-500/10 text-rose-300"}>
-                      {row.state}
-                    </Badge>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[480px] text-left text-xs">
+              <thead className="bg-slate-900/80 text-slate-400">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Check</th>
+                  <th className="px-3 py-2 font-medium">Current</th>
+                  <th className="px-3 py-2 font-medium">Limit</th>
+                  <th className="px-3 py-2 font-medium">State</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.key} className="border-t border-slate-800">
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-slate-100">{row.name}</div>
+                      <div className="mt-0.5 text-[11px] text-slate-500">{row.detail}</div>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-slate-200">{row.current}</td>
+                    <td className="px-3 py-2 font-mono text-slate-300">{row.limit}</td>
+                    <td className="px-3 py-2">
+                      <Badge className={row.ok ? "bg-emerald-500/10 text-emerald-300" : "bg-rose-500/10 text-rose-300"}>
+                        {row.state}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div className="rounded-md border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-400">
@@ -187,12 +189,13 @@ function GuardOptionGroup({
   return (
     <div className="space-y-2">
       <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="grid grid-cols-4 gap-1">
+      <div className="flex flex-wrap gap-1.5">
         {options.map((option) => (
           <Button
             key={option.value}
             type="button"
             size="sm"
+            className="h-9 min-w-[3rem] flex-1 basis-[3.5rem] sm:h-8 sm:flex-none"
             variant={value === option.value ? "default" : "outline"}
             onClick={() => onChange(option.value)}
           >

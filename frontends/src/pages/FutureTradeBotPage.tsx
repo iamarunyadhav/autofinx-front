@@ -1045,15 +1045,15 @@ export default function FutureTradeBotPage() {
             <Card>
               <CardHeader><CardTitle>Bot Controls</CardTitle></CardHeader>
               <CardContent className="grid grid-cols-2 gap-2">
-                <Button disabled={busy} onClick={() => bot.start.mutate(undefined, { onError: err(toast) })}><Power className="mr-2 h-4 w-4" />On</Button>
-                <Button disabled={busy} variant="outline" onClick={() => bot.stop.mutate(undefined, { onError: err(toast) })}><Square className="mr-2 h-4 w-4" />Off</Button>
-                <Button disabled={busy} variant="destructive" onClick={() => bot.emergencyStop.mutate(undefined, { onError: err(toast) })}><ShieldAlert className="mr-2 h-4 w-4" />Emergency</Button>
-                <Button disabled={busy} variant="secondary" onClick={() => bot.resetPaper.mutate(undefined, { onError: err(toast) })}><RefreshCw className="mr-2 h-4 w-4" />Reset Paper</Button>
-                <Button disabled={busy} variant="outline" className="col-span-2" onClick={() => bot.resetDailyLoss.mutate(undefined, { onError: err(toast) })}>Reset Day Loss</Button>
+                <Button className="h-11" disabled={busy} onClick={() => bot.start.mutate(undefined, { onError: err(toast) })}><Power className="mr-2 h-4 w-4" />On</Button>
+                <Button className="h-11" disabled={busy} variant="outline" onClick={() => bot.stop.mutate(undefined, { onError: err(toast) })}><Square className="mr-2 h-4 w-4" />Off</Button>
+                <Button className="h-11" disabled={busy} variant="destructive" onClick={() => bot.emergencyStop.mutate(undefined, { onError: err(toast) })}><ShieldAlert className="mr-2 h-4 w-4" />Emergency</Button>
+                <Button className="h-11" disabled={busy} variant="secondary" onClick={() => bot.resetPaper.mutate(undefined, { onError: err(toast) })}><RefreshCw className="mr-2 h-4 w-4" />Reset Paper</Button>
+                <Button disabled={busy} variant="outline" className="col-span-2 h-11" onClick={() => bot.resetDailyLoss.mutate(undefined, { onError: err(toast) })}>Reset Day Loss</Button>
                 <Button
                   disabled={busy}
                   variant="outline"
-                  className="col-span-2 border-orange-500 text-orange-600 hover:bg-orange-50"
+                  className="col-span-2 h-11 border-orange-500 text-orange-600 hover:bg-orange-50"
                   onClick={() => {
                     if (!confirm("Fresh Reset will clear Future Trade profit/loss summary, trades, logs, diagnostics, and stale app-side open state only if Binance is flat. Continue?")) return;
                     bot.clearHistory.mutate(undefined, {

@@ -17,14 +17,14 @@ export function SignalSummaryCard({ signal }: SignalSummaryCardProps) {
 
   return (
     <Card className="border-slate-800 bg-slate-950 text-slate-50">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center justify-between text-lg">
+      <CardHeader className="px-4 pb-3 sm:px-6">
+        <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-lg">
           Signal Preview
           <Badge className={directionTone}>{signal?.direction?.toUpperCase() ?? "NEUTRAL"}</Badge>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="rounded-2xl bg-slate-900/80 p-4">
+      <CardContent className="space-y-4 px-4 sm:px-6">
+        <div className="rounded-2xl bg-slate-900/80 p-3 sm:p-4">
           <div className="mb-2 flex items-center justify-between text-sm text-slate-300">
             <span>Confidence</span>
             <span>{signal?.confidence ?? 0}%</span>
@@ -32,16 +32,16 @@ export function SignalSummaryCard({ signal }: SignalSummaryCardProps) {
           <Progress value={signal?.confidence ?? 0} className="h-2 bg-slate-800" />
         </div>
 
-        <div className="grid grid-cols-3 gap-2 text-center text-xs">
-          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+        <div className="grid grid-cols-3 gap-1.5 text-center text-xs sm:gap-2">
+          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-2 sm:p-3">
             <div className="text-slate-400">Bullish</div>
             <div className="mt-1 text-base font-semibold text-emerald-300">{signal?.bullish_score ?? 0}</div>
           </div>
-          <div className="rounded-2xl border border-slate-700 bg-slate-900 p-3">
+          <div className="rounded-2xl border border-slate-700 bg-slate-900 p-2 sm:p-3">
             <div className="text-slate-400">Neutral</div>
             <div className="mt-1 text-base font-semibold text-slate-100">{signal?.neutral_score ?? 0}</div>
           </div>
-          <div className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-3">
+          <div className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-2 sm:p-3">
             <div className="text-slate-400">Bearish</div>
             <div className="mt-1 text-base font-semibold text-rose-300">{signal?.bearish_score ?? 0}</div>
           </div>

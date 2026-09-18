@@ -1025,6 +1025,7 @@ export default function PepperstoneBotPage() {
                       <div className="flex flex-wrap gap-2">
                         <Button
                           size="sm"
+                          className="h-11 sm:h-8"
                           onClick={() => lifecycleMutation.mutate({ botId: selectedBot.id, action: "start" })}
                           disabled={isBusy}
                         >
@@ -1034,6 +1035,7 @@ export default function PepperstoneBotPage() {
                         <Button
                           size="sm"
                           variant="outline"
+                          className="h-11 sm:h-8"
                           onClick={() => lifecycleMutation.mutate({ botId: selectedBot.id, action: "pause" })}
                           disabled={isBusy}
                         >
@@ -1043,6 +1045,7 @@ export default function PepperstoneBotPage() {
                         <Button
                           size="sm"
                           variant="outline"
+                          className="h-11 sm:h-8"
                           onClick={() => lifecycleMutation.mutate({ botId: selectedBot.id, action: "stop" })}
                           disabled={isBusy}
                         >
@@ -1052,6 +1055,7 @@ export default function PepperstoneBotPage() {
                         <Button
                           size="sm"
                           variant="destructive"
+                          className="h-11 sm:h-8"
                           onClick={() => killSwitchMutation.mutate(selectedBot.id)}
                           disabled={isBusy}
                         >
@@ -1061,7 +1065,7 @@ export default function PepperstoneBotPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="text-destructive"
+                          className="h-11 sm:h-8 text-destructive"
                           onClick={() => {
                             if (window.confirm("Delete this bot? This removes its config, baskets, and events.")) {
                               deleteMutation.mutate(selectedBot.id);

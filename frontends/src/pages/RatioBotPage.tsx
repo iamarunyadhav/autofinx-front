@@ -931,7 +931,7 @@ function ThresholdTrackerCard({
   return (
     <div className="space-y-3 rounded-lg border border-border/70 p-4">
       <h3 className="text-sm font-semibold">Threshold Tracker</h3>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <DetailRow label="Next watch" value={prettyLabel(nextSide)} />
         <DetailRow label="Anchor" value={formatNumber(ratio?.active_anchor_price, 6)} />
         <DetailRow label="Sell target" value={formatNumber(triggerPrices.sellTarget, 6)} />
@@ -1411,13 +1411,13 @@ function MetricCard({
 }) {
   return (
     <Card>
-      <CardContent className="flex items-start justify-between gap-4 p-5">
-        <div className="space-y-1">
+      <CardContent className="flex items-start justify-between gap-3 p-4 sm:gap-4 sm:p-5">
+        <div className="min-w-0 space-y-1">
           <p className="text-sm text-muted-foreground">{title}</p>
-          <div className="text-xl font-semibold">{value}</div>
+          <div className="break-words text-lg font-semibold sm:text-xl">{value}</div>
           {hint ? <div className="text-xs text-muted-foreground">{hint}</div> : null}
         </div>
-        {icon ? <div className="text-muted-foreground">{icon}</div> : null}
+        {icon ? <div className="shrink-0 text-muted-foreground">{icon}</div> : null}
       </CardContent>
     </Card>
   );
@@ -1464,9 +1464,9 @@ function DetailRow({
   value: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 px-3 py-2">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className="text-right text-sm font-medium">{value}</span>
+    <div className="flex items-start justify-between gap-3 rounded-lg border border-border/60 px-3 py-2">
+      <span className="min-w-0 text-sm text-muted-foreground">{label}</span>
+      <span className="min-w-0 break-words text-right text-sm font-medium">{value}</span>
     </div>
   );
 }
@@ -2793,7 +2793,7 @@ export default function RatioBotPage() {
                     />
                   ) : null}
 
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
                     <MetricCard
                       title="Bot Status"
                       value={<Badge variant={statusVariant(currentStatus?.bot_status || selectedBot?.state?.position_state)}>{prettyLabel(currentStatus?.bot_status || selectedBot?.state?.position_state || "idle")}</Badge>}
