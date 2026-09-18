@@ -144,6 +144,9 @@ export interface ForecastPayload {
   available: boolean;
   horizon_seconds?: number;
   horizon_candles?: number;
+  context_timeframe?: string;
+  context_timeframe_seconds?: number;
+  resolution_warning?: string | null;
   bias?: "BUY" | "SELL" | "NEUTRAL";
   confidence?: number;
   current_price?: number;
@@ -178,8 +181,6 @@ export interface NetEdgePayload {
 export interface QuickTradeForecastPayload {
   forecast: ForecastPayload;
   net_edge: NetEdgePayload;
-  unified?: UnifiedForecastPayload | null;
-  comparison?: { direction_agreement: boolean | null; agreement: "AGREE" | "DISAGREE" | "UNAVAILABLE" };
 }
 
 export interface UnifiedForecastPayload {
@@ -202,7 +203,7 @@ export interface ForecastComparisonPayload {
 }
 
 export function useForecastComparison(params: {
-  botType: "robot_trade" | "future_trade";
+  botType: "quick_trade" | "robot_trade" | "future_trade";
   symbol: string;
   timeframe: string;
   expirySeconds: number;

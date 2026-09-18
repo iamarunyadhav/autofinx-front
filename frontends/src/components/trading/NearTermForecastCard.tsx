@@ -36,7 +36,8 @@ export function NearTermForecastCard({ forecast }: { forecast?: ForecastPayload 
       </div>
       <div className="mt-2 text-xs leading-relaxed text-slate-400">
         {forecast?.summary ?? "Forecast waits for fresh candle and decision data."}
-        {forecast?.horizon_seconds ? ` Horizon ${Math.round(forecast.horizon_seconds / 60)}m, ATR ${forecast.atr_pct?.toFixed(3)}%.` : ""}
+        {forecast?.horizon_seconds ? ` Trade forecast horizon ${Math.round(forecast.horizon_seconds / 60)}m; chart context ${forecast.context_timeframe ?? "unknown"}; ATR ${forecast.atr_pct?.toFixed(3)}%.` : ""}
+        {forecast?.resolution_warning && <span className="block mt-1 text-amber-300">{forecast.resolution_warning}</span>}
       </div>
     </div>
   );

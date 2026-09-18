@@ -25,6 +25,7 @@ import {
   useQuickTradeActive,
   useQuickTradeChart,
   useQuickTradeForecast,
+  useForecastComparison,
   useQuickTradeHistory,
   useQuickTradeMetadata,
   useSettleQuickTrades,
@@ -582,6 +583,11 @@ export default function QuickTradePage() {
     stakeAmount: effectiveStake,
     symbol,
   });
+  const forecastComparison = useForecastComparison({
+    botType: "quick_trade", symbol, timeframe, expirySeconds: duration,
+    candles: chartCandles.map((c) => ({ open: c.open, high: c.high, low: c.low, close: c.close })),
+    signal: signal ? { direction: signal.direction, confidence: signal.confidence } : undefined,
+  });
   const slippageBufferPct = forecastQuery.data?.net_edge?.slippage_buffer_pct ?? null;
   const livePnl = useMemo(() => {
     if (!activeTradeForSymbol || !freshPrice) return null;
@@ -863,7 +869,7 @@ export default function QuickTradePage() {
             <NearTermForecastCard forecast={forecastQuery.data?.forecast} />
             <ProfitCalculatorCard netEdge={forecastQuery.data?.net_edge} />
           </div>
-          <ForecastComparisonCard current={forecastQuery.data?.forecast} unified={forecastQuery.data?.unified} agreement={forecastQuery.data?.comparison?.agreement} selected={predictionSource} onSelect={setPredictionSource} />
+          <ForecastComparisonCard current={forecastComparison.data?.current ?? forecastQuery.data?.forecast} unified={forecastComparison.data?.unified} agreement={forecastComparison.data?.comparison?.agreement} selected={predictionSource} onSelect={setPredictionSource} />
 
           {/* ── Main grid ── */}
           <div className="grid gap-5 xl:grid-cols-[1.3fr_0.7fr]">
