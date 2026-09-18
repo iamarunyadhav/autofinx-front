@@ -190,6 +190,8 @@ export interface UnifiedForecastPayload {
   status?: string | null;
   price_target_available: false;
   horizon_seconds?: number;
+  calibrated?: boolean;
+  calibration_evidence?: { sample_size?: number; hit_rate_pct?: number | null; confidence_bucket?: string | null };
 }
 
 export interface ForecastComparisonPayload {
