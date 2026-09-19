@@ -42,6 +42,7 @@ import Fast2XPage from "./pages/Fast2XPage";
 import FutureTradeBotPage from "./pages/FutureTradeBotPage";
 import AuditPage from "./pages/AuditPage";
 import AuditResearchPage from "./pages/AuditResearchPage";
+import NexusPage from "./pages/NexusPage";
 import IntelligenceControlPage from "./pages/IntelligenceControlPage";
 import JobsPage from "./pages/JobsPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -57,6 +58,7 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
+            <Route path="/nexus" element={<ModuleRoute moduleKey="nexus"><NexusPage /></ModuleRoute>} />
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/" element={
               <ProtectedRoute>

@@ -10,6 +10,7 @@ export interface ModuleDefinition {
 }
 
 export const MODULE_DEFINITIONS: ModuleDefinition[] = [
+  { key: "nexus", label: "Nexus Research", path: "/nexus", description: "Research, discovery, experiments and reviewed improvement proposals.", defaultMode: "active" },
   { key: "dashboard", label: "Dashboard", path: "/", description: "Main trading overview and health snapshot.", defaultMode: "active", manageable: false },
   { key: "access", label: "Access", path: "/access", description: "Control which modules are visible and usable.", defaultMode: "active", manageable: false },
   { key: "quick-trade", label: "Quick Trade", path: "/trading", description: "Core quick trade workflow.", defaultMode: "active" },

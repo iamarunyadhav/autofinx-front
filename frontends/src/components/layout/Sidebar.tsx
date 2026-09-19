@@ -62,6 +62,7 @@ const iconMap = {
   "future-trade": FlaskConical,
   audit: Workflow,
   "audit-research": SearchCheck,
+  "nexus": SearchCheck,
   "intelligence-control": Cpu,
   scheduler: Calendar,
   risk: Shield,
