@@ -23,6 +23,7 @@ export const MODULE_DEFINITIONS: ModuleDefinition[] = [
   { key: "future-trade", label: "Future Trade", path: "/future-trade", description: "Core Future Trade futures scanner bot.", defaultMode: "active" },
   { key: "audit", label: "Audit", path: "/audit", description: "Live workflow tracing for Future Trade, Robot Trade, queues, and server processes.", defaultMode: "active" },
   { key: "audit-research", label: "Audit Research", path: "/audit-research", description: "Ratio Bot decision audit sessions: event timeline, rule-level decision explainability, incidents, and prediction-accuracy reporting.", defaultMode: "active" },
+  { key: "intelligence-control", label: "Intelligence Control", path: "/intelligence-control", description: "On/off switches for AI/automation capabilities: Unified Forecast Engine shadow/live modes and scheduled backtest/calibration jobs.", defaultMode: "active" },
   { key: "scheduler", label: "Scheduler", path: "/scheduler", description: "Scheduler controls required for automation timing.", defaultMode: "active" },
   { key: "risk", label: "Risk", path: "/risk", description: "Risk and kill switch controls.", defaultMode: "active" },
   { key: "wallet", label: "Wallet", path: "/wallet", description: "Wallet balances and transfer flows.", defaultMode: "active" },

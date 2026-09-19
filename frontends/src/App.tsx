@@ -42,6 +42,7 @@ import Fast2XPage from "./pages/Fast2XPage";
 import FutureTradeBotPage from "./pages/FutureTradeBotPage";
 import AuditPage from "./pages/AuditPage";
 import AuditResearchPage from "./pages/AuditResearchPage";
+import IntelligenceControlPage from "./pages/IntelligenceControlPage";
 import JobsPage from "./pages/JobsPage";
 import SettingsPage from "./pages/SettingsPage";
 import AccessPage from "./pages/AccessPage";
@@ -241,6 +242,11 @@ const App = () => (
             <Route path="/audit-research" element={
               <ModuleRoute moduleKey="audit-research">
                 <AuditResearchPage />
+              </ModuleRoute>
+            } />
+            <Route path="/intelligence-control" element={
+              <ModuleRoute moduleKey="intelligence-control">
+                <IntelligenceControlPage />
               </ModuleRoute>
             } />
             <Route path="/payouts/:id" element={

@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { authorizedFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +20,7 @@ type ResearchRow = {
   prediction_horizon_direction_correct?: boolean | null; trade_result?: string; net_profit_positive?: boolean | null;
   fees: { source: string; entry_actual: string | number | null; exit_actual: string | number | null; funding_actual_cost: string | number | null; total_used: string | number | null };
   primary_comparison: Comparison; shadow_comparison: Comparison;
+  outcome_evaluation?: { status?: string; primary?: Comparison; evaluated_at?: string; net_pnl?: number | null } | null;
   timeline: Array<Record<string, unknown>>;
   research_snapshot: Record<string, unknown> | null;
   slippage: Record<string, unknown>;
@@ -29,6 +30,50 @@ type ResearchResponse = {
   as_of: string; rows: ResearchRow[]; next_cursor: string | null; has_more: boolean;
   sample_storage_ready: boolean; collection_enabled: boolean; shadow_enabled: boolean; shadow_only: boolean;
   summary: Record<"primary" | "shadow", { evaluable: number; correct: number; accuracy_pct: number | null; status: string }>;
+};
+type ResearchSummary = {
+  sample_size: number; evaluated_live_forecasts: number; direction_accuracy_pct: number | null;
+  range_hit_rate_pct: number | null; net_profit_rate_pct: number | null; net_pnl: number;
+  price_mae: number | null; median_price_error: number | null;
+  direction_breakdown: Record<string, { predictions: number; evaluated: number; accuracy_pct: number | null }>;
+  status: string; note: string;
+};
+type BacktestResult = {
+  bot_instance_id: string; horizon_seconds: number; confidence_bucket: string;
+  sample_size: number; hits: number; raw_hit_rate_pct: number | null;
+  calibrated: boolean; hit_rate_pct: number | null; avg_confidence_pct: number | null;
+  computed_at: string | null;
+};
+type BacktestRun = {
+  id: string; symbol: string; timeframe: string; horizon_seconds: number; status: string;
+  candles_written: number; result_rows: number; error_message: string | null;
+  queued_at: string | null; started_at: string | null; finished_at: string | null;
+};
+type ReliabilityBucket = {
+  confidence_bucket: string; confidence_midpoint: number; actual_hit_rate_pct: number | null;
+  raw_hit_rate_pct: number | null; sample_size: number; calibrated: boolean;
+};
+type ReadinessReport = {
+  bot_type: string; bot_instance_id: string; horizon_seconds: number;
+  data_source: Record<string, unknown>;
+  performance: {
+    direction_accuracy_pct: number | null; price_mae: number | null; range_hit_rate_pct: number | null;
+    net_pnl: number | null; max_drawdown_amount: number | null; max_drawdown_pct: number | null;
+    holdout_pnl_sample_size: number | null;
+  };
+  calibration: {
+    reliability_curve: ReliabilityBucket[]; brier_score: number | null; brier_score_sample_size: number;
+    overconfident_buckets: Array<Record<string, unknown>>;
+  };
+  promotion_gate: { status: string; reasons: string[]; details: Record<string, unknown> };
+  known_limitations: string[];
+};
+
+const GATE_STATUS_STYLE: Record<string, string> = {
+  VALIDATED: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+  NOT_TRADEABLE: "bg-rose-500/10 text-rose-300 border-rose-500/30",
+  NOT_VALIDATED: "bg-amber-500/10 text-amber-300 border-amber-500/30",
+  INSUFFICIENT_DATA: "bg-slate-500/10 text-slate-300 border-slate-500/30",
 };
 
 const truth = (value: boolean | null) => value === null ? "Unknown" : value ? "TRUE" : "FALSE";
@@ -53,7 +98,7 @@ function csv(rows: Array<Record<string, unknown>>) {
 // every WS price tick — without memo this whole export/analysis table
 // (and its own query) would needlessly re-render every tick even though
 // its props (workspaceId, symbol) rarely change.
-export const QuickTradeResearchPanel = memo(function QuickTradeResearchPanel({ workspaceId, symbol }: { workspaceId?: string; symbol: string }) {
+export const QuickTradeResearchPanel = memo(function QuickTradeResearchPanel({ workspaceId, symbol, timeframe = "1m", expirySeconds = 300 }: { workspaceId?: string; symbol: string; timeframe?: string; expirySeconds?: number }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [busy, setBusy] = useState(false);
@@ -62,6 +107,15 @@ export const QuickTradeResearchPanel = memo(function QuickTradeResearchPanel({ w
   const [cursor, setCursor] = useState<string | null>(null);
   const [asOf, setAsOf] = useState<string | null>(null);
   const [detail, setDetail] = useState<ResearchRow | null>(null);
+  // Scope filters for the analytics sections below (summary, backtest
+  // results, model readiness) — independent of the live trading page's own
+  // symbol/timeframe/expiry, which are passed in as props. Defaulted from
+  // those props; QuickTradePage already remounts this panel via a `key`
+  // that includes symbol/timeframe/duration, so these reset naturally when
+  // the page's own selection changes.
+  const [filterSymbol, setFilterSymbol] = useState(symbol);
+  const [filterTimeframe, setFilterTimeframe] = useState(timeframe);
+  const [filterExpiry, setFilterExpiry] = useState(expirySeconds);
   const filters = { symbol, from: from ? new Date(from).toISOString() : undefined,
     to: to ? new Date(to).toISOString() : undefined };
   const report = useQuery({
@@ -69,6 +123,36 @@ export const QuickTradeResearchPanel = memo(function QuickTradeResearchPanel({ w
     queryFn: () => authorizedFetch(`/workspaces/${workspaceId}/quick-trades/research`, "GET", undefined,
       { params: { ...filters, cursor, as_of: asOf, limit: 50 } }) as Promise<ResearchResponse>,
     enabled: !!workspaceId, refetchInterval: 30000,
+  });
+  const summary = useQuery({
+    queryKey: ["quick-trade-research-summary", workspaceId, filterSymbol, filterTimeframe, filterExpiry],
+    queryFn: () => authorizedFetch("/workspaces/" + workspaceId + "/quick-trades/research/summary", "GET", undefined,
+      { params: { symbol: filterSymbol, timeframe: filterTimeframe, expiry_seconds: filterExpiry, limit: 1000 } }) as Promise<ResearchSummary>,
+    enabled: !!workspaceId,
+    refetchInterval: 30000,
+  });
+  const backtest = useQuery({
+    queryKey: ["quick-trade-backtest-results", workspaceId, filterSymbol, filterTimeframe, filterExpiry],
+    queryFn: () => authorizedFetch("/workspaces/" + workspaceId + "/quick-trades/research/backtest-results", "GET", undefined,
+      { params: { symbol: filterSymbol, timeframe: filterTimeframe, expiry_seconds: filterExpiry } }) as Promise<{ status: string; status_source: string; runs: BacktestRun[]; results: BacktestResult[]; note: string }>,
+    enabled: !!workspaceId,
+    refetchInterval: 30000,
+  });
+  const botInstanceId = `binance_futures:${filterSymbol.toUpperCase()}:${filterTimeframe}`;
+  const readiness = useQuery({
+    queryKey: ["quick-trade-readiness", workspaceId, botInstanceId, filterExpiry],
+    queryFn: () => authorizedFetch("/workspaces/" + workspaceId + "/quick-trades/research/readiness", "GET", undefined,
+      { params: { bot_type: "quick_trade", bot_instance_id: botInstanceId, horizon_seconds: filterExpiry,
+        symbol: filterSymbol, timeframe: filterTimeframe } }) as Promise<ReadinessReport>,
+    enabled: !!workspaceId,
+    refetchInterval: 60000,
+  });
+  const startBacktest = useMutation({
+    mutationFn: () => authorizedFetch("/workspaces/" + workspaceId + "/quick-trades/research/backtest", "POST", {
+      symbol, timeframe, expiry_seconds: expirySeconds, exchange: "binance_futures", candle_limit: 500,
+    }),
+    onSuccess: () => { void backtest.refetch(); setMessage("Backtest queued on analytics worker."); },
+    onError: (error) => setMessage("Backtest could not be queued: " + (error instanceof Error ? error.message : "unknown error")),
   });
   const reset = () => { setCursor(null); setAsOf(null); setSelected([]); setDetail(null); };
 
@@ -139,7 +223,15 @@ export const QuickTradeResearchPanel = memo(function QuickTradeResearchPanel({ w
         <label className="text-xs">To (local time)<Input type="datetime-local" value={to} onChange={(e) => { setTo(e.target.value); reset(); }} /></label>
         <Button variant="outline" disabled={busy || report.isFetching} onClick={() => { reset(); void report.refetch(); }}>Refresh analysis</Button>
       </div>
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-800 p-3">
+        <div className="text-xs uppercase tracking-wide text-slate-500 w-full">Analytics scope (summary / backtest / readiness below)</div>
+        <label className="text-xs">Symbol<Input className="w-28" value={filterSymbol} onChange={(e) => setFilterSymbol(e.target.value.toUpperCase())} /></label>
+        <label className="text-xs">Timeframe<Input className="w-20" value={filterTimeframe} onChange={(e) => setFilterTimeframe(e.target.value)} /></label>
+        <label className="text-xs">Expiry (sec)<Input className="w-24" type="number" min={5} max={3600} value={filterExpiry} onChange={(e) => setFilterExpiry(Number(e.target.value) || expirySeconds)} /></label>
+        <Button variant="outline" disabled={busy} onClick={() => { void summary.refetch(); void backtest.refetch(); void readiness.refetch(); }}>Apply scope</Button>
+      </div>
       <div className="flex flex-wrap gap-2">
+        <Button disabled={busy || startBacktest.isPending || !workspaceId} onClick={() => startBacktest.mutate()}>Run {Math.round(expirySeconds / 60)}m backtest</Button>
         <Button disabled={busy} onClick={() => void exportData("json", false)}>Export all matching — full JSON</Button>
         <Button variant="outline" disabled={busy || !selected.length} onClick={() => void exportData("json", true)}>Export selected ({selected.length})</Button>
         <Button variant="outline" disabled={busy} onClick={() => void exportData("summary", false)}>Trade table CSV</Button>
@@ -148,6 +240,70 @@ export const QuickTradeResearchPanel = memo(function QuickTradeResearchPanel({ w
       {message && <p className="text-xs" role="status">{message}</p>}
       {report.isError && <p role="alert" className="text-rose-300">{report.error instanceof Error ? report.error.message : "Analysis unavailable"}</p>}
       {report.data && <>
+        <div className="grid gap-3 sm:grid-cols-4">
+          <div className="rounded-xl border border-slate-800 p-3"><div className="text-xs text-slate-500">Settled sample</div><div className="text-lg font-semibold">{summary.data?.sample_size ?? "—"}</div></div>
+          <div className="rounded-xl border border-slate-800 p-3"><div className="text-xs text-slate-500">Direction accuracy</div><div className="text-lg font-semibold">{summary.data?.direction_accuracy_pct == null ? "Insufficient" : String(summary.data.direction_accuracy_pct) + "%"}</div></div>
+          <div className="rounded-xl border border-slate-800 p-3"><div className="text-xs text-slate-500">Range hit rate</div><div className="text-lg font-semibold">{summary.data?.range_hit_rate_pct == null ? "Insufficient" : String(summary.data.range_hit_rate_pct) + "%"}</div></div>
+          <div className="rounded-xl border border-slate-800 p-3"><div className="text-xs text-slate-500">Net P&amp;L</div><div className={(summary.data?.net_pnl ?? 0) >= 0 ? "text-lg font-semibold text-emerald-300" : "text-lg font-semibold text-rose-300"}>{summary.data?.net_pnl == null ? "—" : number(summary.data.net_pnl)}</div></div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-4">
+          <div className="rounded-xl border border-slate-800 p-3"><div className="text-xs text-slate-500">Price MAE</div><div className="text-sm font-semibold">{summary.data?.price_mae == null ? "—" : number(summary.data.price_mae)}</div></div>
+          <div className="rounded-xl border border-slate-800 p-3"><div className="text-xs text-slate-500">Median error</div><div className="text-sm font-semibold">{summary.data?.median_price_error == null ? "—" : number(summary.data.median_price_error)}</div></div>
+          <div className="rounded-xl border border-slate-800 p-3"><div className="text-xs text-slate-500">Net profit rate</div><div className="text-sm font-semibold">{summary.data?.net_profit_rate_pct == null ? "Insufficient" : String(summary.data.net_profit_rate_pct) + "%"}</div></div>
+          <div className="rounded-xl border border-slate-800 p-3"><div className="text-xs text-slate-500">BUY / SELL / WAIT</div><div className="text-sm font-semibold">{["buy", "sell", "neutral"].map((key) => key.toUpperCase() + " " + (summary.data?.direction_breakdown?.[key]?.predictions ?? 0)).join(" · ")}</div></div>
+        </div>
+        {summary.data && <p className="text-xs text-slate-500">{summary.data.note} Accuracy is shown only after 30 evaluated samples.</p>}
+        <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div><div className="text-xs uppercase tracking-wide text-violet-300">Historical walk-forward backtest</div><div className="text-xs text-slate-400">{backtest.data?.note ?? "No persisted backtest results yet."}</div></div>
+            <div className="text-xs text-slate-500">{backtest.data?.status ?? "loading"}</div>
+          </div>
+          {!!backtest.data?.runs.length && <div className="mt-2 text-xs text-slate-400">Latest run: <span className="font-semibold text-slate-200">{backtest.data.runs[0].status}</span> · {backtest.data.runs[0].candles_written} candles · {backtest.data.runs[0].result_rows} result buckets{backtest.data.runs[0].error_message ? " · " + backtest.data.runs[0].error_message : ""}</div>}
+          {!!backtest.data?.results.length && <div className="mt-3 overflow-x-auto"><table className="w-full whitespace-nowrap text-left text-xs"><thead><tr>{["Horizon", "Confidence", "Samples", "Hits", "Calibrated accuracy", "Computed"].map((title) => <th key={title} className="p-2">{title}</th>)}</tr></thead><tbody>{backtest.data.results.map((row) => <tr key={row.bot_instance_id + "-" + row.horizon_seconds + "-" + row.confidence_bucket} className="border-t border-slate-800"><td className="p-2">{Math.round(row.horizon_seconds / 60)}m</td><td className="p-2">{row.confidence_bucket}</td><td className="p-2">{row.sample_size}</td><td className="p-2">{row.hits}</td><td className="p-2">{row.calibrated && row.hit_rate_pct != null ? String(row.hit_rate_pct) + "%" : "Insufficient"}</td><td className="p-2">{row.computed_at ? new Date(row.computed_at).toLocaleString() : "—"}</td></tr>)}</tbody></table></div>}
+        </div>
+        <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
+          <div className="text-xs uppercase tracking-wide text-cyan-300">Live vs historical comparison</div>
+          <div className="mt-2 grid gap-3 sm:grid-cols-3">
+            <div><div className="text-xs text-slate-500">Live observed accuracy</div><div className="text-lg font-semibold">{summary.data?.direction_accuracy_pct == null ? "Insufficient" : String(summary.data.direction_accuracy_pct) + "%"}</div></div>
+            <div><div className="text-xs text-slate-500">Historical calibrated buckets</div><div className="text-lg font-semibold">{backtest.data?.results.filter((row) => row.calibrated).length ?? 0}</div></div>
+            <div><div className="text-xs text-slate-500">Comparison status</div><div className="text-lg font-semibold">{summary.data?.status === "observed_sample" && backtest.data?.results.some((row) => row.calibrated) ? "Comparable" : "Insufficient"}</div></div>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">Historical results come from walk-forward candles; live results come from settled real trades. They are not merged and neither result automatically promotes a model.</p>
+        </div>
+        <div className="rounded-xl border border-slate-800 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs uppercase tracking-wide text-slate-300">Model readiness — {botInstanceId} · {Math.round(filterExpiry / 60)}m</div>
+            {readiness.data && <span className={"rounded-full border px-2 py-1 text-xs font-semibold " + (GATE_STATUS_STYLE[readiness.data.promotion_gate.status] ?? GATE_STATUS_STYLE.INSUFFICIENT_DATA)}>{readiness.data.promotion_gate.status.replaceAll("_", " ")}</span>}
+          </div>
+          {readiness.isLoading && <p className="mt-2 text-xs text-slate-500">Loading readiness report…</p>}
+          {readiness.isError && <p role="alert" className="mt-2 text-xs text-rose-300">Readiness report unavailable.</p>}
+          {readiness.data && <>
+            <div className="mt-3 grid gap-3 sm:grid-cols-4">
+              <div><div className="text-xs text-slate-500">Direction accuracy</div><div className="text-sm font-semibold">{readiness.data.performance.direction_accuracy_pct == null ? "—" : readiness.data.performance.direction_accuracy_pct + "%"}</div></div>
+              <div><div className="text-xs text-slate-500">Net P&amp;L</div><div className="text-sm font-semibold">{readiness.data.performance.net_pnl == null ? "—" : number(readiness.data.performance.net_pnl)}</div></div>
+              <div><div className="text-xs text-slate-500">Max drawdown</div><div className="text-sm font-semibold">{readiness.data.performance.max_drawdown_pct == null ? "—" : readiness.data.performance.max_drawdown_pct + "%"}</div></div>
+              <div><div className="text-xs text-slate-500">Brier score (approx.)</div><div className="text-sm font-semibold">{readiness.data.calibration.brier_score == null ? "—" : readiness.data.calibration.brier_score}</div></div>
+            </div>
+            <div className="mt-3">
+              <div className="text-xs uppercase tracking-wide text-slate-500">Confidence calibration — displayed vs actual hit rate</div>
+              <div className="mt-2 space-y-1">
+                {readiness.data.calibration.reliability_curve.map((bucket) => <div key={bucket.confidence_bucket} className="flex items-center gap-2 text-xs">
+                  <span className="w-16 shrink-0 text-slate-400">{bucket.confidence_bucket}%</span>
+                  <span className="h-2 flex-1 overflow-hidden rounded bg-slate-800"><span className="block h-full bg-cyan-500/60" style={{ width: `${bucket.confidence_midpoint}%` }} /></span>
+                  <span className="w-14 shrink-0 text-slate-500">disp {bucket.confidence_midpoint}%</span>
+                  <span className="h-2 flex-1 overflow-hidden rounded bg-slate-800"><span className="block h-full bg-emerald-500/60" style={{ width: `${bucket.actual_hit_rate_pct ?? 0}%` }} /></span>
+                  <span className="w-28 shrink-0 text-slate-500">actual {bucket.actual_hit_rate_pct == null ? "uncalibrated" : bucket.actual_hit_rate_pct + "%"} (n={bucket.sample_size})</span>
+                </div>)}
+              </div>
+            </div>
+            {!!readiness.data.known_limitations.length && <div className="mt-3">
+              <div className="text-xs uppercase tracking-wide text-slate-500">Known limitations</div>
+              <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-slate-400">
+                {readiness.data.known_limitations.map((limitation, index) => <li key={index}>{limitation}</li>)}
+              </ul>
+            </div>}
+          </>}
+        </div>
         <p className="text-xs text-amber-300">Capture: {report.data.collection_enabled ? "enabled" : "disabled"}; shadow engine: {report.data.shadow_enabled ? "enabled" : "disabled"}; sample storage: {report.data.sample_storage_ready ? "ready (scheduler must run)" : "migration pending"}. Old trades cannot recover uncaptured ticks or forecasts.</p>
         <div className="grid gap-3 sm:grid-cols-2">{(["primary", "shadow"] as const).map((kind) => {
           const stats = report.data.summary[kind];
@@ -155,7 +311,7 @@ export const QuickTradeResearchPanel = memo(function QuickTradeResearchPanel({ w
         })}</div>
         <p className="text-xs text-slate-400">Summary covers this page's live trades only, not overall accuracy. Paper data is marked synthetic. Funding/fee source must be checked before training on net-profit labels.</p>
         <div className="overflow-x-auto"><table className="w-full whitespace-nowrap text-left text-xs"><thead><tr>
-          {["Select", "Entry / signal", "Confidence", "Actual direction", "Gross / net", "Profit/Loss", "Direction match", "Horizon correct", "Fee source", "Samples"].map((title) => <th key={title} className="p-2">{title}</th>)}
+          {["Select", "Entry / signal", "Confidence", "Actual direction", "Gross / net", "Profit/Loss", "Direction match", "Horizon correct", "Async outcome", "Fee source", "Samples"].map((title) => <th key={title} className="p-2">{title}</th>)}
         </tr></thead><tbody>{report.data.rows.map((row) => <tr key={row.trade_id} className="border-t border-slate-800">
           <td className="p-2"><input type="checkbox" aria-label={`Select trade ${row.trade_id}`} checked={selected.includes(row.trade_id)} onChange={(e) => setSelected((ids) => e.target.checked ? [...ids, row.trade_id] : ids.filter((id) => id !== row.trade_id))} /></td>
           <td className="p-2"><button className="underline" onClick={() => setDetail(row)}>{new Date(row.entry_at).toLocaleString()} · {row.side}</button></td>
@@ -163,6 +319,7 @@ export const QuickTradeResearchPanel = memo(function QuickTradeResearchPanel({ w
           <td className="p-2">{row.actual_trade_direction ?? "Unknown"}</td><td className="p-2">{number(row.gross_pnl)} / {number(row.net_pnl_booked)}</td>
           <td className={row.net_profit_positive === true ? "p-2 text-emerald-300" : row.net_profit_positive === false ? "p-2 text-rose-300" : "p-2"}>{row.trade_result ?? "Unknown"}</td>
           <td className="p-2">{truth(row.direction_match_at_trade_exit)}</td><td className="p-2">{truth(row.prediction_horizon_direction_correct)}</td>
+          <td className="p-2">{row.outcome_evaluation?.primary?.direction_correct == null ? (row.outcome_evaluation?.status ?? "pending") : truth(row.outcome_evaluation.primary.direction_correct)}</td>
           <td className="p-2">{row.fees.source}</td><td className="p-2">{row.data_quality.sample_count}</td>
         </tr>)}</tbody></table></div>
         {!report.data.rows.length && <p className="text-sm text-slate-400">No settled trades match these filters.</p>}

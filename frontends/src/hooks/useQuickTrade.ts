@@ -148,8 +148,22 @@ export interface ForecastPayload {
   context_timeframe_seconds?: number;
   resolution_warning?: string | null;
   bias?: "BUY" | "SELL" | "NEUTRAL";
+  current_trend?: "BUY" | "SELL" | "NEUTRAL";
+  decision_trend?: "BUY" | "SELL" | "WAIT";
   confidence?: number;
+  confidence_status?: string;
+  generated_at?: string;
+  expiry_at?: string;
+  reference_price?: number;
   current_price?: number;
+  predicted_expiry_price?: number;
+  predicted_low?: number;
+  predicted_high?: number;
+  predicted_move?: number;
+  predicted_move_pct?: number;
+  analysis_window?: { candles_used: number; micro: number; short: number };
+  model_version?: string;
+  evidence?: Record<string, number | boolean>;
   expected_mid_price?: number;
   expected_low?: number;
   expected_high?: number;
@@ -158,6 +172,24 @@ export interface ForecastPayload {
   recent_bear_candles?: number;
   drift_pct?: number;
   summary?: string;
+  // Additive market-context fields (backend TradeForecastService::contextFeatures()).
+  // Descriptive evidence only, not an independent trade signal.
+  market_context?: {
+    volume_ratio?: number | null;
+    volume_status?: "unknown" | "expanding" | "contracting" | "normal";
+    support?: number | null;
+    resistance?: number | null;
+    support_distance_pct?: number | null;
+    resistance_distance_pct?: number | null;
+    local_range_pct?: number | null;
+    regime?: "high_volatility" | "low_volatility" | "normal";
+    liquidity_status?: string;
+    liquidity_note?: string;
+  };
+  // Additive: which context safety gate (if any) forced decision_trend to WAIT.
+  gate_reason?: "stale_data" | "low_volume" | null;
+  // Additive: non-blocking caution flags surfaced alongside the decision.
+  context_caution?: Array<"near_resistance" | "near_support" | string>;
 }
 
 export interface NetEdgePayload {

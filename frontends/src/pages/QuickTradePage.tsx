@@ -1189,7 +1189,7 @@ export default function QuickTradePage() {
           </div>
         </div>
         <div id="quick-trade-research" className="mx-auto w-full max-w-[1600px] px-4 pb-20">
-          <QuickTradeResearchPanel key={`${workspaceId}:${symbol}`} workspaceId={workspaceId} symbol={symbol} />
+          <QuickTradeResearchPanel key={`${workspaceId}:${symbol}:${timeframe}:${duration}`} workspaceId={workspaceId} symbol={symbol} timeframe={timeframe} expirySeconds={duration} />
         </div>
         <MobileTradeNav />
       </div>
