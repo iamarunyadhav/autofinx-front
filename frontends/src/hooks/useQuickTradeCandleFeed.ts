@@ -30,7 +30,9 @@ export function useQuickTradeCandleFeed(
   timeframe: string,
   enabled: boolean,
 ): RobotFeedState & { lastPriceAt?: number } {
-  const [state, setState] = useState<RobotFeedState & { lastPriceAt?: number }>({
+  const scope = `${symbol}:${timeframe}:${enabled}`;
+  const [state, setState] = useState<RobotFeedState & { lastPriceAt?: number; scope: string }>({
+    scope,
     candles: [],
     currentCandle: null,
     lastSignal: null,
@@ -43,12 +45,12 @@ export function useQuickTradeCandleFeed(
 
   useEffect(() => {
     if (!enabled || !symbol || !timeframe) {
-      setState((s) => ({ ...s, connected: false, source: null }));
+      setState({ scope, candles: [], currentCandle: null, lastSignal: null, connected: false, latencyMs: 0, source: null });
       return;
     }
 
     candlesRef.current = [];
-    setState({ candles: [], currentCandle: null, lastSignal: null, connected: false, latencyMs: 0, source: null });
+    setState({ scope, candles: [], currentCandle: null, lastSignal: null, connected: false, latencyMs: 0, source: null });
 
     let stopped = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -57,6 +59,7 @@ export function useQuickTradeCandleFeed(
     let activeSocket: WebSocket | null = null;
 
     const apply = (candle: CandleData, latencyMs: number, source: RobotFeedState["source"]) => {
+      if (stopped) return;
       candlesRef.current = upsertCandle(candlesRef.current, candle);
       setState((s) => ({
         ...s,
@@ -82,6 +85,7 @@ export function useQuickTradeCandleFeed(
       activeSocket = socket;
 
       socket.onopen = () => {
+        if (stopped) return;
         attempt = 0;
         setState((s) => ({ ...s, connected: true, source: "ws" }));
       };
@@ -104,7 +108,16 @@ export function useQuickTradeCandleFeed(
       socket.onclose = () => {
         if (stopped) return;
         setState((s) => ({ ...s, connected: false, source: "ws" }));
-        scheduleReconnect(connectBinanceWebSocket);
+        // Keep the lowest-latency direct WS as primary. After two consecutive
+        // disconnects, move the browser to the server-owned SSE path so the UI
+        // can continue receiving the same scoped feed while the direct socket
+        // recovers. The backend signal/order path remains Redis-authoritative.
+        attempt += 1;
+        if (attempt >= 2) {
+          void connectQuickTradeSse();
+        } else {
+          scheduleReconnect(connectBinanceWebSocket);
+        }
       };
     };
 
@@ -129,6 +142,7 @@ export function useQuickTradeCandleFeed(
           },
           signal: controller.signal,
         });
+        if (stopped) return;
 
         if (!resp.ok || !resp.body) throw new Error(`SSE ${resp.status}`);
 
@@ -141,7 +155,7 @@ export function useQuickTradeCandleFeed(
 
         while (!stopped) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done || stopped) break;
           buffer += decoder.decode(value, { stream: true });
 
           let sep: number;
@@ -197,7 +211,8 @@ export function useQuickTradeCandleFeed(
       }
     };
 
-    if (isCryptoSymbol(symbol)) {
+    // Never silently subscribe to 1m candles for a different chart interval.
+    if (isCryptoSymbol(symbol) && ["1m", "3m", "5m", "15m", "30m", "1h", "4h"].includes(timeframe)) {
       connectBinanceWebSocket();
     } else {
       void connectQuickTradeSse();
@@ -209,7 +224,12 @@ export function useQuickTradeCandleFeed(
       activeSocket?.close();
       activeController?.abort();
     };
-  }, [symbol, timeframe, enabled]);
+  }, [symbol, timeframe, enabled, scope]);
 
-  return state;
+  // Effects run after render: never expose the previous symbol/interval during
+  // that render, where it could otherwise seed a new forecast request.
+  return state.scope === scope && enabled ? state : {
+    candles: [], currentCandle: null, lastSignal: null,
+    connected: false, latencyMs: 0, source: null,
+  };
 }

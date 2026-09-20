@@ -353,7 +353,6 @@ export default function QuickTradePage() {
   const workspaceId = currentWorkspace?.id;
   const { data: balances = [] } = useBalances(workspaceId);
   const { data: metadata } = useQuickTradeMetadata(workspaceId);
-  const runtimeHealth = useRuntimeHealth(workspaceId);
   const runtimeSafety = useRuntimeSafetySettings(workspaceId);
   const updateRuntimeSafety = useUpdateRuntimeSafetySettings(workspaceId);
   const updateTradingSettings = useUpdateTradingSettings(workspaceId);
@@ -390,6 +389,7 @@ export default function QuickTradePage() {
 
   const tradingState = metadata?.trading_state;
   const activeMode = tradingState?.mode ?? "paper";
+  const runtimeHealth = useRuntimeHealth(workspaceId, selectedProvider === "binance" ? symbol : undefined);
   const providerCatalogAll = Object.values(tradingState?.provider_catalog ?? {});
   const providerCatalog = providerCatalogAll
     .filter((p) => (p.asset_class ?? "CRYPTO") === assetClass)
@@ -461,8 +461,13 @@ export default function QuickTradePage() {
     }));
   }, [chartQuery.data?.candles]);
 
-  // Use live WebSocket candles when available, otherwise fall back to backend candles
-  const chartCandles = feed.candles.length > 0 ? feed.candles : fallbackCandles;
+  // A WebSocket starts with one candle, not history. Preserve the REST context
+  // needed by indicators/forecast and overlay live candles by opening timestamp.
+  const chartCandles = useMemo(() => {
+    const merged = new Map(fallbackCandles.map((c) => [c.time, c]));
+    for (const candle of feed.candles) merged.set(candle.time, candle);
+    return [...merged.values()].sort((a, b) => a.time - b.time).slice(-500);
+  }, [fallbackCandles, feed.candles]);
   const currentPrice = feed.currentCandle?.close ?? chartQuery.data?.quote?.price;
   const [priceClock, setPriceClock] = useState(Date.now());
   useEffect(() => {
@@ -866,7 +871,7 @@ export default function QuickTradePage() {
 
           {/* ── Near-term forecast + profit calculator (shared with Robot Trade) ── */}
           <div className="grid gap-5 lg:grid-cols-2">
-            <NearTermForecastCard forecast={forecastQuery.data?.forecast} />
+            <NearTermForecastCard forecast={forecastQuery.data?.forecast} symbol={symbol} />
             <ProfitCalculatorCard netEdge={forecastQuery.data?.net_edge} />
           </div>
           <ForecastComparisonCard current={forecastComparison.data?.current ?? forecastQuery.data?.forecast} unified={forecastComparison.data?.unified} agreement={forecastComparison.data?.comparison?.agreement} selected={predictionSource} onSelect={setPredictionSource} />

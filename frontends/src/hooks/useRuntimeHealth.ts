@@ -46,15 +46,15 @@ export interface RuntimeHealth {
   reasons: string[];
 }
 
-export function useRuntimeHealth(workspaceId?: string) {
+export function useRuntimeHealth(workspaceId?: string, symbol?: string) {
   return useQuery({
-    queryKey: ["runtime-health", workspaceId],
+    queryKey: ["runtime-health", workspaceId, symbol],
     queryFn: async () => {
-      const suffix = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : "";
+      const suffix = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}${symbol !== undefined ? `&symbol=${encodeURIComponent(symbol)}` : ""}` : "";
       return authorizedFetch(`/runtime/health${suffix}`) as Promise<RuntimeHealth>;
     },
-    enabled: !!workspaceId,
-    refetchInterval: 5000,
+    enabled: !!workspaceId && (symbol === undefined || symbol.length > 0),
+    refetchInterval: symbol === undefined ? 5000 : 60000,
   });
 }
 

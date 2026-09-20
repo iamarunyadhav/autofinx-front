@@ -17,7 +17,7 @@ const CAUTION_LABEL: Record<string, string> = {
   near_support: "Approaching support",
 };
 
-export function NearTermForecastCard({ forecast }: { forecast?: ForecastPayload | null }) {
+export function NearTermForecastCard({ forecast, symbol }: { forecast?: ForecastPayload | null; symbol?: string }) {
   const current = forecast?.current_trend ?? forecast?.bias ?? "NEUTRAL";
   const decision = forecast?.decision_trend ?? forecast?.bias ?? "WAIT";
   const tone = forecastTone(decision);
@@ -28,6 +28,7 @@ export function NearTermForecastCard({ forecast }: { forecast?: ForecastPayload 
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3">
+      {symbol && <div className="mb-2 text-xs text-slate-400">{symbol} · Chart: {forecast?.context_timeframe ?? "loading"} · Expiry: {forecast?.horizon_seconds ?? "—"}s</div>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-[180px]">
           <div className="text-xs uppercase tracking-wide text-slate-500">Current Trend</div>
@@ -39,7 +40,7 @@ export function NearTermForecastCard({ forecast }: { forecast?: ForecastPayload 
         </div>
         <div className="grid w-full grid-cols-2 gap-3 text-left sm:w-auto sm:text-right md:grid-cols-4">
           <div>
-            <div className="text-xs text-slate-500">Confidence</div>
+            <div className="text-xs text-slate-500" title="Model score, not a measured probability of a correct prediction">Model confidence</div>
             <div className="text-sm font-semibold text-slate-200">{forecast?.confidence?.toFixed(0) ?? "-"}%</div>
           </div>
           <div>
