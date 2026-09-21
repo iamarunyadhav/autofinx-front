@@ -479,6 +479,15 @@ export default function QuickTradePage() {
   const currentPrice = quoteIsFresh
     ? liveQuote.price
     : feed.currentCandle?.close ?? chartQuery.data?.quote?.price;
+  // A book quote is not an OHLC trade. Draw it as a moving price line instead
+  // of mutating a candle's high/low/close and creating a fabricated chart bar.
+  // The kline websocket remains responsible for the actual open candle.
+  const chartLiveQuoteLine = useMemo(() => [{
+    key: "binance-live-quote",
+    price: quoteIsFresh ? liveQuote.price : null,
+    color: "#22d3ee",
+    title: "Live quote",
+  }], [liveQuote.price, quoteIsFresh]);
   const olderHistory = useQuickTradeOlderCandles(symbol, timeframe, `${workspaceId}:${selectedProvider}:${activeMode}:${selectedIntegrationId}`);
   const displayCandles = useMemo(() => {
     const merged = new Map(olderHistory.candles.map((c) => [c.time, c]));
@@ -975,6 +984,7 @@ export default function QuickTradePage() {
                       side={activeTradeForSymbol ? (activeTradeForSymbol.side === "buy" ? "BUY" : "SELL") : null}
                       markers={chartMarkers}
                       pnl={livePnl ?? undefined}
+                      extraLines={chartLiveQuoteLine}
                       height={360}
                     />
                   )}
