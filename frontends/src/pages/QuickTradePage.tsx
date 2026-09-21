@@ -34,6 +34,7 @@ import {
 } from "@/hooks/useQuickTrade";
 import { type CandleData } from "@/hooks/useRobotCandleFeed";
 import { useQuickTradeCandleFeed } from "@/hooks/useQuickTradeCandleFeed";
+import { useBinanceFuturesQuoteFeed } from "@/hooks/useBinanceFuturesQuoteFeed";
 import { runtimeIsRed, useRuntimeHealth } from "@/hooks/useRuntimeHealth";
 import { useRuntimeSafetySettings, useUpdateRuntimeSafetySettings } from "@/hooks/useRuntimeSafetySettings";
 import type { ChartMarker } from "@/components/trading/RobotLiveChart";
@@ -422,6 +423,7 @@ export default function QuickTradePage() {
 
   // Backend SSE → Binance WebSocket (server-side) → no direct browser→Binance needed
   const feed = useQuickTradeCandleFeed(symbol, timeframe, !!symbol);
+  const liveQuote = useBinanceFuturesQuoteFeed(symbol, !!symbol);
 
   // Timestamp of the most recently *closed* candle on the live feed. Only
   // changes when a candle actually closes (not on every intra-candle price
@@ -469,7 +471,14 @@ export default function QuickTradePage() {
     for (const candle of feed.candles) merged.set(candle.time, candle);
     return [...merged.values()].sort((a, b) => a.time - b.time).slice(-500);
   }, [fallbackCandles, feed.candles]);
-  const currentPrice = feed.currentCandle?.close ?? chartQuery.data?.quote?.price;
+  // The candle stream drives the chart. A separate direct bookTicker stream
+  // drives the displayed quote so a forming 1m candle never makes the UI look
+  // like it only refreshes once per second. This is visual/P&L data only;
+  // backend execution independently validates its own fresh Redis WS quote.
+  const quoteIsFresh = liveQuote.receivedAt != null && Date.now() - liveQuote.receivedAt <= 2_000;
+  const currentPrice = quoteIsFresh
+    ? liveQuote.price
+    : feed.currentCandle?.close ?? chartQuery.data?.quote?.price;
   const olderHistory = useQuickTradeOlderCandles(symbol, timeframe, `${workspaceId}:${selectedProvider}:${activeMode}:${selectedIntegrationId}`);
   const displayCandles = useMemo(() => {
     const merged = new Map(olderHistory.candles.map((c) => [c.time, c]));
@@ -482,8 +491,10 @@ export default function QuickTradePage() {
     return () => window.clearInterval(timer);
   }, []);
   const restQuoteAt = Date.parse(chartQuery.data?.quote?.occurred_at ?? "");
-  const freshPrice = feed.currentCandle?.symbol === symbol && feed.lastPriceAt && priceClock - feed.lastPriceAt <= 5000
-    ? feed.currentCandle?.close
+  const freshPrice = quoteIsFresh
+    ? liveQuote.price
+    : feed.currentCandle?.symbol === symbol && feed.lastPriceAt && priceClock - feed.lastPriceAt <= 5000
+      ? feed.currentCandle?.close
     : chartQuery.data?.symbol === symbol && Number.isFinite(restQuoteAt) && priceClock - restQuoteAt >= -1000 && priceClock - restQuoteAt <= 10000
       ? chartQuery.data?.quote?.price : undefined;
 
