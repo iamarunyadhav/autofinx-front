@@ -131,16 +131,12 @@ export function useQuickTradeCandleFeed(
       socket.onclose = () => {
         if (stopped) return;
         setState((s) => ({ ...s, connected: false, source: "ws" }));
-        // Keep the lowest-latency direct WS as primary. After two consecutive
-        // disconnects, move the browser to the server-owned SSE path so the UI
-        // can continue receiving the same scoped feed while the direct socket
-        // recovers. The backend signal/order path remains Redis-authoritative.
-        attempt += 1;
-        if (attempt >= 2) {
-          void connectQuickTradeSse();
-        } else {
-          scheduleReconnect(connectBinanceWebSocket);
-        }
+        // Crypto chart data must stay on Binance's kline stream. Falling back
+        // to backend SSE after a transient browser-socket close can surface an
+        // old server cache while a separate bookTicker keeps moving, making the
+        // chart look frozen. Retry this same direct subscription instead. This
+        // is display-only; the server remains the sole execution authority.
+        scheduleReconnect(connectBinanceWebSocket);
       };
     };
 
