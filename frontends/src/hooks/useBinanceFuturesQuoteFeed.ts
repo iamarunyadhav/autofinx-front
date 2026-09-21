@@ -44,7 +44,7 @@ export function useBinanceFuturesQuoteFeed(symbol: string, enabled: boolean): Bi
 
     let stopped = false;
     let socket: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectTimer: number | null = null;
     let animationFrame: number | null = null;
     let attempt = 0;
 
