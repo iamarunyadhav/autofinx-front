@@ -62,6 +62,8 @@ export function useQuickTradeCandleFeed(
     let attempt = 0;
     let activeController: AbortController | null = null;
     let activeSocket: WebSocket | null = null;
+    let animationFrame: number | null = null;
+    let pendingWsCandle: { candle: CandleData; eventTs: number } | null = null;
 
     const apply = (candle: CandleData, latencyMs: number, source: RobotFeedState["source"]) => {
       if (stopped || latencyMs > MAX_LIVE_EVENT_LAG_MS) return;
@@ -84,6 +86,23 @@ export function useQuickTradeCandleFeed(
       reconnectTimer = setTimeout(connect, delay);
     };
 
+    // Binance can send several kline updates inside one browser paint.  The
+    // chart only needs the newest OHLC snapshot for that paint, so coalesce
+    // them rather than making React render every packet.  `upsertCandle` still
+    // replaces only the currently-open candle by its timestamp; closed history
+    // remains immutable and is never derived from the book quote stream.
+    const flushWsCandle = () => {
+      animationFrame = null;
+      const pending = pendingWsCandle;
+      pendingWsCandle = null;
+      if (!pending || stopped) return;
+      apply(
+        { ...pending.candle, symbol: symbol.toUpperCase() },
+        Math.max(0, Date.now() - pending.eventTs),
+        "ws",
+      );
+    };
+
     const connectBinanceWebSocket = () => {
       if (stopped) return;
       const socket = new WebSocket(binanceKlineStreamUrl(symbol, timeframe, "futures"));
@@ -98,11 +117,10 @@ export function useQuickTradeCandleFeed(
       socket.onmessage = (event) => {
         const parsed = parseBinanceKlineMessage(String(event.data));
         if (!parsed) return;
-        apply(
-          { ...parsed.candle, symbol: symbol.toUpperCase() },
-          Math.max(0, Date.now() - parsed.eventTs),
-          "ws",
-        );
+        pendingWsCandle = parsed;
+        if (animationFrame === null) {
+          animationFrame = window.requestAnimationFrame(flushWsCandle);
+        }
       };
 
       socket.onerror = () => {
@@ -227,6 +245,7 @@ export function useQuickTradeCandleFeed(
     return () => {
       stopped = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
       activeSocket?.close();
       activeController?.abort();
     };
