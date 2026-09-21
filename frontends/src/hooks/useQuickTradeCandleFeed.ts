@@ -9,6 +9,11 @@ import {
   upsertCandle,
 } from "@/hooks/binanceCandleWs";
 
+// Browser rendering is advisory, but it must obey the same transport-quality
+// boundary as the server execution path. Do not draw delayed socket frames as
+// though they were a current candle.
+const MAX_LIVE_EVENT_LAG_MS = 10_000;
+
 function matchesRequestedSymbol(payloadSymbol: unknown, requestedSymbol: string): boolean {
   if (payloadSymbol == null || payloadSymbol === "") return true;
   const normalize = (value: unknown) => String(value ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -59,7 +64,7 @@ export function useQuickTradeCandleFeed(
     let activeSocket: WebSocket | null = null;
 
     const apply = (candle: CandleData, latencyMs: number, source: RobotFeedState["source"]) => {
-      if (stopped) return;
+      if (stopped || latencyMs > MAX_LIVE_EVENT_LAG_MS) return;
       candlesRef.current = upsertCandle(candlesRef.current, candle);
       setState((s) => ({
         ...s,
@@ -196,7 +201,8 @@ export function useQuickTradeCandleFeed(
 
               // Live candle update
               if (payload.candle && typeof payload.candle.time === "number" && matchesRequestedSymbol(payload.candle.symbol, symbol)) {
-                apply({ ...(payload.candle as CandleData), symbol: symbol.toUpperCase() }, payload.latency_ms ?? 0, "sse");
+                const latencyMs = Number(payload.latency_ms ?? 0);
+                apply({ ...(payload.candle as CandleData), symbol: symbol.toUpperCase() }, latencyMs, "sse");
               }
             } catch {
               /* ignore malformed frame */

@@ -40,6 +40,7 @@ export interface ChartForecast {
 }
 
 interface RobotLiveChartProps {
+  preserveHistoryViewport?: boolean;
   candles: CandleData[];
   entryPrice?: number | null;
   stopPrice?: number | null;
@@ -156,6 +157,7 @@ function useIsNarrowViewport(): boolean {
  * plus entry / trailing-stop / take-profit price lines that track the position.
  */
 export function RobotLiveChart({
+  preserveHistoryViewport = false,
   candles,
   entryPrice,
   stopPrice,
@@ -274,6 +276,9 @@ export function RobotLiveChart({
     }
     const bars = normalizeBars(candles);
     const prevBars = prevBarsRef.current;
+    const previousRange = chartRef.current?.timeScale().getVisibleRange();
+    const viewingHistory = preserveHistoryViewport && previousRange && prevBars.length > 0
+      && Number(previousRange.to) < Number(prevBars.at(-1)?.time);
 
     // Cheap path: patch just the last bar via series.update() instead of
     // replacing the whole dataset via series.setData() when only the most
@@ -323,6 +328,8 @@ export function RobotLiveChart({
 
     if (lastViewportKeyRef.current === null) {
       timeScale.fitContent();
+    } else if (viewingHistory && previousRange) {
+      timeScale.setVisibleRange(previousRange);
     } else if (lastBarTimeRef.current !== null && lastTime > lastBarTimeRef.current) {
       // Only re-snap to the live edge when a genuinely NEW bar just closed —
       // every other poll only updates the still-open last bar's OHLC values
@@ -333,7 +340,7 @@ export function RobotLiveChart({
 
     lastViewportKeyRef.current = viewportKey;
     lastBarTimeRef.current = lastTime;
-  }, [candles]);
+  }, [candles, preserveHistoryViewport]);
 
   // Sync the entry / stop / take-profit price lines.
   useEffect(() => {

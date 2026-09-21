@@ -5,6 +5,7 @@ const DEFAULT_API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:
 
 type RequestOptions = {
   params?: Record<string, unknown>;
+  signal?: AbortSignal;
 };
 
 function stripTrailingSlash(value: string) {
@@ -39,6 +40,7 @@ export async function authorizedFetch(path: string, method: string = 'GET', body
     headers,
     body: body ? JSON.stringify(body) : undefined,
     cache: isGet ? 'no-store' : 'default',
+    signal: options?.signal,
   });
 
   const raw = await response.text();

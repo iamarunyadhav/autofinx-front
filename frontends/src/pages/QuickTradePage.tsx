@@ -6,6 +6,7 @@ import { MobileTradeNav } from "@/components/trading/MobileTradeNav";
 import { NearTermForecastCard } from "@/components/trading/NearTermForecastCard";
 import { ProfitCalculatorCard } from "@/components/trading/ProfitCalculatorCard";
 import { RobotLiveChart } from "@/components/trading/RobotLiveChart";
+import { useQuickTradeOlderCandles } from "@/hooks/useQuickTradeOlderCandles";
 import { SignalSummaryCard } from "@/components/trading/SignalSummaryCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -469,6 +470,12 @@ export default function QuickTradePage() {
     return [...merged.values()].sort((a, b) => a.time - b.time).slice(-500);
   }, [fallbackCandles, feed.candles]);
   const currentPrice = feed.currentCandle?.close ?? chartQuery.data?.quote?.price;
+  const olderHistory = useQuickTradeOlderCandles(symbol, timeframe, `${workspaceId}:${selectedProvider}:${activeMode}:${selectedIntegrationId}`);
+  const displayCandles = useMemo(() => {
+    const merged = new Map(olderHistory.candles.map((c) => [c.time, c]));
+    for (const candle of chartCandles) merged.set(candle.time, candle);
+    return [...merged.values()].sort((a, b) => a.time - b.time);
+  }, [olderHistory.candles, chartCandles]);
   const [priceClock, setPriceClock] = useState(Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setPriceClock(Date.now()), 1000);
@@ -581,6 +588,8 @@ export default function QuickTradePage() {
   const effectiveStake = Math.min(maxStake, Math.max(minStake, debouncedStake));
 
   const forecastQuery = useQuickTradeForecast({
+    exchange: selectedProvider === "binance" ? "binance_futures" : selectedProvider,
+    marketContext: `${workspaceId}:${activeMode}:${selectedIntegrationId}`,
     candles: chartCandles,
     signal,
     timeframe,
@@ -589,6 +598,8 @@ export default function QuickTradePage() {
     symbol,
   });
   const forecastComparison = useForecastComparison({
+    exchange: selectedProvider === "binance" ? "binance_futures" : selectedProvider,
+    marketContext: `${workspaceId}:${activeMode}:${selectedIntegrationId}`,
     botType: "quick_trade", symbol, timeframe, expirySeconds: duration,
     candles: chartCandles.map((c) => ({ open: c.open, high: c.high, low: c.low, close: c.close })),
     signal: signal ? { direction: signal.direction, confidence: signal.confidence } : undefined,
@@ -929,6 +940,16 @@ export default function QuickTradePage() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-3">
+                  {selectedProvider === "binance" && displayCandles.length > 0 && (
+                    <div className="mb-2 flex items-center gap-3 text-xs text-slate-400">
+                      <button type="button" className="rounded border border-slate-700 px-2 py-1 disabled:opacity-50"
+                        disabled={olderHistory.loading || olderHistory.exhausted || olderHistory.atCapacity}
+                        onClick={() => void olderHistory.loadOlder(displayCandles[0].time)}>
+                        {olderHistory.loading ? "Loading history..." : olderHistory.atCapacity ? "History limit reached" : olderHistory.exhausted ? "No older candles" : "Load older candles"}
+                      </button>
+                      {olderHistory.error && <span role="alert">History unavailable. Retry shortly.</span>}
+                    </div>
+                  )}
                   {chartCandles.length === 0 ? (
                     <div className="flex h-[360px] items-center justify-center flex-col gap-2 text-slate-600">
                       <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-700 border-t-slate-400" />
@@ -936,8 +957,9 @@ export default function QuickTradePage() {
                     </div>
                   ) : (
                     <RobotLiveChart
+                      preserveHistoryViewport
                       key={`${symbol}-${timeframe}`}
-                      candles={chartCandles}
+                      candles={displayCandles}
                       entryPrice={activeTradeForSymbol?.entry_price ?? null}
                       side={activeTradeForSymbol ? (activeTradeForSymbol.side === "buy" ? "BUY" : "SELL") : null}
                       markers={chartMarkers}

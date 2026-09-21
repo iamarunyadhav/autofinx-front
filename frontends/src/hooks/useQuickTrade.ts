@@ -1,5 +1,33 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { authorizedFetch } from "@/lib/api";
+import { useEffect, useState } from "react";
+
+function usePredictionClock() {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return now;
+}
+
+function currentPrediction<T>(data: T | undefined, now: number): T | undefined {
+  const expiry = (data as { calculation?: { valid_until?: number } } | undefined)?.calculation?.valid_until;
+  return expiry && now < expiry * 1000 ? data : undefined;
+}
+
+// HTTP returns immediately while a dedicated worker calculates. The query
+// keeps its original selection/input snapshot throughout polling.
+async function backgroundForecast<T>(path: string, payload: Record<string, unknown>, signal: AbortSignal): Promise<T> {
+  for (let attempt = 0; attempt < 16; attempt++) {
+    if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+    const result = await authorizedFetch(path, "POST", { ...payload, async: true }, { signal }) as T & { status?: string };
+    if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+    if (result.status !== "calculating") return result;
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+  }
+  throw new Error("Prediction is still calculating. Waiting for current data.");
+}
 
 const QUICK_TRADE_ACTIVE_REFRESH_MS = 8000;
 const QUICK_TRADE_HISTORY_REFRESH_MS = 15000;
@@ -235,6 +263,8 @@ export interface ForecastComparisonPayload {
 }
 
 export function useForecastComparison(params: {
+  exchange?: string;
+  marketContext?: string;
   botType: "quick_trade" | "robot_trade" | "future_trade";
   symbol: string;
   timeframe: string;
@@ -242,18 +272,23 @@ export function useForecastComparison(params: {
   candles: ForecastCandle[];
   signal?: { direction?: string | null; confidence?: number | null };
 }) {
-  const lastClose = params.candles.at(-1)?.close ?? null;
-  return useQuery({
-    queryKey: ["forecast-comparison", params.botType, params.symbol, params.timeframe, params.expirySeconds, lastClose, params.candles.length, params.signal?.direction],
-    queryFn: () => authorizedFetch("/forecast/comparison", "POST", {
+  const now = usePredictionClock();
+  const query = useQuery({
+    queryKey: ["forecast-comparison", params.botType, params.exchange, params.marketContext, params.symbol, params.timeframe, params.expirySeconds],
+    queryFn: ({ signal }) => backgroundForecast<ForecastComparisonPayload>("/forecast/comparison", {
       bot_type: params.botType, symbol: params.symbol, timeframe: params.timeframe,
       expiry_seconds: params.expirySeconds, candles: params.candles, signal: params.signal,
-      exchange: "binance",
-    }) as Promise<ForecastComparisonPayload>,
+      exchange: params.exchange ?? "binance",
+      market_context: params.marketContext,
+    }, signal),
     enabled: params.candles.length >= 10 && !!params.symbol,
-    refetchInterval: QUICK_TRADE_HISTORY_REFRESH_MS,
+    refetchInterval: 5000,
+    staleTime: 0,
+    gcTime: 30000,
+    retry: false,
     refetchIntervalInBackground: false,
   });
+  return { ...query, data: currentPrediction(query.data, now) };
 }
 
 export interface QuickTradeRecord {
@@ -421,6 +456,8 @@ export interface ForecastCandle {
 }
 
 export function useQuickTradeForecast(params: {
+  exchange?: string;
+  marketContext?: string;
   candles: ForecastCandle[];
   signal?: SignalPreview;
   timeframe: string;
@@ -429,22 +466,20 @@ export function useQuickTradeForecast(params: {
   symbol?: string;
 }) {
   const candleCount = params.candles?.length ?? 0;
-  const lastClose = candleCount > 0 ? params.candles[candleCount - 1]?.close : null;
+  const now = usePredictionClock();
 
-  return useQuery({
+  const query = useQuery({
     queryKey: [
       "quick-trade-forecast",
-      lastClose,
-      candleCount,
+      params.exchange,
+      params.marketContext,
       params.timeframe,
       params.expirySeconds,
       params.stakeAmount,
       params.symbol,
-      params.signal?.direction,
-      params.signal?.confidence,
     ],
-    queryFn: async () =>
-      authorizedFetch("/quick-trade/forecast", "POST", {
+    queryFn: ({ signal }) =>
+      backgroundForecast<QuickTradeForecastPayload>("/quick-trade/forecast", {
         candles: params.candles,
         signal: params.signal
           ? { direction: params.signal.direction, confidence: params.signal.confidence }
@@ -453,12 +488,17 @@ export function useQuickTradeForecast(params: {
         expiry_seconds: params.expirySeconds,
         stake_amount: params.stakeAmount,
         symbol: params.symbol,
-        exchange: "binance",
-      }) as Promise<QuickTradeForecastPayload>,
+        exchange: params.exchange ?? "binance",
+        market_context: params.marketContext,
+      }, signal),
     enabled: candleCount >= 10 && params.stakeAmount > 0,
-    refetchInterval: QUICK_TRADE_HISTORY_REFRESH_MS,
+    refetchInterval: 5000,
+    staleTime: 0,
+    gcTime: 30000,
+    retry: false,
     refetchIntervalInBackground: false,
   });
+  return { ...query, data: currentPrediction(query.data, now) };
 }
 
 export function useQuickTradeActive(workspaceId?: string, source?: string, robotSessionId?: string) {
