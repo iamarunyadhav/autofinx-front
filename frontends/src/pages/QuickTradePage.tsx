@@ -34,7 +34,7 @@ import {
 } from "@/hooks/useQuickTrade";
 import { type CandleData } from "@/hooks/useRobotCandleFeed";
 import { useQuickTradeCandleFeed } from "@/hooks/useQuickTradeCandleFeed";
-import { useBinanceFuturesQuoteFeed } from "@/hooks/useBinanceFuturesQuoteFeed";
+import { useBinanceFuturesQuoteFeed, useBinanceFuturesQuoteFeeds } from "@/hooks/useBinanceFuturesQuoteFeed";
 import { runtimeIsRed, useRuntimeHealth } from "@/hooks/useRuntimeHealth";
 import { useRuntimeSafetySettings, useUpdateRuntimeSafetySettings } from "@/hooks/useRuntimeSafetySettings";
 import type { ChartMarker } from "@/components/trading/RobotLiveChart";
@@ -119,12 +119,14 @@ interface LiveTradeCardProps {
   slippagePct: number | null;
   walletBalance?: number;
   walletCurrency?: string;
+  settlementError?: string | null;
+  quoteAgeMs?: number | null;
 }
 
 // Memoized: re-renders only when its own props actually change (currentPrice
 // ticks for the active symbol's card), not when unrelated page state (stake
 // input, indicators, safety guard settings, etc.) changes.
-const LiveTradeCard = memo(function LiveTradeCard({ trade, currentPrice, slippagePct, walletBalance, walletCurrency }: LiveTradeCardProps) {
+const LiveTradeCard = memo(function LiveTradeCard({ trade, currentPrice, slippagePct, walletBalance, walletCurrency, settlementError, quoteAgeMs }: LiveTradeCardProps) {
   const countdown = useCountdown(trade.expires_at);
   const totalSecs = trade.expiry_seconds ?? 60;
 
@@ -154,6 +156,7 @@ const LiveTradeCard = memo(function LiveTradeCard({ trade, currentPrice, slippag
             <div className="mt-0.5 text-xs text-slate-500">
               Entry ${Number(trade.entry_price).toFixed(Number(trade.entry_price) > 100 ? 2 : 4)} · Stake ${Number(trade.stake_amount).toFixed(2)}
             </div>
+            <div className="mt-0.5 text-xs text-cyan-300">Exit quote {currentPrice == null ? "Unavailable" : `$${currentPrice.toFixed(currentPrice > 100 ? 2 : 4)}`} ({isBuy ? "bid" : "ask"})</div>
           </div>
         </div>
         <div className="text-right">
@@ -182,13 +185,19 @@ const LiveTradeCard = memo(function LiveTradeCard({ trade, currentPrice, slippag
       {livePnl?.projection && (
         <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-800 pt-3 text-xs text-slate-300">
           <div>Entry fee ({livePnl.projection.entryFeeSource}): {livePnl.projection.entryFee == null ? "Unknown" : formatUsdtPnl(livePnl.projection.entryFee)}</div>
-          <div>Exit fee (est.): {livePnl.projection.exitFee == null ? "Unknown" : formatUsdtPnl(livePnl.projection.exitFee)}</div>
-          <div>Exit slippage buffer: {livePnl.projection.exitSlippage == null ? "Unknown" : formatUsdtPnl(livePnl.projection.exitSlippage)}</div>
-          <div>Funding: {livePnl.projection.funding == null ? "Not reconciled" : formatUsdtPnl(livePnl.projection.funding)}</div>
-          <div className="col-span-2 font-semibold">Stake + est. net: {livePnl.projection.stakeAfterCosts == null ? "Unknown" : formatUsdtPnl(livePnl.projection.stakeAfterCosts)} {trade.quote_currency || "USDT"} — not wallet balance</div>
+          <div>Exit fee (estimated): {livePnl.projection.exitFee == null ? "Unknown" : formatUsdtPnl(livePnl.projection.exitFee)}</div>
+          <div>Exit slippage (estimated): {livePnl.projection.exitSlippage == null ? "Unknown" : formatUsdtPnl(livePnl.projection.exitSlippage)}</div>
+          <div>Funding: {livePnl.projection.funding == null ? "Not reconciled (0 used)" : formatUsdtPnl(livePnl.projection.funding)}</div>
+          <div className="col-span-2 font-semibold">Estimated net: {livePnl.projection.stakeAfterCosts == null ? "Unknown" : formatUsdtPnl(livePnl.projection.stakeAfterCosts)} {trade.quote_currency || "USDT"} — not wallet balance</div>
           <div className="col-span-2 font-semibold text-cyan-300">Available wallet balance: {walletBalance == null ? "Unavailable" : `${walletCurrency || trade.quote_currency || "USDT"} ${walletBalance.toFixed(2)}`}</div>
-          <p className="col-span-2 text-slate-400">Entry slippage is already in the fill price. Exit costs are estimates; {livePnl.projection.fundingUnknown ? "unknown funding / other charges are excluded. " : ""}Final exchange settlement may differ.</p>
+          <p className="col-span-2 text-slate-400">Entry fee/slippage use the actual fill when available. Exit fee/slippage are estimates until Binance confirms the close; {livePnl.projection.fundingUnknown ? "future funding is not yet reconciled. " : ""}Final settlement is authoritative.</p>
+          <div className="col-span-2 text-[11px] text-slate-500">Live quote age: {quoteAgeMs == null ? "unknown" : `${Math.max(0, Math.round(quoteAgeMs))} ms`}</div>
         </div>
+      )}
+      {countdown === 0 && settlementError && (
+        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-200">
+          Settlement request failed: {settlementError}. The exchange position may still be open; check Execution before placing another trade.
+        </p>
       )}
     </div>
   );
@@ -511,6 +520,15 @@ export default function QuickTradePage() {
   const historyTrades = useQuickTradeHistory(workspaceId, undefined, undefined, 8);
   const placeQuickTrade = usePlaceQuickTrade();
   const settleTrades = useSettleQuickTrades();
+  const activeCryptoSymbols = useMemo(() => (activeTrades.data ?? [])
+    .filter((trade) => trade.status === "open" && trade.mode === "live" && String(trade.provider_key ?? "binance").toLowerCase() === "binance")
+    .map((trade) => trade.symbol), [activeTrades.data]);
+  // Open live positions retain their own display stream even if the user
+  // changes the ticket back to paper mode or selects another provider.
+  const activeQuotes = useBinanceFuturesQuoteFeeds(activeCryptoSymbols, true);
+  const settlementError = settleTrades.isError
+    ? (settleTrades.error instanceof Error ? settleTrades.error.message : "Unable to confirm the close with the server")
+    : null;
 
   useEffect(() => {
     const t = window.setInterval(() => { settleTrades.mutate(25); }, 5000);
@@ -530,6 +548,20 @@ export default function QuickTradePage() {
     () => (activeTrades.data ?? []).find((t) => t.symbol === symbol && t.status === "open"),
     [activeTrades.data, symbol]
   );
+  const activePriceFor = useCallback((trade: QuickTradeRecord): number | undefined => {
+    if (trade.symbol === symbol) {
+      const liveExitPrice = trade.side === "buy" ? liveQuote.bid : liveQuote.ask;
+      return quoteIsFresh ? (liveExitPrice ?? freshPrice) : freshPrice;
+    }
+    const quote = activeQuotes[trade.symbol.toUpperCase()];
+    if (!quote || quote.receivedAt == null || Date.now() - quote.receivedAt > 2_000) return undefined;
+    return trade.side === "buy" ? (quote.bid ?? undefined) : (quote.ask ?? undefined);
+  }, [activeQuotes, freshPrice, liveQuote.ask, liveQuote.bid, quoteIsFresh, symbol]);
+
+  const activeQuoteAgeFor = useCallback((trade: QuickTradeRecord): number | null => {
+    const receivedAt = trade.symbol === symbol ? liveQuote.receivedAt : activeQuotes[trade.symbol.toUpperCase()]?.receivedAt;
+    return receivedAt == null ? null : Date.now() - receivedAt;
+  }, [activeQuotes, liveQuote.receivedAt, symbol]);
 
   // Chart entry markers for all open trades of this symbol
   const chartMarkers = useMemo<ChartMarker[]>(
@@ -1165,7 +1197,7 @@ export default function QuickTradePage() {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {activeForSymbol.map((t) => (
-                      <LiveTradeCard key={t.id} trade={t} currentPrice={freshPrice} slippagePct={slippageBufferPct} walletBalance={balance} walletCurrency={selectedBalance?.currency} />
+                      <LiveTradeCard key={t.id} trade={t} currentPrice={activePriceFor(t)} quoteAgeMs={activeQuoteAgeFor(t)} slippagePct={slippageBufferPct} walletBalance={balance} walletCurrency={selectedBalance?.currency} settlementError={settlementError} />
                     ))}
                   </CardContent>
                 </Card>
@@ -1182,7 +1214,7 @@ export default function QuickTradePage() {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {activeOther.map((t) => (
-                      <LiveTradeCard key={t.id} trade={t} currentPrice={undefined} slippagePct={slippageBufferPct} walletBalance={balance} walletCurrency={selectedBalance?.currency} />
+                      <LiveTradeCard key={t.id} trade={t} currentPrice={activePriceFor(t)} quoteAgeMs={activeQuoteAgeFor(t)} slippagePct={slippageBufferPct} walletBalance={balance} walletCurrency={selectedBalance?.currency} settlementError={settlementError} />
                     ))}
                   </CardContent>
                 </Card>

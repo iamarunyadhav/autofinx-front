@@ -19,7 +19,10 @@ export function quickTradeCosts(trade: QuickTradeRecord, price: number, exitSlip
   const rate = explicitRate !== null && explicitRate >= 0 ? explicitRate
     : entryFee !== null && entryFee >= 0 ? entryFee / (entry * quantity) : null;
   const exitFee = rate !== null ? price * quantity * rate : null;
-  const bufferPct = finiteNumber(exitSlippagePct);
+  // The entry snapshot is authoritative for an open position. The current
+  // forecast is only a compatibility fallback for trades opened before that
+  // snapshot existed; it can expire independently of the position.
+  const bufferPct = finiteNumber(cost?.exit_slippage_pct) ?? finiteNumber(exitSlippagePct);
   const exitSlippage = bufferPct !== null && bufferPct >= 0 ? price * quantity * bufferPct / 100 : null;
   const funding = finiteNumber(trade.funding_fee_actual);
   const gross = (trade.side === "buy" ? price - entry : entry - price) * quantity;

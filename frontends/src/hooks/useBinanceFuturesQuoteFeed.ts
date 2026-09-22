@@ -113,3 +113,77 @@ export function useBinanceFuturesQuoteFeed(symbol: string, enabled: boolean): Bi
 
   return state;
 }
+
+/**
+ * Display-only multiplexed book-ticker stream for open Quick Trades. This is
+ * intentionally separate from the chart candle feed: an open position must
+ * update from the latest executable-market quote even if its chart is on a
+ * slow interval or the user has selected a different symbol.
+ */
+export function useBinanceFuturesQuoteFeeds(symbols: string[], enabled: boolean): Record<string, BinanceFuturesQuoteState> {
+  const normalizedSymbols = [...new Set(symbols
+    .filter(isCryptoSymbol)
+    .map((symbol) => symbol.toUpperCase().replace(/[^A-Z0-9]/g, "")))]
+    .sort();
+  const scope = normalizedSymbols.join(",");
+  const [quotes, setQuotes] = useState<Record<string, BinanceFuturesQuoteState>>({});
+  const latestRef = useRef<Record<string, BinanceFuturesQuoteState>>({});
+
+  useEffect(() => {
+    if (!enabled || normalizedSymbols.length === 0) {
+      latestRef.current = {};
+      setQuotes({});
+      return;
+    }
+
+    let stopped = false;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | null = null;
+    let animationFrame: number | null = null;
+    let attempt = 0;
+    const streams = normalizedSymbols.map((symbol) => `${symbol.toLowerCase()}@bookTicker`).join("/");
+
+    const flushLatest = () => {
+      animationFrame = null;
+      if (!stopped) setQuotes({ ...latestRef.current });
+    };
+    const scheduleReconnect = () => {
+      if (stopped) return;
+      attempt += 1;
+      reconnectTimer = window.setTimeout(connect, Math.min(15_000, 500 * 2 ** Math.min(attempt, 5)));
+    };
+    const connect = () => {
+      if (stopped) return;
+      socket = new WebSocket(`wss://fstream.binance.com/stream?streams=${streams}`);
+      socket.onopen = () => { attempt = 0; };
+      socket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(String(event.data))?.data;
+          const symbol = String(payload?.s ?? "").toUpperCase();
+          const bid = Number(payload?.b);
+          const ask = Number(payload?.a);
+          if (!normalizedSymbols.includes(symbol) || !Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask <= 0) return;
+          latestRef.current[symbol] = { bid, ask, price: (bid + ask) / 2, receivedAt: Date.now(), connected: true };
+          if (animationFrame === null) animationFrame = window.requestAnimationFrame(flushLatest);
+        } catch {
+          // Await the next valid exchange frame.
+        }
+      };
+      socket.onclose = scheduleReconnect;
+      socket.onerror = () => socket?.close();
+    };
+
+    connect();
+    return () => {
+      stopped = true;
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+      socket?.close();
+    };
+  // `scope` is a stable value derived from the symbol set; do not reconnect
+  // just because the active-trades query returns a new array instance.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, scope]);
+
+  return quotes;
+}
