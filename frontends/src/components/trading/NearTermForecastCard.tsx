@@ -22,6 +22,19 @@ export function NearTermForecastCard({ forecast, symbol }: { forecast?: Forecast
   const decision = forecast?.decision_trend ?? forecast?.bias ?? "WAIT";
   const tone = forecastTone(decision);
   const formatPrice = (value?: number | null) => value == null ? "-" : value.toLocaleString(undefined, { maximumFractionDigits: 8 });
+  // Both values originate from the forecast response. In particular, the
+  // reference is the backend's accepted quote, never a browser-only price.
+  const referencePrice = forecast?.reference_price ?? forecast?.current_price;
+  const predictedPrice = forecast?.predicted_expiry_price ?? forecast?.expected_mid_price;
+  const expectedDelta = referencePrice != null && predictedPrice != null
+    ? predictedPrice - referencePrice
+    : forecast?.predicted_move;
+  const expectedDeltaPct = referencePrice != null && referencePrice > 0 && expectedDelta != null
+    ? (expectedDelta / referencePrice) * 100
+    : forecast?.predicted_move_pct;
+  const deltaTone = expectedDelta == null || expectedDelta === 0
+    ? "text-slate-300"
+    : expectedDelta > 0 ? "text-emerald-300" : "text-rose-300";
   const context = forecast?.market_context;
   const gateMessage = gateReasonMessage(forecast?.gate_reason);
   const cautions = forecast?.context_caution ?? [];
@@ -38,29 +51,62 @@ export function NearTermForecastCard({ forecast, symbol }: { forecast?: Forecast
           </div>
           <div className={`text-2xl font-black ${tone}`}>{decision}</div>
         </div>
-        <div className="grid w-full grid-cols-2 gap-3 text-left sm:w-auto sm:text-right md:grid-cols-4">
+        <div className="grid w-full grid-cols-2 gap-3 text-left sm:w-auto sm:text-right md:grid-cols-5">
           <div>
             <div className="text-xs text-slate-500" title="Model score, not a measured probability of a correct prediction">Model confidence</div>
             <div className="text-sm font-semibold text-slate-200">{forecast?.confidence?.toFixed(0) ?? "-"}%</div>
           </div>
           <div>
             <div className="text-xs text-slate-500">Reference</div>
-            <div className="text-sm font-semibold text-slate-200 break-all">{formatPrice(forecast?.reference_price ?? forecast?.current_price)}</div>
+            <div className="text-sm font-semibold text-slate-200 break-all">{formatPrice(referencePrice)}</div>
             {forecast?.reference_price_source && <div className="text-[10px] text-slate-500">{forecast.reference_price_source === "fresh_canonical_quote" ? "Fresh server quote" : "Latest candle close"}</div>}
           </div>
           <div>
             <div className="text-xs text-slate-500">Predicted expiry</div>
-            <div className="text-sm font-semibold text-slate-200 break-all">{formatPrice(forecast?.predicted_expiry_price ?? forecast?.expected_mid_price)}</div>
+            <div className="text-sm font-semibold text-slate-200 break-all">{formatPrice(predictedPrice)}</div>
+          </div>
+          <div>
+            <div className="text-xs text-slate-500">Expected change</div>
+            <div className={`text-sm font-semibold break-all ${deltaTone}`}>
+              {expectedDelta == null ? "-" : `${expectedDelta >= 0 ? "+" : ""}${formatPrice(expectedDelta)}`}
+            </div>
+            <div className={`text-[11px] ${deltaTone}`}>
+              {expectedDeltaPct == null ? "" : `${expectedDeltaPct >= 0 ? "+" : ""}${expectedDeltaPct.toFixed(3)}%`}
+            </div>
           </div>
           <div>
             <div className="text-xs text-slate-500">Expected range</div>
             <div className="text-sm font-semibold text-slate-200 break-all">{formatPrice(forecast?.predicted_low ?? forecast?.expected_low)} – {formatPrice(forecast?.predicted_high ?? forecast?.expected_high)}</div>
           </div>
-          <div>
-            <div className="text-xs text-slate-500">Move / confidence</div>
-            <div className="text-sm font-semibold text-emerald-200 break-all">{forecast?.predicted_move_pct == null ? "-" : `${forecast.predicted_move_pct >= 0 ? "+" : ""}${forecast.predicted_move_pct.toFixed(3)}%`} · {forecast?.confidence?.toFixed(0) ?? "-"}%</div>
-          </div>
         </div>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+        <span className={`rounded-full border px-2 py-0.5 ${forecast?.reference_price_source === "fresh_canonical_quote"
+          ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+          : "border-amber-400/30 bg-amber-400/10 text-amber-200"}`}>
+          {forecast?.reference_price_source === "fresh_canonical_quote" ? "LIVE SERVER QUOTE" : "CANDLE-CLOSE REFERENCE"}
+        </span>
+        {forecast?.live_feed && (
+          <span className={`rounded-full border px-2 py-0.5 ${forecast.live_feed.fresh
+            ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+            : "border-rose-400/30 bg-rose-400/10 text-rose-200"}`}>
+            {forecast.live_feed.fresh
+              ? `QUOTE ${forecast.live_feed.age_seconds ?? "?"}s · LAG ${forecast.live_feed.event_lag_ms ?? "?"}ms`
+              : "QUOTE STALE"}
+          </span>
+        )}
+        {forecast?.forecast_stability && forecast.forecast_stability !== "UNKNOWN" && (
+          <span className={`rounded-full border px-2 py-0.5 ${forecast.forecast_stability === "HIGH"
+            ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+            : forecast.forecast_stability === "LOW"
+              ? "border-amber-400/30 bg-amber-400/10 text-amber-200"
+              : "border-slate-600 bg-slate-800 text-slate-300"}`}>
+            STABILITY {forecast.forecast_stability}
+          </span>
+        )}
+        {forecast?.gate_reason && (
+          <span className="rounded-full border border-rose-400/30 bg-rose-400/10 px-2 py-0.5 text-rose-200">SAFETY WAIT</span>
+        )}
       </div>
       {context && (
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-800/80 pt-2 text-xs text-slate-400">

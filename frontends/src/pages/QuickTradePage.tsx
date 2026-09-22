@@ -811,7 +811,7 @@ export default function QuickTradePage() {
               )}
               <div className="ml-auto flex items-center gap-2">
                 {feed.connected
-                  ? <><Wifi className="h-3.5 w-3.5 text-emerald-400" /><span className="text-xs text-emerald-400">Backend WS · {feed.latencyMs}ms</span></>
+                  ? <><Wifi className="h-3.5 w-3.5 text-emerald-400" /><span className="text-xs text-emerald-400">{feed.source === "ws" ? "Binance chart WS" : feed.source === "sse" ? "Backend SSE" : "Live feed"} · {feed.latencyMs}ms</span></>
                   : <><WifiOff className="h-3.5 w-3.5 text-slate-600" /><span className="text-xs text-slate-600">Connecting...</span></>
                 }
               </div>

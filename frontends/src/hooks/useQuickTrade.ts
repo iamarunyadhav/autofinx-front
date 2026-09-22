@@ -184,6 +184,17 @@ export interface ForecastPayload {
   expiry_at?: string;
   reference_price?: number;
   reference_price_source?: "fresh_canonical_quote" | "latest_candle_close";
+  // Server-side canonical quote telemetry used by the forecast reference.
+  // Null means this scope has no server WS snapshot yet; it is never filled
+  // from the browser chart socket.
+  live_feed?: {
+    fresh: boolean;
+    age_seconds?: number | null;
+    event_lag_ms?: number | null;
+    max_age_seconds?: number | null;
+    max_event_lag_ms?: number | null;
+    market_type?: string | null;
+  } | null;
   current_price?: number;
   predicted_expiry_price?: number;
   predicted_low?: number;
