@@ -64,9 +64,18 @@ export function useQuickTradeCandleFeed(
     let activeSocket: WebSocket | null = null;
     let animationFrame: number | null = null;
     let pendingWsCandle: { candle: CandleData; eventTs: number } | null = null;
+    const eventTimestampByCandle = new Map<number, number>();
 
-    const apply = (candle: CandleData, latencyMs: number, source: RobotFeedState["source"]) => {
+    const apply = (
+      candle: CandleData,
+      latencyMs: number,
+      source: RobotFeedState["source"],
+      eventTimestampMs = Date.now(),
+    ) => {
       if (stopped || latencyMs > MAX_LIVE_EVENT_LAG_MS) return;
+      const previousEventTimestamp = eventTimestampByCandle.get(candle.time) ?? 0;
+      if (eventTimestampMs < previousEventTimestamp) return;
+      eventTimestampByCandle.set(candle.time, eventTimestampMs);
       candlesRef.current = upsertCandle(candlesRef.current, candle);
       setState((s) => ({
         ...s,
@@ -100,6 +109,7 @@ export function useQuickTradeCandleFeed(
         { ...pending.candle, symbol: symbol.toUpperCase() },
         Math.max(0, Date.now() - pending.eventTs),
         "ws",
+        pending.eventTs,
       );
     };
 
@@ -216,7 +226,12 @@ export function useQuickTradeCandleFeed(
               // Live candle update
               if (payload.candle && typeof payload.candle.time === "number" && matchesRequestedSymbol(payload.candle.symbol, symbol)) {
                 const latencyMs = Number(payload.latency_ms ?? 0);
-                apply({ ...(payload.candle as CandleData), symbol: symbol.toUpperCase() }, latencyMs, "sse");
+                apply(
+                  { ...(payload.candle as CandleData), symbol: symbol.toUpperCase() },
+                  latencyMs,
+                  "sse",
+                  Number(payload.event_ts ?? Date.now()),
+                );
               }
             } catch {
               /* ignore malformed frame */

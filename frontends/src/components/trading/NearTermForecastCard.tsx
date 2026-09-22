@@ -46,6 +46,7 @@ export function NearTermForecastCard({ forecast, symbol }: { forecast?: Forecast
           <div>
             <div className="text-xs text-slate-500">Reference</div>
             <div className="text-sm font-semibold text-slate-200 break-all">{formatPrice(forecast?.reference_price ?? forecast?.current_price)}</div>
+            {forecast?.reference_price_source && <div className="text-[10px] text-slate-500">{forecast.reference_price_source === "fresh_canonical_quote" ? "Fresh server quote" : "Latest candle close"}</div>}
           </div>
           <div>
             <div className="text-xs text-slate-500">Predicted expiry</div>
@@ -93,6 +94,12 @@ export function NearTermForecastCard({ forecast, symbol }: { forecast?: Forecast
         {forecast?.horizon_seconds ? ` Target ${forecast.expiry_at ? new Date(forecast.expiry_at).toLocaleTimeString() : "-"}; chart context ${forecast.context_timeframe ?? "unknown"}; ${forecast.analysis_window?.candles_used ?? "-"} candles; ATR ${forecast.atr_pct?.toFixed(3)}%.` : ""}
         {forecast?.resolution_warning && <span className="block mt-1 text-amber-300">{forecast.resolution_warning}</span>}
       </div>
+      {forecast?.forecast_stability && forecast.forecast_stability !== "UNKNOWN" && (
+        <div className={`mt-2 text-xs ${forecast.forecast_stability === "LOW" ? "text-amber-300" : "text-slate-400"}`}>
+          Signal stability: {forecast.forecast_stability.toLowerCase()}
+          {forecast.forecast_stability_flips != null ? ` (${forecast.forecast_stability_flips} recent flips)` : ""}.
+        </div>
+      )}
     </div>
   );
 }

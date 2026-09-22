@@ -183,12 +183,15 @@ export interface ForecastPayload {
   generated_at?: string;
   expiry_at?: string;
   reference_price?: number;
+  reference_price_source?: "fresh_canonical_quote" | "latest_candle_close";
   current_price?: number;
   predicted_expiry_price?: number;
   predicted_low?: number;
   predicted_high?: number;
   predicted_move?: number;
   predicted_move_pct?: number;
+  forecast_stability?: "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN";
+  forecast_stability_flips?: number;
   analysis_window?: { candles_used: number; micro: number; short: number };
   model_version?: string;
   evidence?: Record<string, number | boolean>;

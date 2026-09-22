@@ -26,7 +26,11 @@ function upsertCandle(list: CandleData[], candle: CandleData): CandleData[] {
 }
 
 function normalizeCandle(row: any, fallbackClosed = false): CandleData | null {
-  const time = Number(row?.time ?? Math.floor(Number(row?.timestamp ?? 0) / 1000));
+  const rawTime = row?.time ?? row?.timestamp ?? row?.ts ?? 0;
+  const numericTime = Number(rawTime);
+  const time = Number.isFinite(numericTime)
+    ? (numericTime > 10_000_000_000 ? Math.floor(numericTime / 1000) : numericTime)
+    : Math.floor(new Date(String(rawTime)).getTime() / 1000);
   const candle = {
     time,
     open: Number(row?.open),
@@ -89,8 +93,20 @@ export function useRatioBotCandleFeed(
     let attempt = 0;
     let activeController: AbortController | null = null;
     let activeSocket: WebSocket | null = null;
+    // Binance can deliver a delayed frame after a reconnect. Keep its exchange
+    // event timestamp separate from chart time so an older update never rolls
+    // an open candle backwards. The map is reset with the symbol/timeframe.
+    const eventTimestampByCandle = new Map<number, number>();
 
-    const apply = (candle: CandleData, latencyMs: number, source: RobotFeedState["source"]) => {
+    const apply = (
+      candle: CandleData,
+      latencyMs: number,
+      source: RobotFeedState["source"],
+      eventTimestampMs = Date.now(),
+    ) => {
+      const previousEventTimestamp = eventTimestampByCandle.get(candle.time) ?? 0;
+      if (eventTimestampMs < previousEventTimestamp) return;
+      eventTimestampByCandle.set(candle.time, eventTimestampMs);
       candlesRef.current = upsertCandle(candlesRef.current, candle);
       setState((s) => ({
         ...s,
@@ -100,6 +116,53 @@ export function useRatioBotCandleFeed(
         latencyMs,
         source,
       }));
+    };
+
+    // A kline websocket starts with the current open candle; it does not send
+    // the chart window. Bootstrap from the authorized Ratio Bot history API in
+    // parallel with the socket. Merge (rather than replace) so a fast live
+    // update received during the request is retained.
+    const bootstrapHistory = async () => {
+      if (!botId) return;
+
+      try {
+        const token = getAuthToken();
+        const base = getApiBaseUrl();
+        const url = new URL(`${base}/ratio-bots/${botId}/candles`);
+        url.searchParams.set("limit", "200");
+        const response = await fetch(url.toString(), {
+          headers: {
+            Accept: "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+        if (!response.ok || stopped) return;
+
+        const rows = await response.json();
+        if (!Array.isArray(rows) || stopped) return;
+        for (const row of rows) {
+          const candle = normalizeCandle({
+            time: row?.time,
+            timestamp: row?.timestamp ?? row?.ts,
+            open: row?.open,
+            high: row?.high,
+            low: row?.low,
+            close: row?.close,
+            volume: row?.volume,
+            is_closed: true,
+          }, true);
+          if (!candle) continue;
+          // Historical rows are context, not a newer live observation.
+          // They may fill a missing candle but cannot overwrite a WS update.
+          if (eventTimestampByCandle.has(candle.time)) continue;
+          eventTimestampByCandle.set(candle.time, 0);
+          candlesRef.current = upsertCandle(candlesRef.current, candle);
+        }
+        setState((s) => ({ ...s, candles: candlesRef.current }));
+      } catch {
+        // The direct exchange socket remains the low-latency source. A failed
+        // history request must not interrupt it or trigger a reconnect loop.
+      }
     };
 
     const scheduleReconnect = (connect: () => void) => {
@@ -185,7 +248,7 @@ export function useRatioBotCandleFeed(
           });
 
           if (candle) {
-            apply(candle, Math.max(0, Date.now() - eventTs), "ws");
+            apply(candle, Math.max(0, Date.now() - eventTs), "ws", eventTs);
           }
         } catch {
           /* ignore malformed websocket frame */
@@ -223,7 +286,7 @@ export function useRatioBotCandleFeed(
               const rows: any[] = payload.candles ?? [];
               rows.forEach((row, index) => {
                 const candle = normalizeCandle(row, index < rows.length - 1);
-                if (candle) apply(candle, 0, "sse");
+                if (candle) apply(candle, 0, "sse", Number(payload?.event_timestamp_ms ?? Date.now()));
               });
             },
             "sse",
@@ -238,6 +301,7 @@ export function useRatioBotCandleFeed(
     };
 
     if (isCryptoSymbol(symbol)) {
+      void bootstrapHistory();
       connectBinanceWebSocket();
     } else {
       connectRatioBotSse();
