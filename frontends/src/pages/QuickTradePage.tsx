@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout";
+import { DirectionDecisionCard } from "@/components/trading/DirectionDecisionCard";
 import { ExecutionSafetyControls, type ExecutionSafetyValues } from "@/components/trading/ExecutionSafetyControls";
 import { MobileTradeNav } from "@/components/trading/MobileTradeNav";
 import { NearTermForecastCard } from "@/components/trading/NearTermForecastCard";
@@ -8,6 +9,16 @@ import { ProfitCalculatorCard } from "@/components/trading/ProfitCalculatorCard"
 import { RobotLiveChart } from "@/components/trading/RobotLiveChart";
 import { useQuickTradeOlderCandles } from "@/hooks/useQuickTradeOlderCandles";
 import { SignalSummaryCard } from "@/components/trading/SignalSummaryCard";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -373,6 +384,9 @@ export default function QuickTradePage() {
   const [predictionSource, setPredictionSource] = useState<"current" | "unified">("current");
   const [duration, setDuration] = useState(60);
   const [stake, setStake] = useState(10);
+  // Part A5 -- which side (if any) the user clicked against the fee-aware
+  // trade decision, pending confirmation. Null = no dialog open.
+  const [pendingOverrideSide, setPendingOverrideSide] = useState<"buy" | "sell" | null>(null);
   // Optional per-trade stop-loss — live mode only. Empty string = feature
   // off (nothing submitted); a positive number here means "close early if
   // unrealized loss reaches this % of stake" (sent to the API as a negative
@@ -639,16 +653,42 @@ export default function QuickTradePage() {
   }, [stake]);
   const effectiveStake = Math.min(maxStake, Math.max(minStake, debouncedStake));
 
+  // Part B: send each candle's OPEN time so the backend can tell a closed bar
+  // from the forming one. `chartCandles[].time` is in SECONDS (lightweight-
+  // charts' UTCTimestamp); the API's `timestamp` field is milliseconds.
+  const forecastCandles = useMemo(
+    () => chartCandles.map((c) => ({
+      timestamp: c.time * 1000,
+      open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume,
+    })),
+    [chartCandles],
+  );
+  // Part C2: the duration options the picker is currently offering, so the
+  // backend can tell us which of them can actually clear fees right now.
+  const durationOptionSeconds = useMemo(
+    () => (metadata?.durations ?? []).map((o) => o.seconds),
+    [metadata?.durations],
+  );
+
   const forecastQuery = useQuickTradeForecast({
     exchange: selectedProvider === "binance" ? "binance_futures" : selectedProvider,
     marketContext: `${workspaceId}:${activeMode}:${selectedIntegrationId}`,
-    candles: chartCandles,
+    candles: forecastCandles,
     signal,
     timeframe,
     expirySeconds: duration,
     stakeAmount: effectiveStake,
     symbol,
+    mode: activeMode,
+    durations: durationOptionSeconds,
   });
+  const forecastData = forecastQuery.data?.forecast;
+  const durationAvailability = forecastData?.duration_availability ?? [];
+  const availabilityFor = (seconds: number) => durationAvailability.find((d) => d.expiry_seconds === seconds) ?? null;
+  const currentDurationAvailability = availabilityFor(duration);
+  const shortestViableExpiry = forecastData?.shortest_viable_expiry_seconds ?? null;
+  const tradeDecision = forecastData?.trade_decision;
+  const decisionValue = tradeDecision?.value ?? forecastData?.decision_trend ?? null;
   const forecastComparison = useForecastComparison({
     exchange: selectedProvider === "binance" ? "binance_futures" : selectedProvider,
     marketContext: `${workspaceId}:${activeMode}:${selectedIntegrationId}`,
@@ -698,6 +738,22 @@ export default function QuickTradePage() {
     const idx = opts.findIndex((o) => o.seconds === duration);
     const safe = idx >= 0 ? idx : 0;
     setDuration(opts[dir === "next" ? Math.min(opts.length - 1, safe + 1) : Math.max(0, safe - 1)]?.seconds ?? duration);
+  };
+
+  // Part A5 -- a click that disagrees with the fee-aware trade decision asks
+  // for confirmation first, showing the numbers. This is a courtesy only: the
+  // server enforces the same rule independently
+  // (QuickTradeService::assertOrderAgreesWithTradeDecision -> 422), so
+  // dismissing this dialog can never be a way around the block.
+  const disagreesWithDecision = (side: "buy" | "sell") =>
+    decisionValue != null && (decisionValue === "WAIT" || decisionValue.toLowerCase() !== side);
+
+  const requestTrade = (side: "buy" | "sell") => {
+    if (disagreesWithDecision(side)) {
+      setPendingOverrideSide(side);
+      return;
+    }
+    placeTrade(side);
   };
 
   const placeTrade = (side: "buy" | "sell") => {
@@ -871,65 +927,71 @@ export default function QuickTradePage() {
             )}
           </div>
 
-          {/* ── Signal Banner ── */}
-          <div className={cn(
-            "rounded-[24px] border p-5 transition-all duration-500",
-            isBuy ? "border-emerald-500/30 bg-emerald-500/8" : isSell ? "border-rose-500/30 bg-rose-500/8" : "border-slate-800 bg-slate-950/60"
-          )}>
-            <div className="flex flex-wrap items-center gap-5">
-              {/* Signal label */}
-              <div className="flex items-center gap-4">
-                <div className={cn(
-                  "text-4xl font-black sm:text-5xl",
-                  isBuy ? "text-emerald-300" : isSell ? "text-rose-300" : "text-slate-500"
-                )}>
-                  {isBuy ? "↑ BUY" : isSell ? "↓ SELL" : "WAIT"}
-                </div>
-                <div>
-                  <div className="text-xs uppercase tracking-widest text-slate-500">Robot Signal · {symbol || "—"} · {timeframe}</div>
-                  <div className="mt-0.5 font-mono text-xl text-slate-200">{priceDisplay}</div>
-                  {chartQuery.isFetching && <div className="mt-0.5 text-xs text-slate-600">Refreshing signal...</div>}
-                </div>
-              </div>
+          {/* ── Part A2: Direction vs Trade Decision (the headline) ──
+              Replaces the old single "Robot Signal" banner, which showed one
+              ambiguous verdict plus a bare confidence % (findings F4/F5). The
+              indicator vote still exists — it now lives INSIDE this card,
+              smaller, below, and labelled as a vote share rather than being
+              presented as a probability next to a BUY. ── */}
+          <DirectionDecisionCard
+            forecast={forecastData}
+            signal={signal}
+            symbol={symbol}
+            timeframe={timeframe}
+            isLoading={forecastQuery.isLoading || forecastQuery.isFetching}
+            isStalled={forecastQuery.isError}
+          />
 
-              {/* Confidence bar */}
-              <div className="flex min-w-[200px] flex-1 flex-col gap-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="text-slate-500">Confidence</span>
-                  <span className={cn(isBuy ? "text-emerald-400" : isSell ? "text-rose-400" : "text-slate-400")}>{confidence}%</span>
+          {/* ── Price + live P&L strip ── */}
+          <div className="flex flex-wrap items-center gap-5 rounded-[24px] border border-slate-800 bg-slate-950/60 p-5">
+            <div>
+              <div className="text-xs uppercase tracking-widest text-slate-500">{symbol || "—"} · {timeframe}</div>
+              <div className="mt-0.5 font-mono text-2xl text-slate-100">{priceDisplay}</div>
+              {chartQuery.isFetching && <div className="mt-0.5 text-xs text-slate-600">Refreshing…</div>}
+            </div>
+
+            {/* C2/C3 — what this duration can and cannot do at the CURRENT
+                volatility. Every number comes from the backend. */}
+            {currentDurationAvailability && (
+              <div className="min-w-[240px] flex-1">
+                <div className="text-xs uppercase tracking-wider text-slate-500">This duration at current volatility</div>
+                <div className={cn("mt-0.5 text-sm", currentDurationAvailability.available ? "text-slate-300" : "text-amber-300")}>
+                  {currentDurationAvailability.available
+                    ? `Max possible ${currentDurationAvailability.max_achievable_move_pct.toFixed(3)}% vs ${currentDurationAvailability.required_move_pct.toFixed(3)}% required — viable.`
+                    : currentDurationAvailability.reason}
                 </div>
-                <Progress value={confidence} className="h-2.5 bg-slate-800" />
-                <div className="flex gap-3 text-xs text-slate-500">
-                  <span className="text-emerald-400">▲ {signal?.bullish_score ?? 0}</span>
-                  <span>{signal?.neutral_score ?? 0} neutral</span>
-                  <span className="text-rose-400">▼ {signal?.bearish_score ?? 0}</span>
-                </div>
-                {(signal?.reasons ?? []).length > 0 && (
-                  <div className="text-xs text-slate-500 line-clamp-1">{signal!.reasons.slice(0, 2).join(" · ")}</div>
+                {shortestViableExpiry != null ? (
+                  <div className="mt-0.5 text-[11px] text-slate-500">
+                    At current volatility, BUY/SELL is only possible from {Math.round(shortestViableExpiry / 60)} minutes.
+                  </div>
+                ) : (
+                  <div className="mt-0.5 text-[11px] text-slate-500">
+                    At current volatility, no offered duration can clear fees.
+                  </div>
                 )}
               </div>
+            )}
 
-              {/* Live P&L when trade is open */}
-              {livePnl && (
-                <div className={cn(
-                  "rounded-2xl border px-4 py-3 text-right",
-                  livePnl.pct >= 0 ? "border-emerald-500/30 bg-emerald-500/10" : "border-rose-500/30 bg-rose-500/10"
-                )}>
-                  <div className="text-xs uppercase tracking-wider text-slate-500">Estimated net P&L after known costs</div>
-                  <div className={cn("text-2xl font-bold", livePnl.pct >= 0 ? "text-emerald-300" : "text-rose-300")}>
-                    {livePnl.pct >= 0 ? "+" : ""}{livePnl.pct.toFixed(3)}%
-                  </div>
-                  <div className={cn("text-sm", livePnl.pct >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                    {livePnl.value >= 0 ? "+" : ""}{formatUsdtPnl(livePnl.value)} USDT
-                  </div>
-                  {livePnl.netValue != null && livePnl.netPct != null && (
-                    <div className="mt-1 text-[11px] text-slate-500">
-                      Includes estimated exit fee/slippage. Unreconciled funding and other charges excluded.
-                    </div>
-                  )}
+            {/* Live P&L when trade is open */}
+            {livePnl && (
+              <div className={cn(
+                "rounded-2xl border px-4 py-3 text-right",
+                livePnl.pct >= 0 ? "border-emerald-500/30 bg-emerald-500/10" : "border-rose-500/30 bg-rose-500/10"
+              )}>
+                <div className="text-xs uppercase tracking-wider text-slate-500">Estimated net P&L after known costs</div>
+                <div className={cn("text-2xl font-bold", livePnl.pct >= 0 ? "text-emerald-300" : "text-rose-300")}>
+                  {livePnl.pct >= 0 ? "+" : ""}{livePnl.pct.toFixed(3)}%
                 </div>
-              )}
-            </div>
+                <div className={cn("text-sm", livePnl.pct >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                  {livePnl.value >= 0 ? "+" : ""}{formatUsdtPnl(livePnl.value)} USDT
+                </div>
+                {livePnl.netValue != null && livePnl.netPct != null && (
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    Includes estimated exit fee/slippage. Unreconciled funding and other charges excluded.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ── Near-term forecast + profit calculator (shared with Robot Trade) ── */}
@@ -1046,6 +1108,46 @@ export default function QuickTradePage() {
                       </div>
                       <Button variant="ghost" className="h-11 w-11 rounded-full text-2xl text-slate-100 lg:h-10 lg:w-10" onClick={() => stepDuration("next")}>+</Button>
                     </div>
+                    {/* C2/C3 — every option, marked viable or not at the CURRENT
+                        volatility, with the backend's own numeric reason. No
+                        percentage on this screen is hardcoded. */}
+                    {durationAvailability.length > 0 && (
+                      <div className="mt-3 space-y-1">
+                        {durationAvailability.map((option) => {
+                          const label = metadata?.durations.find((d) => d.seconds === option.expiry_seconds)?.label
+                            ?? `${option.expiry_seconds}s`;
+                          const selected = option.expiry_seconds === duration;
+                          return (
+                            <button
+                              key={option.expiry_seconds}
+                              type="button"
+                              disabled={!option.available}
+                              title={option.reason ?? undefined}
+                              onClick={() => setDuration(option.expiry_seconds)}
+                              className={cn(
+                                "flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-1.5 text-left text-xs transition-colors",
+                                selected ? "border-slate-600 bg-slate-800/80" : "border-slate-800 bg-slate-900/50",
+                                option.available
+                                  ? "text-slate-300 hover:border-slate-700"
+                                  : "cursor-not-allowed text-slate-600 opacity-70",
+                              )}
+                            >
+                              <span className="font-semibold">{label}</span>
+                              <span className="truncate text-[11px]">
+                                {option.available
+                                  ? `max ${option.max_achievable_move_pct.toFixed(3)}% / need ${option.required_move_pct.toFixed(3)}%`
+                                  : option.reason}
+                              </span>
+                            </button>
+                          );
+                        })}
+                        {shortestViableExpiry != null && (
+                          <p className="pt-1 text-[11px] text-slate-500">
+                            At current volatility, BUY/SELL is only possible from {Math.round(shortestViableExpiry / 60)} minutes.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
                 <Card className="border-slate-800 bg-slate-950 text-slate-50">
@@ -1178,7 +1280,7 @@ export default function QuickTradePage() {
                       : "bg-rose-500 text-white hover:bg-rose-400"
                   )}
                   disabled={tradeButtonsDisabled}
-                  onClick={() => placeTrade("sell")}
+                  onClick={() => requestTrade("sell")}
                 >
                   {isSell ? "↓ SELL / DOWN  ✦" : "Sell / Down"}
                 </Button>
@@ -1190,7 +1292,7 @@ export default function QuickTradePage() {
                       : "bg-emerald-500 hover:bg-emerald-400"
                   )}
                   disabled={tradeButtonsDisabled}
-                  onClick={() => placeTrade("buy")}
+                  onClick={() => requestTrade("buy")}
                 >
                   {isBuy ? "↑ BUY / UP  ✦" : "Buy / Up"}
                 </Button>
@@ -1283,6 +1385,82 @@ export default function QuickTradePage() {
         </div>
         <MobileTradeNav />
       </div>
+
+      {/* ── Part A5: confirmation before trading against the fee-aware decision ──
+          This is a courtesy prompt only. The server enforces the same rule
+          independently and returns a 422 with the same numbers, so cancelling
+          or bypassing this dialog can never be a route around the block. ── */}
+      <AlertDialog open={pendingOverrideSide !== null} onOpenChange={(open) => { if (!open) setPendingOverrideSide(null); }}>
+        <AlertDialogContent className="border-slate-800 bg-slate-950 text-slate-100">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-amber-300">
+              This {pendingOverrideSide?.toUpperCase()} goes against the trade decision
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-slate-300">
+                <p>
+                  The fee-aware trade decision is{" "}
+                  <span className="font-semibold text-amber-200">{decisionValue ?? "unavailable"}</span>
+                  {forecastData?.direction?.value && (
+                    <> while the cost-blind direction is <span className="font-semibold text-slate-200">{forecastData.direction.value}</span></>
+                  )}
+                  .
+                </p>
+                <div className="grid grid-cols-3 gap-2 rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-center text-xs">
+                  <div>
+                    <div className="text-slate-500">Expected</div>
+                    <div className="font-semibold text-slate-200">
+                      {tradeDecision?.expected_move_pct != null ? `${tradeDecision.expected_move_pct.toFixed(3)}%` : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Max possible</div>
+                    <div className="font-semibold text-slate-200">
+                      {tradeDecision?.max_achievable_move_pct != null ? `${tradeDecision.max_achievable_move_pct.toFixed(3)}%` : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Required</div>
+                    <div className="font-semibold text-amber-200">
+                      {tradeDecision?.required_move_pct != null ? `${tradeDecision.required_move_pct.toFixed(3)}%` : "—"}
+                    </div>
+                  </div>
+                </div>
+                {tradeDecision?.gate_reason && (
+                  <p className="text-xs text-amber-300">
+                    Safety gate active: {tradeDecision.gate_reason.replace(/_/g, " ")}.
+                  </p>
+                )}
+                {activeMode === "live" && (
+                  <p className="text-xs text-slate-400">
+                    In live mode the server may refuse this order outright. If it does, you will see the same numbers in
+                    the rejection message.
+                  </p>
+                )}
+                <p className="text-xs text-slate-500">
+                  Your order will be sent exactly as you chose — it is never silently changed — and the disagreement is
+                  recorded for research.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-amber-500 text-slate-950 hover:bg-amber-400"
+              onClick={() => {
+                const side = pendingOverrideSide;
+                setPendingOverrideSide(null);
+                if (side) placeTrade(side);
+              }}
+            >
+              Place {pendingOverrideSide?.toUpperCase()} anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }

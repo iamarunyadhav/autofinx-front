@@ -1,13 +1,29 @@
-import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
+import { useState, useEffect, useCallback, createContext, useContext, ReactNode } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { authHeaders, setAuthToken, clearAuthToken, getAuthToken } from '@/lib/auth';
+import { initializeApiBase } from '@/lib/api-base';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+// How long we wait for the API base to resolve + /auth/me to respond before
+// treating the auth check as failed (but NOT logging the user out — see
+// below). Keeps the auth-loading spinner from hanging forever on a
+// slow/dead origin.
+const AUTH_CHECK_TIMEOUT_MS = 12000;
+
+// Resolves the shared API base (does not block app render — see main.tsx)
+// and fires a fetch against it. Centralizing here means auth never reads
+// import.meta.env.VITE_API_BASE_URL directly and risks drifting from the
+// base the rest of the app actually resolved to.
+async function authFetch(path: string, init?: RequestInit) {
+  const base = await initializeApiBase();
+  return fetch(`${base}${path}`, init);
+}
 
 interface AuthContextType {
   user: any | null;
   session: any | null;
   loading: boolean;
+  authError: boolean;
+  retryAuthCheck: () => void;
   signUp: (email: string, password: string, fullName?: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string, twoFactorCode?: string) => Promise<{ error: Error | null; twoFactorRequired: boolean }>;
   signOut: () => Promise<void>;
@@ -19,33 +35,69 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<any | null>(null);
   const [session, setSession] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState(false);
   const { toast } = useToast();
 
-  useEffect(() => {
+  const runAuthCheck = useCallback(() => {
     const token = getAuthToken();
     if (!token) {
+      setUser(null);
+      setSession(null);
+      setAuthError(false);
       setLoading(false);
       return;
     }
 
-    fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(async (res) => {
-        if (!res.ok) throw new Error('Auth check failed');
+    setLoading(true);
+    setAuthError(false);
+
+    (async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), AUTH_CHECK_TIMEOUT_MS);
+
+      try {
+        const res = await authFetch('/auth/me', {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+
+        if (res.status === 401 || res.status === 403) {
+          // Definitively invalid/expired session — safe to clear.
+          clearAuthToken();
+          setUser(null);
+          setSession(null);
+          setAuthError(false);
+          return;
+        }
+
+        if (!res.ok) {
+          throw new Error('Auth check failed');
+        }
+
         const data = await res.json();
         setUser(data.user);
         setSession({ token });
-      })
-      .catch(() => {
-        clearAuthToken();
-        setUser(null);
-        setSession(null);
-      })
-      .finally(() => setLoading(false));
+        setAuthError(false);
+      } catch {
+        // Network error / timeout / transient server failure: the token
+        // may still be perfectly valid, we just couldn't confirm it. Do
+        // NOT clear it or bounce the user to the login screen — surface a
+        // retryable error state instead (see ProtectedRoute).
+        setAuthError(true);
+      } finally {
+        clearTimeout(timer);
+        setLoading(false);
+      }
+    })();
   }, []);
+
+  useEffect(() => {
+    runAuthCheck();
+  }, [runAuthCheck]);
 
   const signUp = async (email: string, password: string, fullName?: string) => {
     try {
-      const res = await fetch(`${API_BASE}/auth/register`, {
+      const res = await authFetch('/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
@@ -81,7 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const body: Record<string, string> = { email, password };
       if (twoFactorCode) body.code = twoFactorCode;
 
-      const res = await fetch(`${API_BASE}/auth/login`, {
+      const res = await authFetch('/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(body),
@@ -115,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     const token = getAuthToken();
     if (token) {
-      await fetch(`${API_BASE}/auth/logout`, {
+      await authFetch('/auth/logout', {
         method: 'POST',
         headers: await authHeaders(),
       }).catch(() => {});
@@ -127,7 +179,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signUp, signIn, signOut }}>
+    <AuthContext.Provider
+      value={{ user, session, loading, authError, retryAuthCheck: runAuthCheck, signUp, signIn, signOut }}
+    >
       {children}
     </AuthContext.Provider>
   );

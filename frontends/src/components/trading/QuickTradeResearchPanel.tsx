@@ -25,11 +25,65 @@ type ResearchRow = {
   research_snapshot: Record<string, unknown> | null;
   slippage: Record<string, unknown>;
   data_quality: { sample_count: number; price_history: string; training_eligible: boolean };
+  // Part A3 — the two predictions, stored at entry and evaluated separately.
+  direction_prediction?: { value: string | null; expiry_score: number | null; expected_move_pct: number | null } | null;
+  trade_decision_prediction?: {
+    value: string | null; required_move_pct: number | null;
+    max_achievable_move_pct: number | null; gate_reason: string | null; fee_model: string | null;
+  } | null;
+  direction_correct?: boolean | null;
+  direction_evaluation_status?: string | null;
+  trade_decision_correct?: boolean | null;
+  trade_decision_evaluation_status?: string | null;
+  gross_direction_correct?: boolean | null;
+  // Part A4 — what following the direction would have netted.
+  wait_shadow?: {
+    status: string; direction: string | null; trade_decision: string | null;
+    hypothetical_net_usdt: number | null; would_have_profited: boolean | null;
+    wait_saved_usdt: number | null; wait_missed_usdt: number | null;
+  } | null;
+  manual_override?: boolean | null;
+};
+// Part A3 — the four aggregate audit metrics, computed server-side.
+type AuditSummary = {
+  trade_count: number;
+  direction_evaluated: number; direction_correct_count: number; direction_not_applicable: number;
+  direction_accuracy_pct: number | null;
+  trade_decision_evaluated: number; trade_decision_correct_count: number;
+  trade_decision_accuracy_pct: number | null;
+  wait_decisions_evaluated: number;
+  wait_decision_saved_usdt: number; wait_decision_missed_usdt: number; wait_decision_net_benefit_usdt: number;
+  manual_override_count: number; min_samples_for_accuracy: number; status: string; note: string;
 };
 type ResearchResponse = {
   as_of: string; rows: ResearchRow[]; next_cursor: string | null; has_more: boolean;
   sample_storage_ready: boolean; collection_enabled: boolean; shadow_enabled: boolean; shadow_only: boolean;
   summary: Record<"primary" | "shadow", { evaluable: number; correct: number; accuracy_pct: number | null; status: string }>;
+  audit_summary?: AuditSummary;
+};
+// Part D1/D2/D3.
+type AccuracyBucket = {
+  bucket: string; n: number; status: string;
+  direction_evaluated: number; direction_accuracy_pct: number | null;
+  trade_decision_evaluated: number; trade_decision_accuracy_pct: number | null;
+  avg_gross_pnl: number | null; avg_net_pnl: number | null;
+  avg_abs_move_pct: number | null; cost_pct: number;
+  break_even_accuracy_pct: number | null; tradeable: boolean; tradeable_reason: string;
+};
+type Reliability = {
+  sample_size: number; status: string; calibrated: boolean; brier_score: number | null;
+  avg_confidence_correct: number | null; avg_confidence_incorrect: number | null; separation: number | null;
+  calibration: Array<{ bucket: string; n: number; avg_confidence_pct: number | null;
+    observed_hit_rate_pct: number | null; raw_hit_rate_pct: number | null; calibrated: boolean }>;
+};
+type AccuracyReport = {
+  sample_size: number;
+  thresholds: { bucket_min_samples: number; tradeable_min_samples: number; calibration_min_samples: number };
+  overall: Omit<AccuracyBucket, "bucket">;
+  buckets: Record<string, AccuracyBucket[]>;
+  confidence_reliability: { indicator_vote: Reliability; forecast_confidence: Reliability };
+  audit_summary: AuditSummary;
+  note: string;
 };
 type ResearchSummary = {
   sample_size: number; evaluated_live_forecasts: number; direction_accuracy_pct: number | null;
@@ -139,6 +193,15 @@ export const QuickTradeResearchPanel = memo(function QuickTradeResearchPanel({ w
     refetchInterval: 30000,
   });
   const botInstanceId = `binance_futures:${filterSymbol.toUpperCase()}:${filterTimeframe}`;
+  // Part D1/D2/D3 — bucketed accuracy, break-even and confidence reliability,
+  // served by the same research exporter (no parallel pipeline).
+  const accuracy = useQuery({
+    queryKey: ["quick-trade-accuracy-report", workspaceId, filterSymbol, filterTimeframe, filterExpiry],
+    queryFn: () => authorizedFetch("/workspaces/" + workspaceId + "/quick-trades/research/accuracy-report", "GET", undefined,
+      { params: { symbol: filterSymbol, timeframe: filterTimeframe, expiry_seconds: filterExpiry, limit: 2000 } }) as Promise<AccuracyReport>,
+    enabled: !!workspaceId,
+    refetchInterval: 60000,
+  });
   const readiness = useQuery({
     queryKey: ["quick-trade-readiness", workspaceId, botInstanceId, filterExpiry],
     queryFn: () => authorizedFetch("/workspaces/" + workspaceId + "/quick-trades/research/readiness", "GET", undefined,
@@ -163,12 +226,17 @@ export const QuickTradeResearchPanel = memo(function QuickTradeResearchPanel({ w
       const all: ResearchRow[] = [];
       let next: string | null = null;
       let cutoff: string | null = null;
+      // Part A3 — accumulated from the backend's own per-page audit_summary
+      // rather than re-derived in the browser, so the exported numbers are the
+      // same ones the API reports.
+      const auditSummaryPages: AuditSummary[] = [];
       const seen = new Set<string>();
       do {
         const page = await authorizedFetch(`/workspaces/${workspaceId}/quick-trades/research/export`, "POST", {
           ...filters, trade_ids: selectedOnly ? selected : undefined, cursor: next, as_of: cutoff, limit: 100,
         }) as ResearchResponse;
         for (const row of page.rows) if (!seen.has(row.trade_id)) { all.push(row); seen.add(row.trade_id); }
+        if (page.audit_summary) auditSummaryPages.push(page.audit_summary);
         cutoff = page.as_of; next = page.next_cursor;
         setMessage(`Preparing ${all.length} trades…`);
         if (next) await new Promise((resolve) => window.setTimeout(resolve, 2500));
@@ -184,7 +252,36 @@ export const QuickTradeResearchPanel = memo(function QuickTradeResearchPanel({ w
         settled_net_profit_trades: netRows.length, net_profit_wins: netWins,
         net_profit_accuracy_pct: netRows.length ? Number((netWins / netRows.length * 100).toFixed(2)) : null,
         total_net_pnl: Number(totalNet.toFixed(8)), net_profitable: totalNet > 0,
-        note: "Direction accuracy and net-profit accuracy are separate. Unknown data is excluded, never counted as false." };
+        // Part A3 — the four new metrics, summed across pages from the
+        // backend's own per-page audit_summary. Percentages are recomputed
+        // from the summed counts (you cannot average percentages across
+        // pages), and stay null below the backend's own minimum sample size
+        // rather than being reported off a handful of trades.
+        ...(() => {
+          const sum = (key: keyof AuditSummary) =>
+            auditSummaryPages.reduce((total, page) => total + (Number(page[key]) || 0), 0);
+          const minSamples = auditSummaryPages[0]?.min_samples_for_accuracy ?? 30;
+          const dirEval = sum("direction_evaluated");
+          const dirCorrect = sum("direction_correct_count");
+          const decEval = sum("trade_decision_evaluated");
+          const decCorrect = sum("trade_decision_correct_count");
+          return {
+            direction_evaluated: dirEval,
+            direction_correct: dirCorrect,
+            direction_not_applicable: sum("direction_not_applicable"),
+            direction_accuracy_pct: dirEval >= minSamples ? Number((dirCorrect / dirEval * 100).toFixed(2)) : null,
+            trade_decision_evaluated: decEval,
+            trade_decision_correct: decCorrect,
+            trade_decision_accuracy_pct: decEval >= minSamples ? Number((decCorrect / decEval * 100).toFixed(2)) : null,
+            wait_decisions_evaluated: sum("wait_decisions_evaluated"),
+            wait_decision_saved_usdt: Number(sum("wait_decision_saved_usdt").toFixed(8)),
+            wait_decision_missed_usdt: Number(sum("wait_decision_missed_usdt").toFixed(8)),
+            wait_decision_net_benefit_usdt: Number(sum("wait_decision_net_benefit_usdt").toFixed(8)),
+            manual_override_count: sum("manual_override_count"),
+            min_samples_for_accuracy: minSamples,
+          };
+        })(),
+        note: "Direction accuracy is fee-free; trade-decision accuracy is fee-aware and covers BUY/SELL decisions only. WAIT correctness is measured by the saved/missed columns, never as a pass/fail. Unknown data is excluded, never counted as false." };
       if (format === "json") {
         saveFile(`${name}.json`, JSON.stringify({ schema_version: 1, exported_at: new Date().toISOString(), as_of: cutoff,
           filters, trade_count: all.length, audit_summary: auditSummary, training_note: "Pre-entry features and post-entry labels are separate. Unknown is not false. No automatic training or live model promotion.", trades: all }, null, 2), "application/json");
@@ -199,6 +296,24 @@ export const QuickTradeResearchPanel = memo(function QuickTradeResearchPanel({ w
           actual_trade_direction: row.actual_trade_direction, direction_match_at_trade_exit: row.direction_match_at_trade_exit,
           prediction_horizon_direction: row.prediction_horizon_direction, prediction_horizon_direction_correct: row.prediction_horizon_direction_correct,
           trade_result: row.trade_result, net_profit_positive: row.net_profit_positive,
+          // Part A3/A4/A5 — the two predictions and their separate verdicts.
+          direction_prediction: row.direction_prediction?.value ?? null,
+          direction_expiry_score: row.direction_prediction?.expiry_score ?? null,
+          direction_expected_move_pct: row.direction_prediction?.expected_move_pct ?? null,
+          direction_correct: row.direction_correct, direction_evaluation_status: row.direction_evaluation_status,
+          trade_decision_prediction: row.trade_decision_prediction?.value ?? null,
+          trade_decision_required_move_pct: row.trade_decision_prediction?.required_move_pct ?? null,
+          trade_decision_max_achievable_move_pct: row.trade_decision_prediction?.max_achievable_move_pct ?? null,
+          trade_decision_gate_reason: row.trade_decision_prediction?.gate_reason ?? null,
+          trade_decision_fee_model: row.trade_decision_prediction?.fee_model ?? null,
+          trade_decision_correct: row.trade_decision_correct,
+          trade_decision_evaluation_status: row.trade_decision_evaluation_status,
+          gross_direction_correct: row.gross_direction_correct,
+          wait_shadow_status: row.wait_shadow?.status ?? null,
+          wait_shadow_net_usdt: row.wait_shadow?.hypothetical_net_usdt ?? null,
+          wait_decision_saved_usdt: row.wait_shadow?.wait_saved_usdt ?? null,
+          wait_decision_missed_usdt: row.wait_shadow?.wait_missed_usdt ?? null,
+          manual_override: row.manual_override,
           predicted_price: row.primary_comparison.predicted_price, actual_horizon_price: row.primary_comparison.actual_price,
           price_in_predicted_range: row.primary_comparison.price_in_predicted_range,
           price_error_pct: row.primary_comparison.price_error_pct, training_eligible: row.data_quality.training_eligible,
@@ -253,6 +368,104 @@ export const QuickTradeResearchPanel = memo(function QuickTradeResearchPanel({ w
           <div className="rounded-xl border border-slate-800 p-3"><div className="text-xs text-slate-500">BUY / SELL / WAIT</div><div className="text-sm font-semibold">{["buy", "sell", "neutral"].map((key) => key.toUpperCase() + " " + (summary.data?.direction_breakdown?.[key]?.predictions ?? 0)).join(" · ")}</div></div>
         </div>
         {summary.data && <p className="text-xs text-slate-500">{summary.data.note} Accuracy is shown only after 30 evaluated samples.</p>}
+
+        {/* ── Part A3: direction vs trade decision, judged separately ── */}
+        {accuracy.data?.audit_summary && <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-3">
+          <div className="text-xs uppercase tracking-wide text-sky-300">Direction vs trade decision — judged separately</div>
+          <div className="mt-2 grid gap-3 sm:grid-cols-4">
+            <div>
+              <div className="text-xs text-slate-500">Direction accuracy (fee-free)</div>
+              <div className="text-lg font-semibold">{accuracy.data.audit_summary.direction_accuracy_pct == null ? "Insufficient" : accuracy.data.audit_summary.direction_accuracy_pct + "%"}</div>
+              <div className="text-[11px] text-slate-500">{accuracy.data.audit_summary.direction_correct_count}/{accuracy.data.audit_summary.direction_evaluated} evaluated · {accuracy.data.audit_summary.direction_not_applicable} neutral excluded</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Trade-decision accuracy (fee-aware)</div>
+              <div className="text-lg font-semibold">{accuracy.data.audit_summary.trade_decision_accuracy_pct == null ? "Insufficient" : accuracy.data.audit_summary.trade_decision_accuracy_pct + "%"}</div>
+              <div className="text-[11px] text-slate-500">{accuracy.data.audit_summary.trade_decision_correct_count}/{accuracy.data.audit_summary.trade_decision_evaluated} BUY/SELL decisions</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">WAIT saved</div>
+              <div className="text-lg font-semibold text-emerald-300">{number(accuracy.data.audit_summary.wait_decision_saved_usdt)}</div>
+              <div className="text-[11px] text-slate-500">losses avoided by not trading</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">WAIT missed</div>
+              <div className="text-lg font-semibold text-rose-300">{number(accuracy.data.audit_summary.wait_decision_missed_usdt)}</div>
+              <div className="text-[11px] text-slate-500">profits missed by not trading</div>
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Net benefit of WAIT: <span className={accuracy.data.audit_summary.wait_decision_net_benefit_usdt >= 0 ? "text-emerald-300" : "text-rose-300"}>{number(accuracy.data.audit_summary.wait_decision_net_benefit_usdt)}</span> USDT
+            over {accuracy.data.audit_summary.wait_decisions_evaluated} evaluated WAIT decisions · {accuracy.data.audit_summary.manual_override_count} manual overrides. {accuracy.data.audit_summary.note}
+          </p>
+        </div>}
+
+        {/* ── Part D1/D2: bucketed accuracy vs break-even ── */}
+        {accuracy.data && <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs uppercase tracking-wide text-amber-300">Bucketed accuracy vs break-even</div>
+            <div className="text-xs text-slate-500">
+              n={accuracy.data.sample_size} · buckets under {accuracy.data.thresholds.bucket_min_samples} are insufficient · tradeable needs {accuracy.data.thresholds.tradeable_min_samples}
+            </div>
+          </div>
+          <div className="mt-2 grid gap-3 sm:grid-cols-4">
+            <div><div className="text-xs text-slate-500">Overall direction</div><div className="text-sm font-semibold">{accuracy.data.overall.direction_accuracy_pct == null ? "Insufficient" : accuracy.data.overall.direction_accuracy_pct + "%"}</div></div>
+            <div><div className="text-xs text-slate-500">Break-even needed</div><div className="text-sm font-semibold text-amber-200">{accuracy.data.overall.break_even_accuracy_pct == null ? "—" : accuracy.data.overall.break_even_accuracy_pct + "%"}</div></div>
+            <div><div className="text-xs text-slate-500">Avg realised move</div><div className="text-sm font-semibold">{accuracy.data.overall.avg_abs_move_pct == null ? "—" : accuracy.data.overall.avg_abs_move_pct.toFixed(4) + "%"}</div></div>
+            <div><div className="text-xs text-slate-500">Verdict</div><div className={"text-sm font-semibold " + (accuracy.data.overall.tradeable ? "text-emerald-300" : "text-rose-300")}>{accuracy.data.overall.tradeable ? "TRADEABLE" : "NOT TRADEABLE"}</div></div>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">{accuracy.data.overall.tradeable_reason}</p>
+          {Object.entries(accuracy.data.buckets).map(([dimension, buckets]) => (
+            <details key={dimension} className="mt-2">
+              <summary className="cursor-pointer text-xs text-slate-400">Group by {dimension.replaceAll("_", " ")} ({buckets.length})</summary>
+              <div className="mt-1 overflow-x-auto"><table className="w-full whitespace-nowrap text-left text-xs"><thead><tr>
+                {["Bucket", "n", "Direction", "Trade decision", "Avg gross", "Avg net", "Break-even", "Verdict"].map((title) => <th key={title} className="p-2 text-slate-500">{title}</th>)}
+              </tr></thead><tbody>{buckets.map((bucket) => <tr key={bucket.bucket} className="border-t border-slate-800">
+                <td className="p-2">{bucket.bucket}</td>
+                <td className="p-2">{bucket.n}</td>
+                <td className="p-2">{bucket.direction_accuracy_pct == null ? "insufficient" : bucket.direction_accuracy_pct + "%"}</td>
+                <td className="p-2">{bucket.trade_decision_accuracy_pct == null ? "insufficient" : bucket.trade_decision_accuracy_pct + "%"}</td>
+                <td className="p-2">{number(bucket.avg_gross_pnl)}</td>
+                <td className="p-2">{number(bucket.avg_net_pnl)}</td>
+                <td className="p-2">{bucket.break_even_accuracy_pct == null ? "—" : bucket.break_even_accuracy_pct + "%"}</td>
+                <td className={"p-2 " + (bucket.tradeable ? "text-emerald-300" : "text-slate-500")}>{bucket.status === "insufficient" ? "insufficient" : bucket.tradeable ? "tradeable" : "not tradeable"}</td>
+              </tr>)}</tbody></table></div>
+            </details>
+          ))}
+        </div>}
+
+        {/* ── Part D3/D4: confidence reliability ── */}
+        {accuracy.data && <div className="rounded-xl border border-slate-800 p-3">
+          <div className="text-xs uppercase tracking-wide text-slate-300">Confidence reliability</div>
+          <div className="mt-2 grid gap-4 sm:grid-cols-2">
+            {([["indicator_vote", "Indicator vote (vote share)"], ["forecast_confidence", "Forecast confidence"]] as const).map(([key, label]) => {
+              const metric = accuracy.data!.confidence_reliability[key];
+              return <div key={key}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-slate-300">{label}</span>
+                  <span className={"rounded-full border px-2 py-0.5 text-[11px] " + (metric.calibrated ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200" : "border-slate-600 bg-slate-800 text-slate-400")}>
+                    {metric.calibrated ? "calibrated" : "uncalibrated score"}
+                  </span>
+                </div>
+                <div className="mt-1 text-[11px] text-slate-500">
+                  n={metric.sample_size} · Brier {metric.brier_score ?? "—"} · correct {metric.avg_confidence_correct ?? "—"}% vs incorrect {metric.avg_confidence_incorrect ?? "—"}% (separation {metric.separation ?? "—"})
+                </div>
+                <div className="mt-2 space-y-1">
+                  {metric.calibration.map((bucket) => <div key={bucket.bucket} className="flex items-center gap-2 text-[11px]">
+                    <span className="w-14 shrink-0 text-slate-500">{bucket.bucket}%</span>
+                    <span className="h-2 flex-1 overflow-hidden rounded bg-slate-800"><span className="block h-full bg-emerald-500/60" style={{ width: `${bucket.observed_hit_rate_pct ?? 0}%` }} /></span>
+                    <span className="w-32 shrink-0 text-slate-500">
+                      {bucket.observed_hit_rate_pct == null ? `uncalibrated (n=${bucket.n})` : `${bucket.observed_hit_rate_pct}% hit (n=${bucket.n})`}
+                    </span>
+                  </div>)}
+                </div>
+              </div>;
+            })}
+          </div>
+          <p className="mt-2 text-xs text-slate-500">
+            A vote share is not a probability. Until a bucket reaches {accuracy.data.thresholds.calibration_min_samples} evaluated samples the number stays labelled an uncalibrated score; above it, the observed hit rate is shown. No model is promoted automatically — you review.
+          </p>
+        </div>}
         <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div><div className="text-xs uppercase tracking-wide text-violet-300">Historical walk-forward backtest</div><div className="text-xs text-slate-400">{backtest.data?.note ?? "No persisted backtest results yet."}</div></div>
@@ -311,13 +524,39 @@ export const QuickTradeResearchPanel = memo(function QuickTradeResearchPanel({ w
         })}</div>
         <p className="text-xs text-slate-400">Summary covers this page's live trades only, not overall accuracy. Paper data is marked synthetic. Funding/fee source must be checked before training on net-profit labels.</p>
         <div className="overflow-x-auto"><table className="w-full whitespace-nowrap text-left text-xs"><thead><tr>
-          {["Select", "Entry / signal", "Confidence", "Actual direction", "Gross / net", "Profit/Loss", "Direction match", "Horizon correct", "Async outcome", "Fee source", "Samples"].map((title) => <th key={title} className="p-2">{title}</th>)}
+          {["Select", "Entry / signal", "Confidence", "Actual direction", "Gross / net", "Profit/Loss",
+            // Part A3/A4 — the two predictions judged separately, plus what a
+            // WAIT saved or missed. Deliberately their own columns beside the
+            // existing ones rather than replacing them.
+            "Direction pred.", "Direction correct", "Trade decision", "Decision correct", "WAIT saved/missed", "Override",
+            "Direction match", "Horizon correct", "Async outcome", "Fee source", "Samples"].map((title) => <th key={title} className="p-2">{title}</th>)}
         </tr></thead><tbody>{report.data.rows.map((row) => <tr key={row.trade_id} className="border-t border-slate-800">
           <td className="p-2"><input type="checkbox" aria-label={`Select trade ${row.trade_id}`} checked={selected.includes(row.trade_id)} onChange={(e) => setSelected((ids) => e.target.checked ? [...ids, row.trade_id] : ids.filter((id) => id !== row.trade_id))} /></td>
           <td className="p-2"><button className="underline" onClick={() => setDetail(row)}>{new Date(row.entry_at).toLocaleString()} · {row.side}</button></td>
           <td className="p-2">{row.mode} · {row.prediction_direction ?? row.side}</td><td className="p-2">{number(row.prediction_confidence)}</td>
           <td className="p-2">{row.actual_trade_direction ?? "Unknown"}</td><td className="p-2">{number(row.gross_pnl)} / {number(row.net_pnl_booked)}</td>
           <td className={row.net_profit_positive === true ? "p-2 text-emerald-300" : row.net_profit_positive === false ? "p-2 text-rose-300" : "p-2"}>{row.trade_result ?? "Unknown"}</td>
+          <td className="p-2">{row.direction_prediction?.value ?? "—"}</td>
+          <td className={row.direction_correct === true ? "p-2 text-emerald-300" : row.direction_correct === false ? "p-2 text-rose-300" : "p-2 text-slate-500"}>
+            {row.direction_evaluation_status === "not_applicable" ? "N/A (neutral)" : truth(row.direction_correct ?? null)}
+          </td>
+          <td className="p-2">
+            {row.trade_decision_prediction?.value ?? "—"}
+            {row.trade_decision_prediction?.gate_reason ? <span className="text-amber-400"> ({row.trade_decision_prediction.gate_reason})</span> : null}
+          </td>
+          <td className={row.trade_decision_correct === true ? "p-2 text-emerald-300" : row.trade_decision_correct === false ? "p-2 text-rose-300" : "p-2 text-slate-500"}>
+            {row.trade_decision_evaluation_status === "not_applicable_wait" ? "N/A (wait)" : truth(row.trade_decision_correct ?? null)}
+          </td>
+          <td className="p-2">
+            {row.wait_shadow?.status !== "evaluated"
+              ? <span className="text-slate-500">{row.wait_shadow?.status ?? "—"}</span>
+              : <>
+                  <span className="text-emerald-300">{number(row.wait_shadow?.wait_saved_usdt)}</span>
+                  {" / "}
+                  <span className="text-rose-300">{number(row.wait_shadow?.wait_missed_usdt)}</span>
+                </>}
+          </td>
+          <td className={row.manual_override === true ? "p-2 text-amber-300" : "p-2 text-slate-500"}>{truth(row.manual_override ?? null)}</td>
           <td className="p-2">{truth(row.direction_match_at_trade_exit)}</td><td className="p-2">{truth(row.prediction_horizon_direction_correct)}</td>
           <td className="p-2">{row.outcome_evaluation?.primary?.direction_correct == null ? (row.outcome_evaluation?.status ?? "pending") : truth(row.outcome_evaluation.primary.direction_correct)}</td>
           <td className="p-2">{row.fees.source}</td><td className="p-2">{row.data_quality.sample_count}</td>

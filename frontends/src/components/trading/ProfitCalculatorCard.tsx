@@ -91,9 +91,17 @@ export function ProfitCalculatorCard({ netEdge, isLoading, isStalled }: ProfitCa
 
           <div className="mt-2 text-xs leading-relaxed text-slate-400">
             {projection.blocked ? (
-              <span className="text-rose-300">
-                At the current signal, this duration/stake doesn't clear fees and slippage — try a longer duration
-                or a bigger stake.
+              // Part C4 -- name the ACTUAL binding constraint. The old text
+              // ("try a longer duration or a bigger stake") was misleading:
+              // fees and P&L both scale with notional, so a bigger stake can
+              // only ever clear the absolute min-expected-net floor, never
+              // the percentage cost gate. The backend decides which it is
+              // (TradeForecastService::netEdge -> binding_constraint); this
+              // component only renders it, and falls back to the old wording
+              // solely when talking to a backend that doesn't send it.
+              <span className={netEdge?.binding_constraint === "stake" ? "text-amber-300" : "text-rose-300"}>
+                {netEdge?.binding_constraint_hint ??
+                  "At the current signal, this duration/stake doesn't clear fees and slippage."}
               </span>
             ) : (
               <span>
@@ -107,6 +115,12 @@ export function ProfitCalculatorCard({ netEdge, isLoading, isStalled }: ProfitCa
           <div className="mt-2 text-xs text-slate-500">
             {netEdge?.tradeable ? "Meets Robot Trade's live safety threshold." : "Below Robot Trade's live safety threshold."}
             {" "}Round-trip fee ~{netEdge?.round_trip_fee_pct?.toFixed(4)}%, slippage buffer ~{netEdge?.slippage_buffer_pct?.toFixed(4)}%.
+            {netEdge?.max_achievable_move_pct != null && (
+              <> Max possible move at current volatility ~{netEdge.max_achievable_move_pct.toFixed(4)}% vs {netEdge.required_move_pct?.toFixed(4)}% required.</>
+            )}
+            {netEdge?.fee_rate_source && (
+              <> Fee rate from {netEdge.fee_rate_source === "account" ? "your exchange account tier" : "platform config"}.</>
+            )}
           </div>
         </>
       )}

@@ -252,9 +252,85 @@ export interface ForecastPayload {
     liquidity_note?: string;
   };
   // Additive: which context safety gate (if any) forced decision_trend to WAIT.
-  gate_reason?: "stale_data" | "low_volume" | null;
+  gate_reason?: "stale_data" | "low_volume" | "candle_gap" | null;
   // Additive: non-blocking caution flags surfaced alongside the decision.
   context_caution?: Array<"near_resistance" | "near_support" | string>;
+
+  // ── Part A1: the two separate, honest answers ──────────────────────────
+  // `direction` is what the model thinks price does by expiry, IGNORING
+  // costs. `trade_decision` is whether that move is worth trading AFTER fees
+  // and slippage. They come from one evaluation, not two engines, so they
+  // always agree with the legacy `bias` / `decision_trend` fields above.
+  direction?: {
+    value: "BUY" | "SELL" | "NEUTRAL";
+    source: string;
+    expiry_score: number;
+    expected_move_pct: number;
+    fee_aware: false;
+  };
+  trade_decision?: {
+    value: "BUY" | "SELL" | "WAIT";
+    fee_aware: true;
+    required_move_pct: number;
+    max_achievable_move_pct: number;
+    cost_pct: number;
+    gate_reason: "stale_data" | "low_volume" | "candle_gap" | null;
+    expected_move_pct: number;
+    fee_model: "taker" | "maker_entry";
+    fee_rate_source: "account" | "config";
+    volatility_floor_pct: number;
+  };
+
+  // ── Part B: candle timing ──────────────────────────────────────────────
+  // Null (never fabricated) when the caller did not supply candle timing.
+  input_candles_include_forming_bar?: boolean | null;
+  decision_candle_close_at?: string | null;
+  seconds_since_last_close?: number | null;
+  next_close_in_seconds?: number | null;
+  candle_timing?: {
+    timeframe_seconds: number;
+    decision_candle_close_at: string | null;
+    seconds_since_last_close: number | null;
+    next_close_in_seconds: number | null;
+    grace_ms: number;
+    within_grace: boolean;
+    candle_gap: boolean;
+    forming_bar_dropped: boolean;
+    timestamps_available: boolean;
+    closed_candles_used: number;
+    raw_candles_supplied: number;
+  };
+  decision_cache?: {
+    status: "computed" | "reused" | "not_applicable";
+    anchor_candle_close_ms?: number;
+    next_decision_in_seconds?: number | null;
+  };
+
+  // ── Part C: fee economics ──────────────────────────────────────────────
+  cost_model?: {
+    fee_model: "taker" | "maker_entry";
+    fee_rate_entry: number;
+    fee_rate_exit: number;
+    slippage_buffer_pct: number;
+    cost_pct: number;
+    cost_multiplier: number;
+    required_move_pct: number;
+    min_expected_net_usdt: number;
+    fee_rate_source: "account" | "config";
+  };
+  duration_availability?: DurationAvailability[];
+  shortest_viable_expiry_seconds?: number | null;
+}
+
+/** C2 -- per-duration viability at the CURRENT volatility, computed server-side. */
+export interface DurationAvailability {
+  expiry_seconds: number;
+  horizon_candles: number;
+  max_achievable_move_pct: number;
+  required_move_pct: number;
+  available: boolean;
+  reason: string | null;
+  short_live_expiry: boolean;
 }
 
 export interface NetEdgePayload {
@@ -273,6 +349,14 @@ export interface NetEdgePayload {
   actual_cost_usdt: number;
   expected_net_usdt_actual: number;
   reason?: string;
+  // Part C4 -- which constraint is ACTUALLY binding. Replaces the old
+  // "try a longer duration or a bigger stake" text, which was misleading
+  // because fees and PnL both scale with notional.
+  max_achievable_move_pct?: number | null;
+  binding_constraint?: "duration" | "signal" | "stake" | "none";
+  binding_constraint_hint?: string;
+  fee_model?: "taker" | "maker_entry";
+  fee_rate_source?: "account" | "config";
 }
 
 export interface QuickTradeForecastPayload {
@@ -495,6 +579,11 @@ export interface ForecastCandle {
   high: number;
   low: number;
   close: number;
+  /** Candle OPEN time in ms. Required for the backend's "closed candles
+   * only" decision rule (Part B) — without it the server honestly reports
+   * that it cannot tell the forming bar apart, instead of guessing. */
+  timestamp?: number;
+  volume?: number;
 }
 
 export function useQuickTradeForecast(params: {
@@ -506,6 +595,11 @@ export function useQuickTradeForecast(params: {
   expirySeconds: number;
   stakeAmount: number;
   symbol?: string;
+  /** Part C2: lets the backend mark each duration option available or not at
+   * the current volatility, and (in live mode) hide the ones that cannot
+   * clear fees. */
+  mode?: "paper" | "live";
+  durations?: number[];
 }) {
   const candleCount = params.candles?.length ?? 0;
   const now = usePredictionClock();
@@ -519,10 +613,14 @@ export function useQuickTradeForecast(params: {
       params.expirySeconds,
       params.stakeAmount,
       params.symbol,
+      params.mode,
+      (params.durations ?? []).join(","),
     ],
     queryFn: ({ signal }) =>
       backgroundForecast<QuickTradeForecastPayload>("/quick-trade/forecast", {
         candles: params.candles,
+        mode: params.mode,
+        durations: params.durations,
         signal: params.signal
           ? { direction: params.signal.direction, confidence: params.signal.confidence }
           : undefined,
