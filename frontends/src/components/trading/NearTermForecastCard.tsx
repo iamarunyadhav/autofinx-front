@@ -1,4 +1,5 @@
-import type { ForecastPayload } from "@/hooks/useQuickTrade";
+import { useEffect, useState } from "react";
+import type { ForecastCalculationMeta, ForecastPayload } from "@/hooks/useQuickTrade";
 
 export function forecastTone(bias?: string): string {
   return bias === "BUY" ? "text-emerald-300" : bias === "SELL" ? "text-rose-300" : "text-slate-300";
@@ -17,7 +18,43 @@ const CAUTION_LABEL: Record<string, string> = {
   near_support: "Approaching support",
 };
 
-export function NearTermForecastCard({ forecast, symbol }: { forecast?: ForecastPayload | null; symbol?: string }) {
+/** Ticks once a second purely to re-render the "decision computed Ns ago"
+ * badge below -- mirrors the same pattern `usePredictionClock()` already
+ * uses in useQuickTrade.ts for prediction-expiry checks. Local to this
+ * component since it's a display concern, not a data-fetching one. */
+function useClockTick(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return now;
+}
+
+export interface NearTermForecastCardProps {
+  forecast?: ForecastPayload | null;
+  symbol?: string;
+  /** Additive worker-latency telemetry (queue_wait_ms/compute_ms), from the
+   * same async forecast job that produced `forecast` -- see
+   * `App\Jobs\CalculateTradeForecast::handle()`. Optional: callers that
+   * don't have it (e.g. Robot Trade's own forecast source) simply don't
+   * get the latency breakdown tooltip, the rest of the card is unaffected. */
+  calculation?: ForecastCalculationMeta | null;
+  /** True while a forecast request is in flight (initial load, or a
+   * refetch after the previous verdict's ~20s validity window expired)
+   * AND no current `forecast` is available yet -- distinct from a genuine
+   * WAIT decision so a slow/backlogged worker doesn't silently look like
+   * an ordinary "wait" verdict. Pass `query.isLoading || query.isFetching`
+   * from the caller's `useQuickTradeForecast()` result. */
+  isLoading?: boolean;
+  /** True when the async forecast worker did not respond in time (see
+   * `backgroundForecast()`'s bounded retry loop in useQuickTrade.ts) --
+   * again distinct from a genuine WAIT decision. */
+  isStalled?: boolean;
+}
+
+export function NearTermForecastCard({ forecast, symbol, calculation, isLoading, isStalled }: NearTermForecastCardProps) {
+  const now = useClockTick();
   const current = forecast?.current_trend ?? forecast?.bias ?? "NEUTRAL";
   const decision = forecast?.decision_trend ?? forecast?.bias ?? "WAIT";
   const tone = forecastTone(decision);
@@ -39,9 +76,33 @@ export function NearTermForecastCard({ forecast, symbol }: { forecast?: Forecast
   const gateMessage = gateReasonMessage(forecast?.gate_reason);
   const cautions = forecast?.context_caution ?? [];
 
+  // How long ago THIS decision_trend/BUY-SELL-WAIT verdict was computed --
+  // distinct from `live_feed.age_seconds` above, which is the age of the
+  // input quote, not the age of the decision itself. `forecast.generated_at`
+  // is set once per forecast() call (TradeForecastService::forecast()), so
+  // this genuinely reflects "how stale is the verdict on screen right now",
+  // ticking live via useClockTick() rather than freezing at fetch time.
+  const decisionAgeMs = forecast?.generated_at ? Math.max(0, now - new Date(forecast.generated_at).getTime()) : null;
+  const decisionAgeSeconds = decisionAgeMs != null ? decisionAgeMs / 1000 : null;
+  const latencyTitle = calculation
+    ? `Worker queue wait ${calculation.queue_wait_ms}ms + compute ${calculation.compute_ms}ms for this verdict.`
+    : undefined;
+  const showStalled = isStalled && !forecast;
+  const showComputing = isLoading && !forecast && !showStalled;
+
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3">
       {symbol && <div className="mb-2 text-xs text-slate-400">{symbol} · Chart: {forecast?.context_timeframe ?? "loading"} · Expiry: {forecast?.horizon_seconds ?? "—"}s</div>}
+      {showComputing && (
+        <div className="mb-2 rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-xs text-sky-200">
+          Computing the live decision for this selection… this is not a WAIT verdict yet, the first read is still in flight.
+        </div>
+      )}
+      {showStalled && (
+        <div className="mb-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
+          The decision engine did not respond in time (worker backlog or offline) — this is NOT a confirmed WAIT signal, it is a stalled read. Retrying automatically.
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-[180px]">
           <div className="text-xs uppercase tracking-wide text-slate-500">Current Trend</div>
@@ -93,6 +154,16 @@ export function NearTermForecastCard({ forecast, symbol }: { forecast?: Forecast
             {forecast.live_feed.fresh
               ? `QUOTE ${forecast.live_feed.age_seconds ?? "?"}s · LAG ${forecast.live_feed.event_lag_ms ?? "?"}ms`
               : "QUOTE STALE"}
+          </span>
+        )}
+        {decisionAgeSeconds != null && (
+          <span
+            title={latencyTitle}
+            className={`rounded-full border px-2 py-0.5 ${decisionAgeSeconds <= 8
+              ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+              : "border-amber-400/30 bg-amber-400/10 text-amber-200"}`}
+          >
+            DECISION {decisionAgeSeconds.toFixed(1)}s old
           </span>
         )}
         {forecast?.forecast_stability && forecast.forecast_stability !== "UNKNOWN" && (

@@ -12,8 +12,31 @@ function usePredictionClock() {
 }
 
 function currentPrediction<T>(data: T | undefined, now: number): T | undefined {
-  const expiry = (data as { calculation?: { valid_until?: number } } | undefined)?.calculation?.valid_until;
+  const expiry = (data as { calculation?: ForecastCalculationMeta } | undefined)?.calculation?.valid_until;
   return expiry && now < expiry * 1000 ? data : undefined;
+}
+
+/**
+ * Latency telemetry for the async forecast worker (see
+ * `App\Jobs\CalculateTradeForecast::handle()`), additive alongside the
+ * existing `forecast.generated_at` decision timestamp. `generated_at`/
+ * `requested_at`/`valid_until` here are unix seconds (job's own `time()`),
+ * distinct from `forecast.generated_at`'s ISO string (`now()` inside
+ * `TradeForecastService::forecast()`) -- both describe "when was this
+ * decision computed", just with different clocks/formats from two
+ * different layers; neither is a measure of quote/input freshness (see
+ * `ForecastPayload.live_feed` for that).
+ */
+export interface ForecastCalculationMeta {
+  requested_at: number;
+  generated_at: number;
+  valid_until: number;
+  queue_wait_ms: number;
+  compute_ms: number;
+  symbol?: string | null;
+  exchange?: string | null;
+  timeframe?: string;
+  expiry_seconds?: number;
 }
 
 // HTTP returns immediately while a dedicated worker calculates. The query
@@ -255,6 +278,10 @@ export interface NetEdgePayload {
 export interface QuickTradeForecastPayload {
   forecast: ForecastPayload;
   net_edge: NetEdgePayload;
+  // Present on the async worker path (the only path today's frontend
+  // callers use -- see `backgroundForecast()` below). Absent, not
+  // fabricated, when a caller ever hits the synchronous path instead.
+  calculation?: ForecastCalculationMeta;
 }
 
 export interface UnifiedForecastPayload {
@@ -274,6 +301,7 @@ export interface ForecastComparisonPayload {
   unified: UnifiedForecastPayload | null;
   comparison: { direction_agreement: boolean | null; agreement: "AGREE" | "DISAGREE" | "UNAVAILABLE" };
   execution_source: "unchanged_existing_engine";
+  calculation?: ForecastCalculationMeta;
 }
 
 export function useForecastComparison(params: {

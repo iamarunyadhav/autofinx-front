@@ -934,8 +934,18 @@ export default function QuickTradePage() {
 
           {/* ── Near-term forecast + profit calculator (shared with Robot Trade) ── */}
           <div className="grid gap-5 lg:grid-cols-2">
-            <NearTermForecastCard forecast={forecastQuery.data?.forecast} symbol={symbol} />
-            <ProfitCalculatorCard netEdge={forecastQuery.data?.net_edge} />
+            <NearTermForecastCard
+              forecast={forecastQuery.data?.forecast}
+              symbol={symbol}
+              calculation={forecastQuery.data?.calculation}
+              isLoading={forecastQuery.isLoading || forecastQuery.isFetching}
+              isStalled={forecastQuery.isError}
+            />
+            <ProfitCalculatorCard
+              netEdge={forecastQuery.data?.net_edge}
+              isLoading={forecastQuery.isLoading || forecastQuery.isFetching}
+              isStalled={forecastQuery.isError}
+            />
           </div>
           <ForecastComparisonCard current={forecastComparison.data?.current ?? forecastQuery.data?.forecast} unified={forecastComparison.data?.unified} agreement={forecastComparison.data?.comparison?.agreement} selected={predictionSource} onSelect={setPredictionSource} />
 

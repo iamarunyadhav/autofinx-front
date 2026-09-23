@@ -10,7 +10,16 @@ function formatUsdt(value: number) {
   return value.toFixed(4);
 }
 
-export function ProfitCalculatorCard({ netEdge }: { netEdge?: NetEdgePayload | null }) {
+export interface ProfitCalculatorCardProps {
+  netEdge?: NetEdgePayload | null;
+  /** Same meaning as `NearTermForecastCard`'s props of the same name --
+   * both cards read the same `useQuickTradeForecast()` query, so a stalled
+   * worker affects both at once. */
+  isLoading?: boolean;
+  isStalled?: boolean;
+}
+
+export function ProfitCalculatorCard({ netEdge, isLoading, isStalled }: ProfitCalculatorCardProps) {
   const [targetProfit, setTargetProfit] = useState(5);
   const [leverage, setLeverage] = useState(MIN_CALCULATOR_LEVERAGE);
 
@@ -54,7 +63,13 @@ export function ProfitCalculatorCard({ netEdge }: { netEdge?: NetEdgePayload | n
       )}
 
       {!projection ? (
-        <div className="mt-3 text-xs text-slate-500">Waiting for a fresh signal to estimate profit.</div>
+        <div className="mt-3 text-xs text-slate-500">
+          {isStalled
+            ? "The decision engine did not respond in time — profit estimate unavailable right now, retrying automatically."
+            : isLoading
+              ? "Computing a fresh profit estimate for this selection…"
+              : "Waiting for a fresh signal to estimate profit."}
+        </div>
       ) : (
         <>
           <div className="mt-3 grid grid-cols-1 gap-3 text-left sm:grid-cols-3 sm:text-right">
