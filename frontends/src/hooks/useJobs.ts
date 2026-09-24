@@ -108,7 +108,37 @@ export interface JobsDashboard {
   };
   scheduler_runs: SchedulerRun[];
   recommendations: string[];
+  /** N2 -- `predictions` queue worker latency (App\Domain\Ops\PredictionQueueLatencyMetrics::summary()).
+   * Optional so an older backend without the key still renders the page. */
+  prediction_worker_latency?: PredictionWorkerLatency;
   generated_at: string;
+}
+
+export interface LatencyPercentiles {
+  /** Null when there is no data in the window -- never a fabricated 0. */
+  p50: number | null;
+  p95: number | null;
+  max: number | null;
+  n: number;
+}
+
+export interface PredictionWorkerLatency {
+  queue: string;
+  window_seconds: number;
+  max_samples: number;
+  validity_seconds: number;
+  available: boolean;
+  reason?: string;
+  samples?: number;
+  published?: number;
+  dropped_total?: number;
+  dropped_expired_before_compute?: number;
+  dropped_expired_after_compute?: number;
+  drop_rate_pct?: number | null;
+  queue_wait_ms?: LatencyPercentiles;
+  compute_ms?: LatencyPercentiles;
+  oldest_sample_at?: string | null;
+  newest_sample_at?: string | null;
 }
 
 export function useJobsDashboard() {

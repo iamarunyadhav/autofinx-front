@@ -1,13 +1,19 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import type { SignalPreview } from "@/hooks/useQuickTrade";
+import type { ForecastPayload, SignalPreview } from "@/hooks/useQuickTrade";
+import { waitReasonLine } from "@/lib/waitReason";
 
 interface SignalSummaryCardProps {
   signal?: SignalPreview;
+  /** Gap-checklist N5 -- the fee-aware trade decision from the same forecast
+   * the Direction/Trade-decision card renders. Optional: callers that don't
+   * pass it (Ratio Bot) get exactly the old indicator-only Why list. */
+  tradeDecision?: ForecastPayload["trade_decision"] | null;
 }
 
-export function SignalSummaryCard({ signal }: SignalSummaryCardProps) {
+export function SignalSummaryCard({ signal, tradeDecision }: SignalSummaryCardProps) {
+  const waitLine = waitReasonLine(tradeDecision);
   const directionTone =
     signal?.direction === "buy"
       ? "bg-emerald-500/10 text-emerald-300 border-emerald-400/30"
@@ -26,7 +32,7 @@ export function SignalSummaryCard({ signal }: SignalSummaryCardProps) {
       <CardContent className="space-y-4 px-4 sm:px-6">
         <div className="rounded-2xl bg-slate-900/80 p-3 sm:p-4">
           <div className="mb-2 flex items-center justify-between text-sm text-slate-300">
-            <span>Confidence</span>
+            <span title="Share of indicator votes that agree -- not a measured probability that the direction is right.">Vote share (not a probability)</span>
             <span>{signal?.confidence ?? 0}%</span>
           </div>
           <Progress value={signal?.confidence ?? 0} className="h-2 bg-slate-800" />
@@ -49,6 +55,11 @@ export function SignalSummaryCard({ signal }: SignalSummaryCardProps) {
 
         <div className="space-y-2">
           <div className="text-sm font-medium text-slate-100">Why</div>
+          {waitLine && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+              {waitLine}
+            </div>
+          )}
           {(signal?.reasons ?? []).length > 0 ? (
             <div className="space-y-2 text-sm text-slate-300">
               {signal?.reasons.map((reason) => (

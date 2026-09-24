@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ForecastCalculationMeta, ForecastPayload } from "@/hooks/useQuickTrade";
+import { DECISION_BADGE_CLASS, QUEUE_WAIT_AMBER_MS, decisionBadgeTone } from "@/lib/decisionBadge";
 
 export function forecastTone(bias?: string): string {
   return bias === "BUY" ? "text-emerald-300" : bias === "SELL" ? "text-rose-300" : "text-slate-300";
@@ -84,8 +85,47 @@ export function NearTermForecastCard({ forecast, symbol, calculation, isLoading,
   // ticking live via useClockTick() rather than freezing at fetch time.
   const decisionAgeMs = forecast?.generated_at ? Math.max(0, now - new Date(forecast.generated_at).getTime()) : null;
   const decisionAgeSeconds = decisionAgeMs != null ? decisionAgeMs / 1000 : null;
+  // A flat "stale past 8s" cutoff is misleading once expiries range from 1
+  // minute to 60+ minutes: 15s is nothing next to an hour-long decision but
+  // looks alarmingly stale next to a 1-minute one. Scale the cutoff to the
+  // chart timeframe instead (10% of it), with the old 8s kept as a floor so
+  // short-timeframe behaviour is unchanged.
+  const decisionStaleThresholdSeconds = forecast?.context_timeframe_seconds
+    ? Math.max(8, forecast.context_timeframe_seconds * 0.1)
+    : 8;
+  // N1 red tier: the async worker's own validity window for this result
+  // (valid_until - requested_at, 20s today). Only known when `calculation`
+  // is supplied (Quick Trade); Ratio Bot / Robot Trade keep the two-tier badge.
+  const validitySeconds = calculation && calculation.valid_until > calculation.requested_at
+    ? calculation.valid_until - calculation.requested_at
+    : null;
+  // N1 second half (B2 is live): the Quick Trade decision is cached per CLOSED
+  // candle, so `generated_at` is the moment that candle's decision was first
+  // computed and legitimately ages for a whole candle. There the honest
+  // statement is which close the decision is based on and when the next one
+  // lands; the colour then judges how old the RESULT on screen is (fetched
+  // from the worker), not how old the cached candle decision is.
+  const anchorCloseIso = forecast?.candle_timing?.decision_candle_close_at ?? forecast?.decision_candle_close_at ?? null;
+  const anchorCloseMs = anchorCloseIso ? new Date(anchorCloseIso).getTime() : NaN;
+  const timeframeSeconds = forecast?.candle_timing?.timeframe_seconds ?? forecast?.context_timeframe_seconds ?? null;
+  const closeAnchored = Number.isFinite(anchorCloseMs) && timeframeSeconds != null && timeframeSeconds > 0;
+  const nextUpdateSeconds = closeAnchored
+    ? Math.max(0, Math.round((anchorCloseMs + (timeframeSeconds as number) * 1000 - now) / 1000))
+    : null;
+  const resultAgeSeconds = calculation?.generated_at
+    ? Math.max(0, (now - calculation.generated_at * 1000) / 1000)
+    : null;
+  const badgeAgeSeconds = closeAnchored ? (resultAgeSeconds ?? decisionAgeSeconds) : decisionAgeSeconds;
+  const badgeTone = badgeAgeSeconds != null
+    ? decisionBadgeTone({
+      ageSeconds: badgeAgeSeconds,
+      thresholdSeconds: decisionStaleThresholdSeconds,
+      validitySeconds,
+      queueWaitMs: calculation?.queue_wait_ms ?? null,
+    })
+    : null;
   const latencyTitle = calculation
-    ? `Worker queue wait ${calculation.queue_wait_ms}ms + compute ${calculation.compute_ms}ms for this verdict.`
+    ? `Worker queue wait ${calculation.queue_wait_ms}ms + compute ${calculation.compute_ms}ms for this verdict. Stale past ${decisionStaleThresholdSeconds.toFixed(0)}s (10% of the ${forecast?.context_timeframe ?? "chart"} timeframe)${validitySeconds != null ? `; expired past ${validitySeconds}s` : ""}; queue wait over ${QUEUE_WAIT_AMBER_MS}ms is flagged as worker latency.${resultAgeSeconds != null ? ` Result fetched ${resultAgeSeconds.toFixed(1)}s ago.` : ""}`
     : undefined;
   const showStalled = isStalled && !forecast;
   const showComputing = isLoading && !forecast && !showStalled;
@@ -156,13 +196,13 @@ export function NearTermForecastCard({ forecast, symbol, calculation, isLoading,
               : "QUOTE STALE"}
           </span>
         )}
-        {decisionAgeSeconds != null && (
-          <span
-            title={latencyTitle}
-            className={`rounded-full border px-2 py-0.5 ${decisionAgeSeconds <= 8
-              ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
-              : "border-amber-400/30 bg-amber-400/10 text-amber-200"}`}
-          >
+        {badgeTone != null && closeAnchored && (
+          <span title={latencyTitle} className={`rounded-full border px-2 py-0.5 ${DECISION_BADGE_CLASS[badgeTone]}`}>
+            Based on {new Date(anchorCloseMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} candle close · next update in {nextUpdateSeconds}s
+          </span>
+        )}
+        {badgeTone != null && !closeAnchored && decisionAgeSeconds != null && (
+          <span title={latencyTitle} className={`rounded-full border px-2 py-0.5 ${DECISION_BADGE_CLASS[badgeTone]}`}>
             DECISION {decisionAgeSeconds.toFixed(1)}s old
           </span>
         )}

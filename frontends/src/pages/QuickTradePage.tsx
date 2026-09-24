@@ -444,6 +444,29 @@ export default function QuickTradePage() {
     );
   }, [assetClass, duration, metadata, symbol, timeframe, tradingState]);
 
+  // Part C1 -- live expiry presets (config/quick_trade.php, already filtered
+  // server-side to combinations this provider offers). On entering live mode
+  // the recommended preset becomes the default selection ONCE per
+  // workspace/provider; after that the user's own choice is never overridden.
+  const livePresets = useMemo(() => metadata?.quick_trade.live_expiry_presets ?? [], [metadata?.quick_trade.live_expiry_presets]);
+  const [livePresetAppliedFor, setLivePresetAppliedFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!metadata) return;
+    if (activeMode !== "live") {
+      if (livePresetAppliedFor !== null) setLivePresetAppliedFor(null);
+      return;
+    }
+    const scope = `${workspaceId ?? ""}:${selectedProvider}`;
+    if (livePresetAppliedFor === scope) return;
+    const recommended = livePresets.find((p) => p.recommended) ?? livePresets[0];
+    if (!recommended) return;
+    if (!metadata.timeframes.some((t) => t.key === recommended.timeframe)) return;
+    if (!metadata.durations.some((d) => d.seconds === recommended.expiry_seconds)) return;
+    setTimeframe(recommended.timeframe);
+    setDuration(recommended.expiry_seconds);
+    setLivePresetAppliedFor(scope);
+  }, [activeMode, livePresetAppliedFor, livePresets, metadata, selectedProvider, workspaceId]);
+
   // Backend SSE → Binance WebSocket (server-side) → no direct browser→Binance needed
   const feed = useQuickTradeCandleFeed(symbol, timeframe, !!symbol);
   const liveQuote = useBinanceFuturesQuoteFeed(symbol, !!symbol);
@@ -653,6 +676,23 @@ export default function QuickTradePage() {
   }, [stake]);
   const effectiveStake = Math.min(maxStake, Math.max(minStake, debouncedStake));
 
+  // Gap-checklist N3 -- single source of truth for the order's effective
+  // leverage: exactly the rule placeTrade() uses when it builds the request
+  // (live only, toggle on, a finite value >= 1; otherwise 1x). The forecast,
+  // the notional/qty/fee tiles and the profit calculator all read this, so
+  // none of them can disagree with what the order will actually carry.
+  const leverageInputValue = Number(leverageInput);
+  const leverageActive = activeMode === "live" && leverageEnabled && Number.isFinite(leverageInputValue) && leverageInputValue >= 1;
+  const orderLeverage = leverageActive ? leverageInputValue : 1;
+  const orderStake = Math.min(maxStake, Math.max(minStake, stake));
+  // Debounced like the stake so free-typing a leverage doesn't fire one
+  // forecast request per keystroke.
+  const [debouncedLeverage, setDebouncedLeverage] = useState(orderLeverage);
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedLeverage(orderLeverage), 350);
+    return () => window.clearTimeout(t);
+  }, [orderLeverage]);
+
   // Part B: send each candle's OPEN time so the backend can tell a closed bar
   // from the forming one. `chartCandles[].time` is in SECONDS (lightweight-
   // charts' UTCTimestamp); the API's `timestamp` field is milliseconds.
@@ -681,6 +721,8 @@ export default function QuickTradePage() {
     symbol,
     mode: activeMode,
     durations: durationOptionSeconds,
+    // Live only: the backend ignores leverage for paper trades (as place() does).
+    leverage: activeMode === "live" ? debouncedLeverage : undefined,
   });
   const forecastData = forecastQuery.data?.forecast;
   const durationAvailability = forecastData?.duration_availability ?? [];
@@ -777,9 +819,8 @@ export default function QuickTradePage() {
 
     // Live mode only — paper mode has no real exchange position, so
     // leverage is never sent for a paper trade even if the toggle is on.
-    const leverageValue = Number(leverageInput);
-    const leverageActive = activeMode === "live" && leverageEnabled && Number.isFinite(leverageValue) && leverageValue >= 1;
-
+    // (leverageActive / leverageInputValue are the component-level single
+    // source of truth defined above — same rule, unchanged request.)
     placeQuickTrade.mutate({
       workspace_id: workspaceId,
       symbol,
@@ -794,9 +835,19 @@ export default function QuickTradePage() {
       idempotency_key: `qt-${workspaceId}-${symbol}-${side}-${timeframe}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       ...(stopLossPct !== undefined ? { stop_loss_pct: stopLossPct } : {}),
       ...(takeProfitPct !== undefined ? { take_profit_pct: takeProfitPct } : {}),
-      ...(leverageActive ? { leverage_enabled: true, leverage: leverageValue } : {}),
+      ...(leverageActive ? { leverage_enabled: true, leverage: leverageInputValue } : {}),
     });
   };
+
+  // N4 -- warn (always) when a LONG live expiry is about to go out with Stop
+  // Loss off. Threshold comes from the backend (quick_trade.
+  // require_stop_loss_min_expiry_seconds); nothing is ever auto-filled. Same
+  // "is a stop set" rule placeTrade() uses when building the request.
+  const stopLossWarnFromSeconds = Number(metadata?.quick_trade.require_stop_loss_min_expiry_seconds ?? 0);
+  const stopLossInputNumber = Number(stopLossPctInput);
+  const stopLossIsSet = stopLossPctInput.trim() !== "" && Number.isFinite(stopLossInputNumber) && stopLossInputNumber > 0;
+  const longExpiryWithoutStopLoss =
+    activeMode === "live" && stopLossWarnFromSeconds > 0 && duration >= stopLossWarnFromSeconds && !stopLossIsSet;
 
   const tradeButtonsDisabled =
     placeQuickTrade.isPending || updateTradingSettings.isPending || !workspaceId || !symbol ||
@@ -819,7 +870,23 @@ export default function QuickTradePage() {
     () => allActiveTrades.filter((t) => t.symbol !== symbol && t.status === "open"),
     [allActiveTrades, symbol]
   );
-  const estimatedQuantity = currentPrice ? Math.max(minStake, stake) / currentPrice : null;
+  // Gap-checklist N3 -- notional = margin (stake) x leverage. The backend's
+  // position_sizing applies the same exchange qty-step rounding placement
+  // uses; it is only rendered when it was computed for the stake/leverage
+  // currently in the form (the forecast is debounced/async), otherwise the
+  // tiles fall back to a clearly-labelled unrounded estimate.
+  const positionSizing = forecastQuery.data?.position_sizing;
+  const sizingMatchesForm = positionSizing != null
+    && positionSizing.leverage_applied
+    && Math.abs(positionSizing.stake_margin - orderStake) < 1e-9
+    && positionSizing.leverage === orderLeverage;
+  const roundedSizing = sizingMatchesForm && positionSizing.rounding === "exchange_step" ? positionSizing : null;
+  const targetNotional = orderStake * orderLeverage;
+  const estimatedQuantity = currentPrice ? targetNotional / currentPrice : null;
+  const netEdge = forecastQuery.data?.net_edge;
+  const netEdgeMatchesForm = netEdge?.stake_margin != null
+    && Math.abs(netEdge.stake_margin - orderStake) < 1e-9
+    && (netEdge.leverage ?? 1) === orderLeverage;
 
   // Stable callback for the memoized IndicatorsCard — a new inline arrow
   // function every render would defeat React.memo on that component.
@@ -1007,6 +1074,7 @@ export default function QuickTradePage() {
               netEdge={forecastQuery.data?.net_edge}
               isLoading={forecastQuery.isLoading || forecastQuery.isFetching}
               isStalled={forecastQuery.isError}
+              orderLeverage={orderLeverage}
             />
           </div>
           <ForecastComparisonCard current={forecastComparison.data?.current ?? forecastQuery.data?.forecast} unified={forecastComparison.data?.unified} agreement={forecastComparison.data?.comparison?.agreement} selected={predictionSource} onSelect={setPredictionSource} />
@@ -1108,6 +1176,30 @@ export default function QuickTradePage() {
                       </div>
                       <Button variant="ghost" className="h-11 w-11 rounded-full text-2xl text-slate-100 lg:h-10 lg:w-10" onClick={() => stepDuration("next")}>+</Button>
                     </div>
+                    {/* C1 — live presets (chart + expiry together). Server-provided,
+                        filtered to what this provider actually offers. */}
+                    {activeMode === "live" && livePresets.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {livePresets.map((preset) => {
+                          const active = preset.timeframe === timeframe && preset.expiry_seconds === duration;
+                          return (
+                            <button
+                              key={`${preset.timeframe}-${preset.expiry_seconds}`}
+                              type="button"
+                              onClick={() => { setTimeframe(preset.timeframe); setDuration(preset.expiry_seconds); }}
+                              className={cn(
+                                "rounded-full border px-3 py-1 text-[11px] transition-colors",
+                                active
+                                  ? "border-emerald-400/50 bg-emerald-400/15 text-emerald-200"
+                                  : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500",
+                              )}
+                            >
+                              {preset.label}{preset.recommended ? " · recommended" : ""}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                     {/* C2/C3 — every option, marked viable or not at the CURRENT
                         volatility, with the backend's own numeric reason. No
                         percentage on this screen is hardcoded. */}
@@ -1174,14 +1266,45 @@ export default function QuickTradePage() {
                     />
                     {activeMode === "live" && (
                       <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
-                        <div className="rounded-xl bg-slate-900 px-3 py-2">Notional ${Math.max(minStake, stake).toFixed(2)}</div>
                         <div className="rounded-xl bg-slate-900 px-3 py-2">
-                          Qty {estimatedQuantity ? estimatedQuantity.toFixed(6) : "waiting"}
+                          {roundedSizing
+                            ? <>Notional ${roundedSizing.notional.toFixed(2)}</>
+                            : <>Notional ≈ ${targetNotional.toFixed(2)}</>}
+                          <div className="text-[10px] text-slate-500">
+                            ${orderStake.toFixed(2)} stake × {orderLeverage}x
+                            {roundedSizing
+                              ? ` = $${roundedSizing.notional_target.toFixed(2)}, rounded down to the ${roundedSizing.step_size} qty step`
+                              : " (before exchange qty-step rounding)"}
+                          </div>
                         </div>
+                        <div className="rounded-xl bg-slate-900 px-3 py-2">
+                          {roundedSizing?.quantity != null
+                            ? <>Qty {roundedSizing.quantity}</>
+                            : <>Qty {estimatedQuantity ? `≈ ${estimatedQuantity.toFixed(6)}` : "waiting"}</>}
+                          <div className="text-[10px] text-slate-500">
+                            {roundedSizing ? "What the order will send" : "Unrounded estimate"}
+                          </div>
+                        </div>
+                        {sizingMatchesForm && positionSizing.below_exchange_minimum && (
+                          <div className="col-span-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-rose-200">
+                            After rounding to the exchange qty step this order is below the exchange minimum
+                            (min qty {positionSizing.min_qty}, min notional ${positionSizing.min_notional}). The exchange
+                            will reject it — raise the stake or leverage.
+                          </div>
+                        )}
                         <div className="rounded-xl bg-slate-900 px-3 py-2 col-span-2">
-                          Fee estimate ~{(forecastQuery.data?.net_edge?.actual_cost_usdt ?? 0).toFixed(4)} USDT round trip
-                          (~{(forecastQuery.data?.net_edge?.round_trip_fee_pct ?? 0).toFixed(4)}% fee + {(forecastQuery.data?.net_edge?.slippage_buffer_pct ?? 0).toFixed(4)}% slippage buffer).
-                          Final PnL uses exchange fills when available.
+                          {netEdge && netEdgeMatchesForm ? (
+                            <>
+                              Fee estimate ~{netEdge.actual_cost_usdt.toFixed(4)} USDT round trip
+                              {netEdge.actual_cost_pct_of_margin != null && <> = {netEdge.actual_cost_pct_of_margin.toFixed(3)}% of stake</>}
+                              {" "}(~{netEdge.round_trip_fee_pct.toFixed(4)}% fee + {netEdge.slippage_buffer_pct.toFixed(4)}% slippage buffer
+                              on ${(netEdge.notional ?? targetNotional).toFixed(2)} notional
+                              {netEdge.round_trip_fee_pct_of_margin != null && <>; fees alone {netEdge.round_trip_fee_pct_of_margin.toFixed(3)}% of stake</>}).
+                              Final PnL uses exchange fills when available.
+                            </>
+                          ) : (
+                            <>Fee estimate updating for ${orderStake.toFixed(2)} stake × {orderLeverage}x…</>
+                          )}
                         </div>
                         <div className="col-span-2 space-y-1">
                           <Label htmlFor="quick-trade-stop-loss" className="text-xs text-slate-400">
@@ -1200,6 +1323,15 @@ export default function QuickTradePage() {
                           <div className="text-[11px] text-slate-500">
                             Closes this position early if unrealized loss reaches this % of stake. Leave blank to disable.
                           </div>
+                          {longExpiryWithoutStopLoss && (
+                            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                              Stop Loss is off on a {Math.round(duration / 60)}-minute live position. Nothing will close it
+                              before expiry, whatever the price does.
+                              {metadata?.quick_trade.enforce_stop_loss_min_expiry
+                                ? ` Live expiries of ${Math.round(stopLossWarnFromSeconds / 60)} minutes or longer require a Stop Loss — the server will reject this order without one.`
+                                : ` Consider setting one for expiries of ${Math.round(stopLossWarnFromSeconds / 60)} minutes or longer.`}
+                            </div>
+                          )}
                         </div>
                         <div className="col-span-2 space-y-1">
                           <Label htmlFor="quick-trade-take-profit" className="text-xs text-slate-400">
@@ -1335,7 +1467,7 @@ export default function QuickTradePage() {
 
             {/* ── Right sidebar ── */}
             <div className="space-y-5">
-              <SignalSummaryCard signal={signal} />
+              <SignalSummaryCard signal={signal} tradeDecision={tradeDecision} />
 
               <ExecutionSafetyControls
                 title="Global Execution Safety"

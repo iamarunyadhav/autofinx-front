@@ -77,6 +77,13 @@ export interface DurationOption {
   label: string;
 }
 
+export interface LiveExpiryPreset {
+  timeframe: string;
+  expiry_seconds: number;
+  recommended: boolean;
+  label: string;
+}
+
 export interface QuickTradeMetadata {
   symbols: TradeSymbolOption[];
   indicators: Array<{ key: string; label: string; description: string }>;
@@ -96,6 +103,13 @@ export interface QuickTradeMetadata {
     allowed_indicators: string[];
     active_mode: "paper" | "live";
     selected_provider: string;
+    /** N4 -- live expiries at/above this show a "Stop Loss is off" warning. */
+    require_stop_loss_min_expiry_seconds?: number;
+    /** N4 -- when true the server also rejects such a trade without a stop. */
+    enforce_stop_loss_min_expiry?: boolean;
+    /** C1 -- live presets, already filtered to what the provider offers. */
+    live_expiry_presets?: LiveExpiryPreset[];
+    min_horizon_candles?: number;
   };
   robot_trade: {
     confidence_threshold: number;
@@ -357,11 +371,41 @@ export interface NetEdgePayload {
   binding_constraint_hint?: string;
   fee_model?: "taker" | "maker_entry";
   fee_rate_source?: "account" | "config";
+  // Gap-checklist N3 -- the USDT figures above are computed on `notional`
+  // (margin x leverage, after exchange qty-step rounding when known), and
+  // restated against the margin so leverage's real cost is visible.
+  stake_margin?: number;
+  notional?: number;
+  leverage?: number;
+  notional_rounding?: PositionSizingPayload["rounding"];
+  round_trip_fee_usdt?: number;
+  round_trip_fee_pct_of_margin?: number | null;
+  actual_cost_pct_of_margin?: number | null;
+}
+
+/** Gap-checklist N3 -- what the order would actually be (backend-computed). */
+export interface PositionSizingPayload {
+  mode: string;
+  stake_margin: number;
+  leverage: number;
+  leverage_applied: boolean;
+  notional_target: number;
+  reference_price: number | null;
+  rounding: "exchange_step" | "unavailable" | "not_requested" | "not_applicable_paper";
+  rounding_source: string | null;
+  step_size: number | null;
+  min_qty: number | null;
+  min_notional: number | null;
+  quantity: number | null;
+  notional: number;
+  below_exchange_minimum: boolean | null;
+  cost_basis_notional: number;
 }
 
 export interface QuickTradeForecastPayload {
   forecast: ForecastPayload;
   net_edge: NetEdgePayload;
+  position_sizing?: PositionSizingPayload;
   // Present on the async worker path (the only path today's frontend
   // callers use -- see `backgroundForecast()` below). Absent, not
   // fabricated, when a caller ever hits the synchronous path instead.
@@ -600,6 +644,9 @@ export function useQuickTradeForecast(params: {
    * clear fees. */
   mode?: "paper" | "live";
   durations?: number[];
+  /** Gap-checklist N3 -- the order form's effective leverage (live only), so
+   * net_edge/position_sizing are computed on the leveraged notional. */
+  leverage?: number;
 }) {
   const candleCount = params.candles?.length ?? 0;
   const now = usePredictionClock();
@@ -615,6 +662,7 @@ export function useQuickTradeForecast(params: {
       params.symbol,
       params.mode,
       (params.durations ?? []).join(","),
+      params.leverage,
     ],
     queryFn: ({ signal }) =>
       backgroundForecast<QuickTradeForecastPayload>("/quick-trade/forecast", {
@@ -627,6 +675,7 @@ export function useQuickTradeForecast(params: {
         timeframe: params.timeframe,
         expiry_seconds: params.expirySeconds,
         stake_amount: params.stakeAmount,
+        leverage: params.leverage,
         symbol: params.symbol,
         exchange: params.exchange ?? "binance",
         market_context: params.marketContext,

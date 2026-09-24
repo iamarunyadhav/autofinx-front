@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useClearPendingQueue, useForgetFailedJob, useJobsDashboard, usePruneStalePendingJobs, useRestartWorkers, useRetryFailedJob } from "@/hooks/useJobs";
+import { useClearPendingQueue, useForgetFailedJob, useJobsDashboard, usePruneStalePendingJobs, useRestartWorkers, useRetryFailedJob, type PredictionWorkerLatency } from "@/hooks/useJobs";
 import { useRepairRuntime } from "@/hooks/useRuntimeHealth";
 import { AlertTriangle, CheckCircle2, Gauge, ListRestart, PlayCircle, RefreshCcw, ServerCog, ShieldAlert, Trash2, Workflow, XCircle } from "lucide-react";
 
@@ -99,6 +99,8 @@ export default function JobsPage() {
           <MetricCard title="Safe stale jobs" value={n(data?.stale_prune?.candidates?.prunable_total)} detail={`older than ${n(data?.stale_prune?.older_than_minutes)} min`} icon={<Trash2 className="h-4 w-4" />} />
           <MetricCard title="Redis/Horizon" value={data?.redis_ready?.configured ? "Redis" : "Not Redis"} detail={data?.horizon?.installed ? "Horizon installed" : "Horizon optional; queue:work fallback OK"} icon={<ServerCog className="h-4 w-4" />} />
         </div>
+
+        <PredictionLatencyCard latency={data?.prediction_worker_latency} />
 
         <div className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
           <Card>
@@ -305,6 +307,89 @@ export default function JobsPage() {
         </Card>
       </div>
     </AppShell>
+  );
+}
+
+const ms = (value?: number | null) => (value == null ? "—" : `${Math.round(value).toLocaleString()} ms`);
+
+/**
+ * N2 -- worker latency for the `predictions` queue (the async Quick Trade /
+ * Robot Trade forecast worker). Every number comes from the backend's
+ * rolling-window summary; an empty window renders "—", never 0.
+ */
+function PredictionLatencyCard({ latency }: { latency?: PredictionWorkerLatency }) {
+  if (!latency) return null;
+  const windowMinutes = Math.round((latency.window_seconds ?? 3600) / 60);
+  const queueP95 = latency.queue_wait_ms?.p95 ?? null;
+  // Same 2000ms "this is real worker latency" line the Quick Trade decision
+  // badge uses for queue_wait_ms.
+  const slow = queueP95 != null && queueP95 > 2000;
+  const dropped = latency.dropped_total ?? 0;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <CardTitle>Prediction worker latency</CardTitle>
+            <CardDescription>
+              Queue <code>{latency.queue}</code> · last {windowMinutes} min (up to {n(latency.max_samples)} jobs). Forecast
+              results older than {latency.validity_seconds}s are discarded, never shown as a live decision.
+            </CardDescription>
+          </div>
+          {latency.available ? (
+            <Badge variant={slow || dropped > 0 ? "secondary" : "default"}>
+              {slow ? "slow workers" : dropped > 0 ? "jobs dropped" : "healthy"}
+            </Badge>
+          ) : (
+            <Badge variant="outline">unavailable</Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {!latency.available ? (
+          <p className="text-sm text-muted-foreground">Latency metrics store is unavailable ({human(latency.reason)}).</p>
+        ) : (latency.samples ?? 0) === 0 ? (
+          <p className="text-sm text-muted-foreground">No prediction jobs recorded in this window yet.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Metric</TableHead>
+                <TableHead className="text-right">p50</TableHead>
+                <TableHead className="text-right">p95</TableHead>
+                <TableHead className="text-right">Max</TableHead>
+                <TableHead className="text-right">Samples</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow>
+                <TableCell className="font-medium">Queue wait</TableCell>
+                <TableCell className="text-right">{ms(latency.queue_wait_ms?.p50)}</TableCell>
+                <TableCell className={`text-right ${slow ? "text-amber-400" : ""}`}>{ms(latency.queue_wait_ms?.p95)}</TableCell>
+                <TableCell className="text-right">{ms(latency.queue_wait_ms?.max)}</TableCell>
+                <TableCell className="text-right">{n(latency.queue_wait_ms?.n)}</TableCell>
+              </TableRow>
+              <TableRow>
+                <TableCell className="font-medium">Compute</TableCell>
+                <TableCell className="text-right">{ms(latency.compute_ms?.p50)}</TableCell>
+                <TableCell className="text-right">{ms(latency.compute_ms?.p95)}</TableCell>
+                <TableCell className="text-right">{ms(latency.compute_ms?.max)}</TableCell>
+                <TableCell className="text-right">{n(latency.compute_ms?.n)}</TableCell>
+              </TableRow>
+              <TableRow>
+                <TableCell className="font-medium">Dropped by {latency.validity_seconds}s rule</TableCell>
+                <TableCell colSpan={3} className="text-right text-xs text-muted-foreground">
+                  {n(latency.dropped_expired_before_compute)} expired before compute · {n(latency.dropped_expired_after_compute)} finished too late
+                  {latency.drop_rate_pct != null ? ` · ${latency.drop_rate_pct}% of jobs` : ""}
+                </TableCell>
+                <TableCell className={`text-right ${dropped > 0 ? "text-amber-400" : ""}`}>{n(dropped)}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
