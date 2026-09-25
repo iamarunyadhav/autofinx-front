@@ -723,6 +723,8 @@ export default function QuickTradePage() {
     durations: durationOptionSeconds,
     // Live only: the backend ignores leverage for paper trades (as place() does).
     leverage: activeMode === "live" ? debouncedLeverage : undefined,
+    workspaceId,
+    integrationId: selectedIntegrationId === "auto" ? undefined : selectedIntegrationId,
   });
   const forecastData = forecastQuery.data?.forecast;
   const durationAvailability = forecastData?.duration_availability ?? [];

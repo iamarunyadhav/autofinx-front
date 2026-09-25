@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout";
 import { ExecutionSafetyControls, type ExecutionSafetyValues } from "@/components/trading/ExecutionSafetyControls";
 import { MobileTradeNav } from "@/components/trading/MobileTradeNav";
@@ -32,6 +32,7 @@ import {
   useRobotSessionStatus,
   useStartRobotSession,
   useStopRobotSession,
+  tradeDecisionGateFrom,
 } from "@/hooks/useRobotTrading";
 import { useRepairRuntime, useRuntimeHealth } from "@/hooks/useRuntimeHealth";
 import { useRuntimeSafetySettings, useUpdateRuntimeSafetySettings } from "@/hooks/useRuntimeSafetySettings";
@@ -42,6 +43,9 @@ import { ProviderSelect } from "@/components/trading/ProviderSelect";
 import type { AssetClass, ProviderCatalogEntry } from "@/hooks/useProviderCatalog";
 
 const MIN_ROBOT_STAKE = 20;
+
+/** Renders a backend percentage verbatim (3 dp) -- never a UI-side estimate. */
+const formatGatePct = (value?: number | null) => (value == null || !Number.isFinite(Number(value)) ? "-" : `${Number(value).toFixed(3)}%`);
 
 export default function RobotTradingPage() {
   const { currentWorkspace } = useWorkspace();
@@ -150,6 +154,33 @@ export default function RobotTradingPage() {
     setSelectedProvider(provider);
     setSelectedIntegrationId(tradingState?.preferred_integration_id ?? "auto");
   }, [expirySeconds, metadata, symbol, timeframe, tradingState]);
+
+  // New LIVE sessions start from the backend's live default pair
+  // (robot_trade.default_live_timeframe / default_live_duration, 5m / 3600s
+  // unless configured otherwise) instead of 1m / 60s -- a single horizon
+  // candle can almost never clear fees. Applied once per switch into live
+  // mode, never while editing an existing session, and only when the live
+  // catalog offers both values, so the operator's own later choice stands.
+  const liveDefaultsAppliedRef = useRef(false);
+  useEffect(() => {
+    if (activeMode !== "live") {
+      liveDefaultsAppliedRef.current = false;
+      return;
+    }
+    if (!metadata || liveDefaultsAppliedRef.current || editingSessionId) return;
+    liveDefaultsAppliedRef.current = true;
+    const liveTimeframe = metadata.robot_trade.default_live_timeframe;
+    const liveDuration = metadata.robot_trade.default_live_duration;
+    if (
+      liveTimeframe &&
+      liveDuration &&
+      metadata.timeframes.some((option) => option.key === liveTimeframe) &&
+      metadata.durations.some((option) => option.seconds === liveDuration)
+    ) {
+      setTimeframe(liveTimeframe);
+      setExpirySeconds(liveDuration);
+    }
+  }, [activeMode, editingSessionId, metadata]);
 
   useEffect(() => {
     if (!selectedSessionId && sessions.length > 0) {
@@ -293,6 +324,9 @@ export default function RobotTradingPage() {
         ? "border-amber-500/25 bg-amber-500/10 text-amber-200"
         : "border-rose-500/25 bg-rose-500/10 text-rose-200";
   const recentTrades = sessionStatus.data?.recent_trades ?? [];
+  // The canonical entry gate's own last decision -- live-stats (candle bots)
+  // first, else the persisted snapshot on the session row (any bot mode).
+  const entryGate = liveStats?.trade_decision_gate ?? tradeDecisionGateFrom(sessionStatus.data?.session ?? selectedSession);
   const exportRobotDealsCsv = () => {
     const rows = recentTrades.map((trade) => ({
       id: trade.id,
@@ -1466,6 +1500,51 @@ export default function RobotTradingPage() {
                     <div className="text-sm text-slate-400">Last note</div>
                     <div className="mt-2 text-sm text-slate-200">{sessionStatus.data?.session.last_error ?? selectedSession?.last_error ?? "No stop conditions hit."}</div>
                   </div>
+                  {entryGate && (
+                    <div className="rounded-2xl border border-cyan-500/20 bg-slate-900 p-4 md:col-span-2">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-200">Live entry gate: last decision</div>
+                          <div className="text-xs text-slate-500">
+                            The fee-aware decision that actually allowed or blocked this robot's most recent live entry.
+                            Forecast cards elsewhere on this page use different inputs and are not this decision.
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge className={entryGate.value === "WAIT" || !entryGate.value ? "bg-amber-500/15 text-amber-200" : entryGate.value === "BUY" ? "bg-emerald-500/15 text-emerald-200" : "bg-rose-500/15 text-rose-200"}>
+                            Decision {entryGate.value ?? "UNAVAILABLE"}
+                          </Badge>
+                          <Badge className={entryGate.agrees ? "bg-emerald-500/15 text-emerald-200" : "bg-rose-500/15 text-rose-200"}>
+                            {String(entryGate.side ?? "").toUpperCase() || "ENTRY"} {entryGate.agrees ? "allowed" : "blocked"}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid gap-2 text-xs text-slate-300 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="rounded-xl bg-slate-950/50 px-3 py-2">
+                          <div className="text-slate-500">Expected move</div>
+                          <div className="font-semibold">{formatGatePct(entryGate.trade_decision?.expected_move_pct)}</div>
+                        </div>
+                        <div className="rounded-xl bg-slate-950/50 px-3 py-2">
+                          <div className="text-slate-500">Required after fees</div>
+                          <div className="font-semibold">{formatGatePct(entryGate.trade_decision?.required_move_pct)}</div>
+                        </div>
+                        <div className="rounded-xl bg-slate-950/50 px-3 py-2">
+                          <div className="text-slate-500">Max achievable</div>
+                          <div className="font-semibold">{formatGatePct(entryGate.trade_decision?.max_achievable_move_pct)}</div>
+                        </div>
+                        <div className="rounded-xl bg-slate-950/50 px-3 py-2">
+                          <div className="text-slate-500">Fee rate source</div>
+                          <div className="font-semibold">{entryGate.fee_rate_source ?? entryGate.trade_decision?.fee_rate_source ?? "-"}</div>
+                        </div>
+                      </div>
+                      <div className="mt-2 text-xs text-slate-500">
+                        {entryGate.timeframe ?? "-"} chart / {entryGate.horizon_seconds ?? "-"}s ({entryGate.horizon_candles ?? "-"} candles)
+                        {entryGate.decision_candle_close_at ? ` · decided on the candle closed at ${new Date(entryGate.decision_candle_close_at).toLocaleTimeString()}` : ""}
+                        {entryGate.evaluated_at ? ` · evaluated ${new Date(entryGate.evaluated_at).toLocaleTimeString()}` : ""}
+                        {entryGate.trade_decision?.gate_reason ? ` · gate: ${entryGate.trade_decision.gate_reason}` : ""}
+                      </div>
+                    </div>
+                  )}
                   {(repairRuntime.data || repairRuntime.error || repairOutputOpen) && (
                     <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 md:col-span-2">
                       <div className="flex items-center justify-between gap-3">

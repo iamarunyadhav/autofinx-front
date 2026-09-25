@@ -33,6 +33,7 @@ import { RatioBotCapitalCard } from "@/components/trading/RatioBotCapitalCard";
 import { RatioBotDiagnosticsPanel } from "@/components/trading/RatioBotDiagnosticsPanel";
 import { RatioBotLiquidationDistanceCard } from "@/components/trading/RatioBotLiquidationDistanceCard";
 import { RatioBotRecoverySlotCard } from "@/components/trading/RatioBotRecoverySlotCard";
+import { RatioBotTradeAccuracyCard } from "@/components/trading/RatioBotTradeAccuracyCard";
 import { MarketHoursStatus, RatioBotStatusChips } from "@/components/trading/RatioBotStatusChips";
 import { AssetClassToggle } from "@/components/trading/AssetClassToggle";
 import { ProviderSelect } from "@/components/trading/ProviderSelect";
@@ -4387,6 +4388,8 @@ export default function RatioBotPage() {
                       </Table>
                     </CardContent>
                   </Card>
+
+                  {selectedBotId && !isCreating ? <RatioBotTradeAccuracyCard botId={selectedBotId} /> : null}
 
                   <div className="grid gap-6 xl:grid-cols-2">
                     <Card>

@@ -57,6 +57,44 @@ export interface RobotSessionRecord {
   active_since?: string | null;
 }
 
+/**
+ * The canonical fee-aware entry gate's own last decision
+ * (RobotSessionService::canonicalTradeDecisionGate() snapshot, persisted as
+ * runtime_json.latest_trade_decision_gate and served as live-stats
+ * `trade_decision_gate`). Only present once the gate
+ * (`robot_trade.block_live_against_decision`) has evaluated a live entry.
+ */
+export interface TradeDecisionGateSnapshot {
+  source?: string;
+  side?: string;
+  value?: "BUY" | "SELL" | "WAIT" | null;
+  agrees?: boolean;
+  available?: boolean;
+  trade_decision?: {
+    value?: string;
+    expected_move_pct?: number;
+    required_move_pct?: number;
+    max_achievable_move_pct?: number;
+    cost_pct?: number;
+    gate_reason?: string | null;
+    fee_rate_source?: string;
+  } | null;
+  timeframe?: string;
+  horizon_seconds?: number;
+  horizon_candles?: number | null;
+  decision_candle_close_at?: string | null;
+  candle_gap?: boolean;
+  candles_supplied?: number;
+  fee_rate_source?: string;
+  evaluated_at?: string;
+}
+
+/** Reads the persisted gate snapshot off a session row, if any. */
+export function tradeDecisionGateFrom(session?: Pick<RobotSessionRecord, "runtime_json"> | null): TradeDecisionGateSnapshot | null {
+  const snapshot = session?.runtime_json?.latest_trade_decision_gate;
+  return snapshot && typeof snapshot === "object" ? (snapshot as TradeDecisionGateSnapshot) : null;
+}
+
 export interface RobotLivePosition {
   side: "BUY" | "SELL";
   entry_price: number;
@@ -117,6 +155,7 @@ export interface RobotLiveStats {
     summary: string;
   } | null;
   signal_streak?: number;
+  trade_decision_gate?: TradeDecisionGateSnapshot | null;
   as_of: string;
 }
 

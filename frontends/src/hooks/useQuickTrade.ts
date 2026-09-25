@@ -117,6 +117,9 @@ export interface QuickTradeMetadata {
     cooldown_seconds: number;
     default_indicators?: string[];
     default_strategy_profile?: string;
+    /** Defaults for NEW live robot sessions (config/robot_trade.php). */
+    default_live_timeframe?: string;
+    default_live_duration?: number;
     strategy_profiles: Array<{ key: string; label: string; max_active_trades: number; confidence_threshold: number }>;
   };
   trading_state: {
@@ -647,6 +650,11 @@ export function useQuickTradeForecast(params: {
   /** Gap-checklist N3 -- the order form's effective leverage (live only), so
    * net_edge/position_sizing are computed on the leveraged notional. */
   leverage?: number;
+  /** Live only: lets the backend price the preview off the selected
+   * integration's real Binance fee when `quick_trade.use_account_fee_rate`
+   * is on, so the preview matches the placement-time guard. */
+  workspaceId?: string;
+  integrationId?: string;
 }) {
   const candleCount = params.candles?.length ?? 0;
   const now = usePredictionClock();
@@ -679,6 +687,8 @@ export function useQuickTradeForecast(params: {
         symbol: params.symbol,
         exchange: params.exchange ?? "binance",
         market_context: params.marketContext,
+        workspace_id: params.mode === "live" ? params.workspaceId : undefined,
+        integration_id: params.mode === "live" ? params.integrationId : undefined,
       }, signal),
     enabled: candleCount >= 10 && params.stakeAmount > 0,
     refetchInterval: 5000,
