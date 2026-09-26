@@ -464,6 +464,133 @@ export function useForecastComparison(params: {
   return { ...query, data: currentPrediction(query.data, now) };
 }
 
+// ── VNext Dynamic Decision Engine, Phase A -- multi-window (short/medium/
+// long) forecast comparison. Purely informational: nothing here places,
+// blocks or alters a trade, and it never replaces/gates the single-window
+// forecast above (`useQuickTradeForecast`) or the BUY/SELL flow. ──────────
+
+export type MultiWindowLabel = "short" | "medium" | "long";
+
+export interface MultiWindowEntry {
+  window_label: MultiWindowLabel;
+  timeframe: string;
+  expiry_seconds: number;
+  status: "calculating" | "ready" | "unavailable";
+  retry_after_ms?: number;
+  error?: string;
+  forecast?: ForecastPayload;
+  net_edge?: NetEdgePayload;
+  position_sizing?: PositionSizingPayload;
+}
+
+export interface MultiWindowForecastPayload {
+  schema_version: number;
+  correlation_id: string;
+  symbol: string;
+  exchange: string;
+  generated_at: string;
+  windows: MultiWindowEntry[];
+}
+
+const MULTI_WINDOW_LABELS: MultiWindowLabel[] = ["short", "medium", "long"];
+
+/**
+ * Same "POST, then poll the same scope until it's no longer calculating"
+ * contract as `backgroundForecast()` above, adapted for a response whose
+ * status lives per-window rather than at the top level. The SAME candles
+ * (captured once before the loop) and the server-issued `correlation_id`
+ * are resent on every retry within one outer tick, so a retry is a genuine
+ * AsyncTradeForecast cache hit once the background worker finishes -- not a
+ * second computation.
+ */
+async function backgroundMultiWindowForecast(
+  payload: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<MultiWindowForecastPayload> {
+  let body = payload;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+    const result = (await authorizedFetch(
+      "/quick-trade/forecast/multi-window",
+      "POST",
+      body,
+      { signal },
+    )) as MultiWindowForecastPayload;
+    if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+    if (result.windows.every((w) => w.status !== "calculating")) return result;
+    body = { ...payload, correlation_id: result.correlation_id };
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+  }
+  throw new Error("Multi-window forecast is still calculating. Waiting for current data.");
+}
+
+/**
+ * Computes the short/medium/long forecast comparison. `windowCandles` must
+ * carry each window's OWN candles at that window's own chart timeframe
+ * (fetched via `useQuickTradeChart` at 15m/1h/4h -- see
+ * `MultiWindowForecastPanel`), not the primary ticket's chart candles.
+ * Disabled (no request sent) until all 3 windows have at least 10 candles,
+ * and further gated by the caller's own `enabled` (the panel is
+ * collapsed/opt-in by default, so this never fires just from visiting the
+ * page).
+ */
+export function useMultiWindowForecast(params: {
+  symbol?: string;
+  exchange?: string;
+  stakeAmount: number;
+  mode?: "paper" | "live";
+  workspaceId?: string;
+  integrationId?: string;
+  windowCandles: Partial<Record<MultiWindowLabel, ForecastCandle[]>>;
+  enabled?: boolean;
+}) {
+  const candleCounts = MULTI_WINDOW_LABELS.map((label) => params.windowCandles[label]?.length ?? 0);
+  const lastCandleTimestamps = MULTI_WINDOW_LABELS.map((label) => {
+    const candles = params.windowCandles[label];
+    return candles && candles.length > 0 ? candles[candles.length - 1]?.timestamp ?? null : null;
+  });
+  const allWindowsHaveEnoughCandles = candleCounts.every((count) => count >= 10);
+
+  return useQuery({
+    queryKey: [
+      "multi-window-forecast",
+      params.symbol,
+      params.exchange,
+      params.stakeAmount,
+      params.mode,
+      params.workspaceId,
+      ...candleCounts,
+      ...lastCandleTimestamps,
+    ],
+    queryFn: ({ signal }) =>
+      backgroundMultiWindowForecast(
+        {
+          symbol: params.symbol,
+          exchange: params.exchange ?? "binance",
+          stake_amount: params.stakeAmount,
+          mode: params.mode,
+          workspace_id: params.mode === "live" ? params.workspaceId : undefined,
+          integration_id: params.mode === "live" ? params.integrationId : undefined,
+          windows: {
+            short: { candles: params.windowCandles.short ?? [] },
+            medium: { candles: params.windowCandles.medium ?? [] },
+            long: { candles: params.windowCandles.long ?? [] },
+          },
+        },
+        signal,
+      ),
+    enabled: params.enabled !== false && allWindowsHaveEnoughCandles && !!params.symbol && params.stakeAmount > 0,
+    // Deliberately slower than the primary single-window forecast (5000ms):
+    // this computes 3 forecasts per tick and is purely informational, not
+    // shown beside a live order button.
+    refetchInterval: 15000,
+    staleTime: 0,
+    gcTime: 30000,
+    retry: false,
+    refetchIntervalInBackground: false,
+  });
+}
+
 export interface QuickTradeRecord {
   id: string;
   workspace_id: string;

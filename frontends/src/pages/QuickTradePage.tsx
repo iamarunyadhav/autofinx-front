@@ -56,6 +56,7 @@ import { cn } from "@/lib/utils";
 import { quickTradeCosts } from "@/lib/quickTradeCosts";
 import { QuickTradeResearchPanel } from "@/components/trading/QuickTradeResearchPanel";
 import { ForecastComparisonCard } from "@/components/trading/ForecastComparisonCard";
+import { MultiWindowForecastPanel } from "@/components/trading/MultiWindowForecastPanel";
 
 function useCountdown(expiresAt: string | undefined) {
   const [secs, setSecs] = useState(0);
@@ -1080,6 +1081,19 @@ export default function QuickTradePage() {
             />
           </div>
           <ForecastComparisonCard current={forecastComparison.data?.current ?? forecastQuery.data?.forecast} unified={forecastComparison.data?.unified} agreement={forecastComparison.data?.comparison?.agreement} selected={predictionSource} onSelect={setPredictionSource} />
+
+          {/* VNext Dynamic Decision Engine, Phase A -- optional, collapsed-by-default
+              3-window (short/medium/long) forecast comparison. Purely informational. */}
+          {symbol && (
+            <MultiWindowForecastPanel
+              workspaceId={workspaceId}
+              symbol={symbol}
+              exchange={selectedProvider === "binance" ? "binance_futures" : selectedProvider}
+              mode={activeMode}
+              integrationId={selectedIntegrationId === "auto" ? undefined : selectedIntegrationId}
+              stakeAmount={effectiveStake}
+            />
+          )}
 
           {/* ── Main grid ── */}
           <div className="grid gap-5 xl:grid-cols-[1.3fr_0.7fr]">
