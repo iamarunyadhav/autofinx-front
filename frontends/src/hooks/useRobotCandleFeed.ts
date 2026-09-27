@@ -75,7 +75,9 @@ export function useRobotCandleFeed(
   enabled: boolean,
   sessionId?: string,
 ): RobotFeedState {
-  const [state, setState] = useState<RobotFeedState>({
+  const scope = `${symbol}:${timeframe}:${enabled}:${sessionId ?? ""}`;
+  const [state, setState] = useState<RobotFeedState & { scope: string }>({
+    scope,
     candles: [],
     currentCandle: null,
     lastSignal: null,
@@ -93,7 +95,7 @@ export function useRobotCandleFeed(
     }
 
     candlesRef.current = [];
-    setState((s) => ({ ...s, candles: [], currentCandle: null, connected: false, source: null }));
+    setState((s) => ({ ...s, scope, candles: [], currentCandle: null, connected: false, source: null }));
 
     let stopped = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -102,6 +104,7 @@ export function useRobotCandleFeed(
     let activeSocket: WebSocket | null = null;
 
     const apply = (candle: CandleData, latencyMs: number, source: RobotFeedState["source"]) => {
+      if (stopped || latencyMs > 10000) return;
       candlesRef.current = upsertCandle(candlesRef.current, candle);
       setState((s) => ({
         ...s,
@@ -169,7 +172,7 @@ export function useRobotCandleFeed(
       const interval = ["1m", "3m", "5m", "15m", "30m", "1h", "4h"].includes(timeframe)
         ? timeframe
         : "1m";
-      const socket = new WebSocket(`wss://fstream.binance.com/ws/${streamSymbol}@kline_${interval}`);
+      const socket = new WebSocket(`wss://fstream.binance.com/market/ws/${streamSymbol}@kline_${interval}`);
       activeSocket = socket;
 
       socket.onopen = () => {
@@ -259,7 +262,9 @@ export function useRobotCandleFeed(
       activeSocket?.close();
       activeController?.abort();
     };
-  }, [symbol, timeframe, enabled, sessionId]);
+  }, [symbol, timeframe, enabled, sessionId, scope]);
 
-  return state;
+  return enabled && state.scope === scope ? state : {
+    candles: [], currentCandle: null, lastSignal: null, connected: false, latencyMs: 0, source: null,
+  };
 }

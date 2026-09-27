@@ -60,7 +60,7 @@ export function binanceKlineStreamUrl(
 ): string {
   const streamSymbol = symbol.toLowerCase().replace(/[^a-z0-9]/g, "");
   const interval = SUPPORTED_INTERVALS.includes(timeframe) ? timeframe : "1m";
-  const host = marketType === "futures" ? "wss://fstream.binance.com/ws" : "wss://stream.binance.com:9443/ws";
+  const host = marketType === "futures" ? "wss://fstream.binance.com/market/ws" : "wss://stream.binance.com:9443/ws";
   return `${host}/${streamSymbol}@kline_${interval}`;
 }
 

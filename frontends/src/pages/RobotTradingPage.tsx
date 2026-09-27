@@ -37,6 +37,7 @@ import {
 import { useRepairRuntime, useRuntimeHealth } from "@/hooks/useRuntimeHealth";
 import { useRuntimeSafetySettings, useUpdateRuntimeSafetySettings } from "@/hooks/useRuntimeSafetySettings";
 import { type CandleData, useRobotCandleFeed } from "@/hooks/useRobotCandleFeed";
+import { useBinanceFuturesQuoteFeed } from "@/hooks/useBinanceFuturesQuoteFeed";
 import { RobotLiveChart, type ChartMarker } from "@/components/trading/RobotLiveChart";
 import { AssetClassToggle } from "@/components/trading/AssetClassToggle";
 import { ProviderSelect } from "@/components/trading/ProviderSelect";
@@ -243,7 +244,7 @@ export default function RobotTradingPage() {
   // Keep the graph tied to the asset dropdown first. If the operator clicks a
   // running session card, the form is loaded with that symbol so the chart still
   // follows one selected symbol at a time.
-  const chartEnabled = botMode === "candle_direction" && Boolean(symbol);
+  const chartEnabled = Boolean(symbol);
   const baseChartSymbol = symbol;
   const chartSymbol = chartSymbolOverride ?? baseChartSymbol;
   const chartTimeframe = timeframe;
@@ -279,13 +280,22 @@ export default function RobotTradingPage() {
     }));
   }, [chartQuery.data?.candles]);
 
-  const chartCandles = feed.candles.length > 0 ? feed.candles : fallbackCandles;
+  const chartCandles = useMemo(() => {
+    const merged = new Map(fallbackCandles.map((candle) => [candle.time, candle]));
+    for (const candle of feed.candles) merged.set(candle.time, candle);
+    return [...merged.values()].sort((a, b) => a.time - b.time).slice(-500);
+  }, [fallbackCandles, feed.candles]);
+  const liveQuote = useBinanceFuturesQuoteFeed(chartSymbol, chartEnabled && selectedProvider === "binance");
+  const quoteFresh = liveQuote.connected && liveQuote.receivedAt != null && Date.now() - liveQuote.receivedAt <= 2000;
+  const quoteLines = useMemo(() => [{ key: "live-quote", price: quoteFresh ? liveQuote.price : null, color: "#22d3ee", title: "Live quote" }], [quoteFresh, liveQuote.price]);
   const [predictionSource, setPredictionSource] = useState<"current" | "unified">("current");
   const forecastComparison = useForecastComparison({
     botType: "robot_trade", symbol: chartSymbol, timeframe: chartTimeframe,
     expirySeconds: Math.max(5, Number(selectedSession?.expiry_seconds ?? 60)),
-    candles: chartCandles.map((c) => ({ open: c.open, high: c.high, low: c.low, close: c.close })),
-    signal: liveStats?.last_decision ? { direction: liveStats.last_decision.action, confidence: liveStats.last_decision.confidence } : undefined,
+    exchange: selectedProvider === "binance" ? "binance_futures" : selectedProvider,
+    marketContext: `${workspaceId}:${activeMode}:${selectedIntegrationId}`,
+    candles: chartCandles.map((c) => ({ timestamp: c.time * 1000, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume })),
+    signal: chartQuery.data?.signal_preview ? { direction: chartQuery.data.signal_preview.direction, confidence: chartQuery.data.signal_preview.confidence } : undefined,
   });
   const chartLivePosition = selectedSession?.symbol === chartSymbol ? livePosition : null;
 
@@ -1087,7 +1097,9 @@ export default function RobotTradingPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                    <div className="font-mono text-lg text-cyan-300">Live quote: {quoteFresh && liveQuote.price != null ? liveQuote.price.toLocaleString(undefined, { maximumFractionDigits: 8 }) : "Waiting for fresh quote"}</div>
                     <RobotLiveChart
+                      extraLines={quoteLines}
                       candles={chartCandles}
                       side={chartLivePosition?.side ?? null}
                       entryPrice={chartLivePosition?.entry_price ?? null}
@@ -1131,7 +1143,7 @@ export default function RobotTradingPage() {
                     </div>
 
                     <NearTermForecastCard forecast={liveStats?.forecast} />
-                    <ForecastComparisonCard current={forecastComparison.data?.current ?? liveStats?.forecast} unified={forecastComparison.data?.unified} agreement={forecastComparison.data?.comparison.agreement} selected={predictionSource} onSelect={setPredictionSource} />
+                    <ForecastComparisonCard current={forecastComparison.data?.current ?? liveStats?.forecast} unified={forecastComparison.data?.unified} helpers={forecastComparison.data?.helpers} agreement={forecastComparison.data?.comparison.agreement} selected={predictionSource} onSelect={setPredictionSource} />
 
                     {chartLivePosition ? (
                       <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">

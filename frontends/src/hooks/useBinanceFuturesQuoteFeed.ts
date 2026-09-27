@@ -27,10 +27,13 @@ const EMPTY_STATE: BinanceFuturesQuoteState = {
  * own Redis/WebSocket freshness gate remains the sole execution authority.
  */
 export function useBinanceFuturesQuoteFeed(symbol: string, enabled: boolean): BinanceFuturesQuoteState {
-  const [state, setState] = useState<BinanceFuturesQuoteState>(EMPTY_STATE);
+  const scope = `${symbol}:${enabled}`;
+  const [state, setState] = useState<BinanceFuturesQuoteState & { scope?: string }>(EMPTY_STATE);
   const latestRef = useRef<Omit<BinanceFuturesQuoteState, "connected"> | null>(null);
 
   useEffect(() => {
+    latestRef.current = null;
+    setState({ ...EMPTY_STATE, scope });
     if (!enabled || !isCryptoSymbol(symbol)) {
       setState(EMPTY_STATE);
       return;
@@ -47,11 +50,12 @@ export function useBinanceFuturesQuoteFeed(symbol: string, enabled: boolean): Bi
     let reconnectTimer: number | null = null;
     let animationFrame: number | null = null;
     let attempt = 0;
+    let lastEventAt = 0;
 
     const flushLatest = () => {
       animationFrame = null;
       const latest = latestRef.current;
-      if (!stopped && latest) setState({ ...latest, connected: true });
+      if (!stopped && latest) setState({ ...latest, connected: true, scope });
     };
 
     const scheduleReconnect = () => {
@@ -63,7 +67,7 @@ export function useBinanceFuturesQuoteFeed(symbol: string, enabled: boolean): Bi
 
     const connect = () => {
       if (stopped) return;
-      socket = new WebSocket(`wss://fstream.binance.com/ws/${streamSymbol}@bookTicker`);
+      socket = new WebSocket(`wss://fstream.binance.com/public/ws/${streamSymbol}@bookTicker`);
 
       socket.onopen = () => {
         if (stopped) return;
@@ -74,6 +78,9 @@ export function useBinanceFuturesQuoteFeed(symbol: string, enabled: boolean): Bi
       socket.onmessage = (event) => {
         try {
           const payload = JSON.parse(String(event.data));
+          const eventAt = Number(payload?.E);
+          if (stopped || String(payload?.s).toLowerCase() !== streamSymbol || !Number.isFinite(eventAt) || Date.now() - eventAt > 5000 || eventAt > Date.now() + 1000 || eventAt < lastEventAt) return;
+          lastEventAt = eventAt;
           const bid = Number(payload?.b);
           const ask = Number(payload?.a);
           if (!Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask <= 0) return;
@@ -102,16 +109,21 @@ export function useBinanceFuturesQuoteFeed(symbol: string, enabled: boolean): Bi
     };
 
     connect();
+    const staleTimer = window.setInterval(() => {
+      setState((previous) => previous.receivedAt != null && Date.now() - previous.receivedAt > 2000
+        ? { ...previous, connected: false } : previous);
+    }, 1000);
 
     return () => {
       stopped = true;
+      window.clearInterval(staleTimer);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (animationFrame !== null) cancelAnimationFrame(animationFrame);
       socket?.close();
     };
-  }, [enabled, symbol]);
+  }, [enabled, symbol, scope]);
 
-  return state;
+  return enabled && state.scope === scope ? state : EMPTY_STATE;
 }
 
 /**
@@ -130,6 +142,8 @@ export function useBinanceFuturesQuoteFeeds(symbols: string[], enabled: boolean)
   const latestRef = useRef<Record<string, BinanceFuturesQuoteState>>({});
 
   useEffect(() => {
+    latestRef.current = {};
+    setQuotes({});
     if (!enabled || normalizedSymbols.length === 0) {
       latestRef.current = {};
       setQuotes({});
@@ -154,7 +168,7 @@ export function useBinanceFuturesQuoteFeeds(symbols: string[], enabled: boolean)
     };
     const connect = () => {
       if (stopped) return;
-      socket = new WebSocket(`wss://fstream.binance.com/stream?streams=${streams}`);
+      socket = new WebSocket(`wss://fstream.binance.com/public/stream?streams=${streams}`);
       socket.onopen = () => { attempt = 0; };
       socket.onmessage = (event) => {
         try {

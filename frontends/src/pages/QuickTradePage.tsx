@@ -468,9 +468,9 @@ export default function QuickTradePage() {
     setLivePresetAppliedFor(scope);
   }, [activeMode, livePresetAppliedFor, livePresets, metadata, selectedProvider, workspaceId]);
 
-  // Backend SSE → Binance WebSocket (server-side) → no direct browser→Binance needed
+  // Display streams are independent of the closed-candle forecast pipeline.
   const feed = useQuickTradeCandleFeed(symbol, timeframe, !!symbol);
-  const liveQuote = useBinanceFuturesQuoteFeed(symbol, !!symbol);
+  const liveQuote = useBinanceFuturesQuoteFeed(symbol, !!symbol && selectedProvider === "binance");
 
   // Timestamp of the most recently *closed* candle on the live feed. Only
   // changes when a candle actually closes (not on every intra-candle price
@@ -522,7 +522,7 @@ export default function QuickTradePage() {
   // drives the displayed quote so a forming 1m candle never makes the UI look
   // like it only refreshes once per second. This is visual/P&L data only;
   // backend execution independently validates its own fresh Redis WS quote.
-  const quoteIsFresh = liveQuote.receivedAt != null && Date.now() - liveQuote.receivedAt <= 2_000;
+  const quoteIsFresh = liveQuote.connected && liveQuote.receivedAt != null && Date.now() - liveQuote.receivedAt <= 2_000;
   const currentPrice = quoteIsFresh
     ? liveQuote.price
     : feed.currentCandle?.close ?? chartQuery.data?.quote?.price;
@@ -738,7 +738,7 @@ export default function QuickTradePage() {
     exchange: selectedProvider === "binance" ? "binance_futures" : selectedProvider,
     marketContext: `${workspaceId}:${activeMode}:${selectedIntegrationId}`,
     botType: "quick_trade", symbol, timeframe, expirySeconds: duration,
-    candles: chartCandles.map((c) => ({ open: c.open, high: c.high, low: c.low, close: c.close })),
+    candles: forecastCandles,
     signal: signal ? { direction: signal.direction, confidence: signal.confidence } : undefined,
   });
   const slippageBufferPct = forecastQuery.data?.net_edge?.slippage_buffer_pct ?? null;
@@ -1017,6 +1017,7 @@ export default function QuickTradePage() {
             <div>
               <div className="text-xs uppercase tracking-widest text-slate-500">{symbol || "—"} · {timeframe}</div>
               <div className="mt-0.5 font-mono text-2xl text-slate-100">{priceDisplay}</div>
+              <div className="mt-0.5 text-xs text-slate-500">{quoteIsFresh ? "Live quote · bid/ask midpoint" : "Candle / REST fallback · live quote unavailable"}</div>
               {chartQuery.isFetching && <div className="mt-0.5 text-xs text-slate-600">Refreshing…</div>}
             </div>
 
@@ -1080,7 +1081,7 @@ export default function QuickTradePage() {
               orderLeverage={orderLeverage}
             />
           </div>
-          <ForecastComparisonCard current={forecastComparison.data?.current ?? forecastQuery.data?.forecast} unified={forecastComparison.data?.unified} agreement={forecastComparison.data?.comparison?.agreement} selected={predictionSource} onSelect={setPredictionSource} />
+          <ForecastComparisonCard current={forecastComparison.data?.current ?? forecastQuery.data?.forecast} unified={forecastComparison.data?.unified} helpers={forecastComparison.data?.helpers} agreement={forecastComparison.data?.comparison?.agreement} selected={predictionSource} onSelect={setPredictionSource} />
 
           {/* VNext Dynamic Decision Engine, Phase A -- optional, collapsed-by-default
               3-window (short/medium/long) forecast comparison. Purely informational. */}

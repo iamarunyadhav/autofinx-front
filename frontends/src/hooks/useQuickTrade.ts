@@ -428,6 +428,16 @@ export interface UnifiedForecastPayload {
 }
 
 export interface ForecastComparisonPayload {
+  helpers?: {
+    analysis: {
+      trendDirection: string;
+      trendCompositeScore: number;
+      minComposite: number;
+      windowBreakdown: Array<{ key: string; direction: string; score: number; sample_size: number; weight: number }>;
+    };
+    confidence: { favoredDirection: string | null; trendContribution: number; forecastContribution: number; forecastWeight: number; hitRatePct: number | null; sampleSize: number | null };
+    calibrated: boolean;
+  } | null;
   current: ForecastPayload & { source: "current"; mode: "primary"; price_target_available: true };
   unified: UnifiedForecastPayload | null;
   comparison: { direction_agreement: boolean | null; agreement: "AGREE" | "DISAGREE" | "UNAVAILABLE" };
