@@ -32,6 +32,17 @@ const WINDOW_DEFINITIONS: Array<{ label: MultiWindowLabel; title: string; timefr
   { label: "long", title: "Long (4h)", timeframe: "4h", description: "4 hour chart · 4 hour expiry" },
 ];
 
+function closedCandles(candles: ForecastCandle[], timeframe: string): ForecastCandle[] {
+  const seconds: Record<string, number> = { "15m": 900, "1h": 3600, "4h": 14400 };
+  const interval = seconds[timeframe] ?? 900;
+  const now = Date.now();
+  return candles.filter((candle) => {
+    if (!candle.timestamp) return false;
+    const openMs = candle.timestamp < 1_000_000_000_000 ? candle.timestamp * 1000 : candle.timestamp;
+    return openMs + interval * 1000 <= now;
+  });
+}
+
 function decisionBadgeClass(value?: string | null): string {
   if (value === "BUY") return "bg-emerald-500/15 text-emerald-300 border-emerald-500/30";
   if (value === "SELL") return "bg-rose-500/15 text-rose-300 border-rose-500/30";
@@ -167,9 +178,9 @@ export function MultiWindowForecastPanel({
   });
 
   const windowCandles = {
-    short: shortChart.data?.candles ?? [],
-    medium: mediumChart.data?.candles ?? [],
-    long: longChart.data?.candles ?? [],
+    short: closedCandles(shortChart.data?.candles ?? [], "15m"),
+    medium: closedCandles(mediumChart.data?.candles ?? [], "1h"),
+    long: closedCandles(longChart.data?.candles ?? [], "4h"),
   };
 
   const comparison = useMultiWindowForecast({
@@ -209,7 +220,7 @@ export function MultiWindowForecastPanel({
           ))}
         </div>
       )}
-      {expanded && <ProviderShadowCards symbol={symbol} candles={shortChart.data?.candles ?? []} />}
+      {expanded && <ProviderShadowCards symbol={symbol} candles={windowCandles.short} />}
       {expanded && comparison.isError && (
         <div className="mt-2 text-xs text-rose-400">Comparison temporarily unavailable. Retrying automatically.</div>
       )}
