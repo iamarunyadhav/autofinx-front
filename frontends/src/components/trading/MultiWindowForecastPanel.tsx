@@ -106,12 +106,12 @@ function WindowCard({ definition, entry }: {
   );
 }
 
-function ProviderShadowCards({ symbol, candles }: { symbol: string; candles: ForecastCandle[] }) {
+function ProviderShadowCards({ symbol, candles, workspaceId, integrationId }: { symbol: string; candles: ForecastCandle[]; workspaceId?: string; integrationId?: string }) {
   const query = useQuery({
     queryKey: ["prediction-observatory", symbol, candles.length, candles.at(-1)?.timestamp],
     queryFn: () => authorizedFetch("/quick-trade/prediction-observatory", "POST", {
       symbol, market_type: "crypto", timeframe: "15m", horizon_seconds: 900,
-      current_quote: candles.at(-1)?.close, candles,
+      current_quote: candles.at(-1)?.close, candles, workspace_id: workspaceId, integration_id: integrationId,
     }) as Promise<{ providers?: Record<string, { result?: { direction?: string | null; confidence?: number | null; data_quality?: string; available?: boolean; reason?: string | null } }> }>,
     enabled: candles.length >= 8,
     refetchInterval: 15000,
@@ -240,7 +240,7 @@ export function MultiWindowForecastPanel({
           ))}
         </div>
       )}
-      {expanded && <ProviderShadowCards symbol={symbol} candles={windowCandles.short} />}
+      {expanded && <ProviderShadowCards symbol={symbol} candles={windowCandles.short} workspaceId={workspaceId} integrationId={integrationId} />}
       {expanded && <AccuracyStatusCard workspaceId={workspaceId} />}
       {expanded && comparison.isError && (
         <div className="mt-2 text-xs text-rose-400">Comparison temporarily unavailable. Retrying automatically.</div>
