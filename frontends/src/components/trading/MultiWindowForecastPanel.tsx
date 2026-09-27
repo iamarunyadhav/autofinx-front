@@ -106,17 +106,26 @@ function ProviderShadowCards({ symbol, candles }: { symbol: string; candles: For
     refetchInterval: 15000,
     staleTime: 0,
   });
-  const providers = Object.values(query.data?.providers ?? {});
+  const providers = Object.entries(query.data?.providers ?? {});
+  const directions = providers.map(([, provider]) => provider.result?.direction).filter(Boolean);
+  const agreement = directions.length > 1 && new Set(directions).size === 1;
 
   return (
     <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
       <div className="text-[11px] uppercase tracking-wide text-slate-500">Prediction engines · closed candles · shadow only</div>
       {query.isLoading ? <div className="mt-2 text-xs text-slate-600">Reading provider outputs…</div> : (
+        <div className="mt-2 flex items-center gap-2 text-[11px]">
+          <span className={agreement ? "text-emerald-400" : "text-amber-400"}>
+            {directions.length < 2 ? "Waiting for multiple engines" : agreement ? `Engines agree: ${directions[0]}` : "Engines disagree — review evidence"}
+          </span>
+        </div>
+      )}
+      {!query.isLoading && (
         <div className="mt-2 grid gap-2 md:grid-cols-2">
-          {providers.map((provider, index) => {
+          {providers.map(([key, provider]) => {
             const result = provider.result;
-            return <div key={index} className="flex items-center justify-between rounded-lg border border-slate-800 px-3 py-2 text-xs">
-              <span className="text-slate-400">{result?.available ? (result.direction ?? "NEUTRAL") : (result?.reason ?? "Unavailable")}</span>
+            return <div key={key} className="flex items-center justify-between rounded-lg border border-slate-800 px-3 py-2 text-xs">
+              <span className="text-slate-400"><span className="text-slate-200">{key.replaceAll("_", " ")}</span> · {result?.available ? (result.direction ?? "NEUTRAL") : (result?.reason ?? "Unavailable")}</span>
               <span className="text-slate-500">{result?.confidence == null ? "—" : `${Number(result.confidence).toFixed(0)}%`} · {result?.data_quality ?? "UNKNOWN"}</span>
             </div>;
           })}
