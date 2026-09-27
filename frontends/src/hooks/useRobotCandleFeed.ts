@@ -169,7 +169,7 @@ export function useRobotCandleFeed(
     const connectBinanceWebSocket = () => {
       if (stopped) return;
       const streamSymbol = symbol.toLowerCase().replace(/[^a-z0-9]/g, "");
-      const interval = ["1m", "3m", "5m", "15m", "30m", "1h", "4h"].includes(timeframe)
+      const interval = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"].includes(timeframe)
         ? timeframe
         : "1m";
       const socket = new WebSocket(`wss://fstream.binance.com/market/ws/${streamSymbol}@kline_${interval}`);

@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { authorizedFetch } from "@/lib/api";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -7,6 +9,7 @@ import {
   useQuickTradeChart,
   type MultiWindowEntry,
   type MultiWindowLabel,
+  type ForecastCandle,
 } from "@/hooks/useQuickTrade";
 
 /**
@@ -92,6 +95,37 @@ function WindowCard({ definition, entry }: {
   );
 }
 
+function ProviderShadowCards({ symbol, candles }: { symbol: string; candles: ForecastCandle[] }) {
+  const query = useQuery({
+    queryKey: ["prediction-observatory", symbol, candles.length, candles.at(-1)?.timestamp],
+    queryFn: () => authorizedFetch("/quick-trade/prediction-observatory", "POST", {
+      symbol, market_type: "crypto", timeframe: "15m", horizon_seconds: 900,
+      current_quote: candles.at(-1)?.close, candles,
+    }) as Promise<{ providers?: Record<string, { result?: { direction?: string | null; confidence?: number | null; data_quality?: string; available?: boolean; reason?: string | null } }> }>,
+    enabled: candles.length >= 8,
+    refetchInterval: 15000,
+    staleTime: 0,
+  });
+  const providers = Object.values(query.data?.providers ?? {});
+
+  return (
+    <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+      <div className="text-[11px] uppercase tracking-wide text-slate-500">Prediction engines · closed candles · shadow only</div>
+      {query.isLoading ? <div className="mt-2 text-xs text-slate-600">Reading provider outputs…</div> : (
+        <div className="mt-2 grid gap-2 md:grid-cols-2">
+          {providers.map((provider, index) => {
+            const result = provider.result;
+            return <div key={index} className="flex items-center justify-between rounded-lg border border-slate-800 px-3 py-2 text-xs">
+              <span className="text-slate-400">{result?.available ? (result.direction ?? "NEUTRAL") : (result?.reason ?? "Unavailable")}</span>
+              <span className="text-slate-500">{result?.confidence == null ? "—" : `${Number(result.confidence).toFixed(0)}%`} · {result?.data_quality ?? "UNKNOWN"}</span>
+            </div>;
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function MultiWindowForecastPanel({
   workspaceId,
   symbol,
@@ -166,6 +200,7 @@ export function MultiWindowForecastPanel({
           ))}
         </div>
       )}
+      {expanded && <ProviderShadowCards symbol={symbol} candles={shortChart.data?.candles ?? []} />}
       {expanded && comparison.isError && (
         <div className="mt-2 text-xs text-rose-400">Comparison temporarily unavailable. Retrying automatically.</div>
       )}

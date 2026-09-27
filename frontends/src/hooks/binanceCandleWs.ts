@@ -51,7 +51,7 @@ export function normalizeCandle(row: any, fallbackClosed = false): CandleData | 
     : null;
 }
 
-const SUPPORTED_INTERVALS = ["1m", "3m", "5m", "15m", "30m", "1h", "4h"];
+const SUPPORTED_INTERVALS = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"];
 
 export function binanceKlineStreamUrl(
   symbol: string,
