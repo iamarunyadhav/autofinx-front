@@ -146,10 +146,11 @@ function ProviderShadowCards({ symbol, candles }: { symbol: string; candles: For
   );
 }
 
-function AccuracyStatusCard() {
+function AccuracyStatusCard({ workspaceId }: { workspaceId?: string }) {
   const query = useQuery({
     queryKey: ["prediction-accuracy-report"],
-    queryFn: () => authorizedFetch("/quick-trade/prediction-accuracy-report", "POST", {}) as Promise<{ status?: string; groups?: Array<{ provider: string; timeframe: string; direction_accuracy_pct?: number | null; samples: number }> }>,
+    queryFn: () => authorizedFetch("/quick-trade/prediction-accuracy-report", "POST", { workspace_id: workspaceId }) as Promise<{ status?: string; groups?: Array<{ provider: string; timeframe: string; direction_accuracy_pct?: number | null; samples: number }> }>,
+    enabled: !!workspaceId,
     staleTime: 30000,
   });
   const groups = query.data?.groups ?? [];
@@ -240,7 +241,7 @@ export function MultiWindowForecastPanel({
         </div>
       )}
       {expanded && <ProviderShadowCards symbol={symbol} candles={windowCandles.short} />}
-      {expanded && <AccuracyStatusCard />}
+      {expanded && <AccuracyStatusCard workspaceId={workspaceId} />}
       {expanded && comparison.isError && (
         <div className="mt-2 text-xs text-rose-400">Comparison temporarily unavailable. Retrying automatically.</div>
       )}
