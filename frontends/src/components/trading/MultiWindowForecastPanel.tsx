@@ -146,6 +146,25 @@ function ProviderShadowCards({ symbol, candles }: { symbol: string; candles: For
   );
 }
 
+function AccuracyStatusCard() {
+  const query = useQuery({
+    queryKey: ["prediction-accuracy-report"],
+    queryFn: () => authorizedFetch("/quick-trade/prediction-accuracy-report", "POST", {}) as Promise<{ status?: string; groups?: Array<{ provider: string; timeframe: string; direction_accuracy_pct?: number | null; samples: number }> }>,
+    staleTime: 30000,
+  });
+  const groups = query.data?.groups ?? [];
+  return <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+    <div className="text-[11px] uppercase tracking-wide text-slate-500">Historical accuracy</div>
+    {query.isLoading ? <div className="mt-2 text-xs text-slate-600">Loading accuracy report…</div> : groups.length === 0 ? (
+      <div className="mt-2 text-xs text-amber-400">INSUFFICIENT_DATA · closed outcomes are still being collected</div>
+    ) : <div className="mt-2 grid gap-2 md:grid-cols-2">{groups.map((group) =>
+      <div key={`${group.provider}-${group.timeframe}`} className="flex justify-between text-xs text-slate-400">
+        <span>{group.provider} · {group.timeframe}</span><span>{group.direction_accuracy_pct ?? "—"}% ({group.samples})</span>
+      </div>)}
+    </div>}
+  </div>;
+}
+
 export function MultiWindowForecastPanel({
   workspaceId,
   symbol,
@@ -221,6 +240,7 @@ export function MultiWindowForecastPanel({
         </div>
       )}
       {expanded && <ProviderShadowCards symbol={symbol} candles={windowCandles.short} />}
+      {expanded && <AccuracyStatusCard />}
       {expanded && comparison.isError && (
         <div className="mt-2 text-xs text-rose-400">Comparison temporarily unavailable. Retrying automatically.</div>
       )}
