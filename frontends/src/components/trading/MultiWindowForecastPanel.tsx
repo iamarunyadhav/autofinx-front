@@ -112,7 +112,7 @@ function ProviderShadowCards({ symbol, candles, workspaceId, integrationId }: { 
     queryFn: () => authorizedFetch("/quick-trade/prediction-observatory", "POST", {
       symbol, market_type: "crypto", timeframe: "15m", horizon_seconds: 900,
       current_quote: candles.at(-1)?.close, candles, workspace_id: workspaceId, integration_id: integrationId,
-    }) as Promise<{ providers?: Record<string, { result?: { direction?: string | null; confidence?: number | null; data_quality?: string; available?: boolean; reason?: string | null } }> }>,
+    }) as Promise<{ providers?: Record<string, { result?: { direction?: string | null; confidence?: number | null; predicted_expiry_price?: number | null; predicted_return_pct?: number | null; predicted_low?: number | null; predicted_high?: number | null; provider_version?: string; data_quality?: string; available?: boolean; reason?: string | null } }> }>,
     enabled: candles.length >= 8,
     refetchInterval: 15000,
     staleTime: 0,
@@ -135,7 +135,7 @@ function ProviderShadowCards({ symbol, candles, workspaceId, integrationId }: { 
         <div className="mt-2 grid gap-2 md:grid-cols-2">
           {providers.map(([key, provider]) => {
             const result = provider.result;
-            return <div key={key} className="flex items-center justify-between rounded-lg border border-slate-800 px-3 py-2 text-xs">
+            return <div key={key} className="rounded-lg border border-slate-800 px-3 py-2 text-xs">
               <span className="text-slate-400"><span className="text-slate-200">{key.replaceAll("_", " ")}</span> · {result?.available ? (result.direction ?? "NEUTRAL") : (result?.reason ?? "Unavailable")}</span>
               <span className="text-slate-500">{result?.confidence == null ? "—" : `${Number(result.confidence).toFixed(0)}%`} · {result?.data_quality ?? "UNKNOWN"}</span>
             </div>;
@@ -149,11 +149,12 @@ function ProviderShadowCards({ symbol, candles, workspaceId, integrationId }: { 
 function AccuracyStatusCard({ workspaceId }: { workspaceId?: string }) {
   const query = useQuery({
     queryKey: ["prediction-accuracy-report"],
-    queryFn: () => authorizedFetch("/quick-trade/prediction-accuracy-report", "POST", { workspace_id: workspaceId }) as Promise<{ status?: string; groups?: Array<{ provider: string; timeframe: string; direction_accuracy_pct?: number | null; samples: number }> }>,
+    queryFn: () => authorizedFetch("/quick-trade/prediction-accuracy-report", "POST", { workspace_id: workspaceId }) as Promise<{ status?: string; groups?: Array<{ provider: string; timeframe: string; direction_accuracy_pct?: number | null; samples: number }>; metrics?: { samples?: number; mae?: number | null; rmse?: number | null; range_coverage_pct?: number | null } }>,
     enabled: !!workspaceId,
     staleTime: 30000,
   });
   const groups = query.data?.groups ?? [];
+  const metrics = query.data?.metrics;
   return <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
     <div className="text-[11px] uppercase tracking-wide text-slate-500">Historical accuracy</div>
     {query.isLoading ? <div className="mt-2 text-xs text-slate-600">Loading accuracy report…</div> : groups.length === 0 ? (
@@ -162,6 +163,11 @@ function AccuracyStatusCard({ workspaceId }: { workspaceId?: string }) {
       <div key={`${group.provider}-${group.timeframe}`} className="flex justify-between text-xs text-slate-400">
         <span>{group.provider} · {group.timeframe}</span><span>{group.direction_accuracy_pct ?? "—"}% ({group.samples})</span>
       </div>)}
+    </div>}
+    {!query.isLoading && metrics && <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-800 pt-2 text-[11px] text-slate-500">
+      <span>Samples: {metrics.samples ?? 0}</span>
+      <span>MAE: {metrics.mae ?? "—"}</span>
+      <span>Range: {metrics.range_coverage_pct == null ? "—" : `${metrics.range_coverage_pct}%`}</span>
     </div>}
   </div>;
 }
