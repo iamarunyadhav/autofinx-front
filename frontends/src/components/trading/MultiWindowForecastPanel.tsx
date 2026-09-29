@@ -172,6 +172,62 @@ function AccuracyStatusCard({ workspaceId }: { workspaceId?: string }) {
   </div>;
 }
 
+type FreshDatasetDashboard = {
+  datasets?: Array<{
+    id: string; name: string; status: string; started_at?: string | null; sealed_at?: string | null;
+    ready_pairs: number; total_pairs: number;
+    pairs: Array<{ symbol: string; timeframe: string; rows: number; minimum_rows: number; gaps: number; misaligned: number; stale_seconds?: number | null; state: string }>;
+  }>;
+  candidates?: Array<{
+    id: string; dataset_id: string; symbol: string; timeframe: string; provider: string; status: string;
+    metrics?: { quality_gate?: { passed?: boolean }; metrics?: { direction_accuracy_pct?: number; mae?: number; baseline_mae?: number } };
+  }>;
+  registry?: Array<{ candidate_id: string; status: string; execution: boolean; influence: boolean }>;
+};
+
+function FreshDatasetStatusCard({ workspaceId }: { workspaceId?: string }) {
+  const query = useQuery({
+    queryKey: ["prediction-fresh-datasets", workspaceId],
+    queryFn: () => authorizedFetch("/quick-trade/prediction-fresh-datasets", "GET", undefined, { params: { workspace_id: workspaceId } }) as Promise<FreshDatasetDashboard>,
+    enabled: !!workspaceId,
+    refetchInterval: 30000,
+    staleTime: 10000,
+  });
+  const latest = query.data?.datasets?.[0];
+  const candidates = query.data?.candidates ?? [];
+  const registry = new Map((query.data?.registry ?? []).map((entry) => [entry.candidate_id, entry]));
+
+  return <div className="mt-3 rounded-xl border border-cyan-900/60 bg-slate-950/40 p-3">
+    <div className="flex items-center justify-between gap-2">
+      <div className="text-[11px] uppercase tracking-wide text-cyan-300">Fresh canonical dataset · Binance Futures · shadow only</div>
+      <Badge variant="outline" className="border-cyan-900 text-[10px] text-cyan-300">Never executes</Badge>
+    </div>
+    {query.isLoading ? <div className="mt-2 text-xs text-slate-600">Reading fresh dataset quality…</div> : query.isError ? (
+      <div className="mt-2 text-xs text-slate-500">Fresh dataset dashboard is unavailable until its migration is deployed.</div>
+    ) : !latest ? <div className="mt-2 text-xs text-amber-400">No fresh dataset started yet. Old market history is not used here.</div> : (
+      <div className="mt-2 space-y-2 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-slate-300">
+          <span><span className="font-medium">{latest.name}</span> · {latest.status}</span>
+          <span className="text-slate-500">Ready pairs: {latest.ready_pairs}/{latest.total_pairs}</span>
+        </div>
+        <div className="grid gap-2 md:grid-cols-3">
+          {latest.pairs.map((pair) => <div key={`${pair.symbol}-${pair.timeframe}`} className="rounded-lg border border-slate-800 px-2.5 py-2 text-[11px]">
+            <div className="flex justify-between text-slate-300"><span>{pair.symbol} · {pair.timeframe}</span><span className={pair.state === "READY_FOR_TRAINING" ? "text-emerald-400" : "text-amber-400"}>{pair.state}</span></div>
+            <div className="mt-1 text-slate-500">{pair.rows}/{pair.minimum_rows} candles · gaps {pair.gaps} · invalid {pair.misaligned}</div>
+          </div>)}
+        </div>
+        {candidates.length > 0 && <div className="border-t border-slate-800 pt-2 text-[11px]">
+          {candidates.slice(0, 4).map((candidate) => {
+            const score = candidate.metrics?.metrics?.direction_accuracy_pct;
+            const entry = registry.get(candidate.id);
+            return <div key={candidate.id} className="flex justify-between gap-2 py-0.5 text-slate-400"><span>{candidate.symbol} · {candidate.timeframe} · {candidate.status}</span><span>{score == null ? "No holdout score" : `${score.toFixed(1)}% holdout`} {entry ? `· ${entry.status}` : ""}</span></div>;
+          })}
+        </div>}
+      </div>
+    )}
+  </div>;
+}
+
 export function MultiWindowForecastPanel({
   workspaceId,
   symbol,
@@ -248,6 +304,7 @@ export function MultiWindowForecastPanel({
       )}
       {expanded && <ProviderShadowCards symbol={symbol} candles={windowCandles.short} workspaceId={workspaceId} integrationId={integrationId} />}
       {expanded && <AccuracyStatusCard workspaceId={workspaceId} />}
+      {expanded && <FreshDatasetStatusCard workspaceId={workspaceId} />}
       {expanded && comparison.isError && (
         <div className="mt-2 text-xs text-rose-400">Comparison temporarily unavailable. Retrying automatically.</div>
       )}
