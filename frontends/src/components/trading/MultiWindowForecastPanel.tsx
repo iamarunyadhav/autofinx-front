@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { authorizedFetch } from "@/lib/api";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   useMultiWindowForecast,
@@ -106,6 +107,110 @@ function WindowCard({ definition, entry }: {
   );
 }
 
+const PYTHON_TIMEFRAMES = [
+  { value: "5m", label: "5 min", source: "5m", seconds: 300 },
+  { value: "15m", label: "15 min", source: "15m", seconds: 900 },
+  { value: "45m", label: "45 min (derived)", source: "15m", seconds: 2700 },
+  { value: "1h", label: "1 hour", source: "1h", seconds: 3600 },
+  { value: "4h", label: "4 hour", source: "4h", seconds: 14400 },
+] as const;
+
+type PythonTimeframe = (typeof PYTHON_TIMEFRAMES)[number]["value"];
+type PythonPredictionResult = {
+  available?: boolean;
+  direction?: string | null;
+  predicted_return_pct?: number | null;
+  provider_version?: string | null;
+  reason?: string | null;
+  evidence?: {
+    model_holdout_direction_accuracy_pct?: number | null;
+    model_holdout_rows?: number | null;
+    model_evaluation?: {
+      walk_forward?: { fold_count?: number | null; trade_fold_count?: number | null; mean_direction_accuracy_pct?: number | null; mean_average_net_return_pct?: number | null };
+      cost_assumptions?: { estimated_round_trip_cost_pct?: number | null; minimum_edge_bps?: number | null };
+      expected_net_return_pct?: number | null;
+    } | null;
+  };
+};
+
+function derive45MinuteCandles(candles: ForecastCandle[]): ForecastCandle[] {
+  const byTimestamp = new Map(closedCandles(candles, "15m").map((candle) => {
+    const timestamp = candle.timestamp && candle.timestamp < 1_000_000_000_000 ? candle.timestamp * 1000 : candle.timestamp;
+    return [timestamp ?? 0, candle] as const;
+  }));
+  const output: ForecastCandle[] = [];
+  byTimestamp.forEach((first, openMs) => {
+    if (!openMs || openMs % 2_700_000 !== 0) return;
+    const bars = [first, byTimestamp.get(openMs + 900_000), byTimestamp.get(openMs + 1_800_000)];
+    if (bars.some((bar) => !bar)) return;
+    const complete = bars as ForecastCandle[];
+    output.push({ timestamp: openMs, open: complete[0].open, high: Math.max(...complete.map((bar) => bar.high)), low: Math.min(...complete.map((bar) => bar.low)), close: complete[2].close, volume: complete.reduce((sum, bar) => sum + (bar.volume ?? 0), 0) });
+  });
+  return output.sort((left, right) => (left.timestamp ?? 0) - (right.timestamp ?? 0));
+}
+
+function PythonShadowDecisionCard({ symbol, workspaceId, integrationId, mode }: { symbol: string; workspaceId?: string; integrationId?: string; mode?: "paper" | "live" }) {
+  const [timeframe, setTimeframe] = useState<PythonTimeframe>("5m");
+  const selected = PYTHON_TIMEFRAMES.find((option) => option.value === timeframe) ?? PYTHON_TIMEFRAMES[0];
+  const chart = useQuickTradeChart({ workspaceId, symbol, timeframe: selected.source, chartType: "area", indicatorSet: [], mode, integrationId });
+  const candles = useMemo(() => timeframe === "45m" ? derive45MinuteCandles(chart.data?.candles ?? []) : closedCandles(chart.data?.candles ?? [], timeframe), [chart.data?.candles, timeframe]);
+  const lastTimestamp = candles.at(-1)?.timestamp ?? null;
+  const query = useQuery({
+    queryKey: ["python-shadow-decision", symbol, timeframe, lastTimestamp],
+    queryFn: () => authorizedFetch("/quick-trade/prediction-observatory", "POST", { symbol, market_type: "crypto", timeframe, horizon_seconds: selected.seconds, current_quote: candles.at(-1)?.close, candles, workspace_id: workspaceId, integration_id: integrationId }) as Promise<{ providers?: Record<string, { result?: PythonPredictionResult }> }>,
+    enabled: Boolean(symbol) && candles.length >= 20,
+    // Re-query only when the immutable last closed candle changes. This avoids
+    // duplicate prediction-observation records for one model input.
+    staleTime: Infinity,
+    retry: false,
+  });
+  const datasets = useQuery({
+    queryKey: ["prediction-fresh-datasets", workspaceId],
+    queryFn: () => authorizedFetch("/quick-trade/prediction-fresh-datasets", "GET", undefined, { params: { workspace_id: workspaceId } }) as Promise<FreshDatasetDashboard>,
+    enabled: !!workspaceId,
+    staleTime: 30000,
+  });
+  const liveAccuracy = useQuery({
+    queryKey: ["python-shadow-live-accuracy", workspaceId, symbol, timeframe],
+    queryFn: () => authorizedFetch("/quick-trade/prediction-accuracy-report", "POST", { workspace_id: workspaceId, symbol, timeframe, provider: "external_ml" }) as Promise<{ groups?: Array<{ provider: string; provider_version?: string; timeframe: string; direction_accuracy_pct?: number | null; samples: number; shadow_health?: { status?: string; reason?: string }; non_overlapping?: { samples?: number; direction_accuracy_pct?: number | null } }> }>,
+    enabled: !!workspaceId,
+    staleTime: 30000,
+  });
+  const result = query.data?.providers?.external_ml?.result;
+  const registered = new Set((datasets.data?.registry ?? []).filter((entry) => entry.status === "SHADOW_ONLY").map((entry) => entry.candidate_id));
+  const candidate = (datasets.data?.candidates ?? []).find((entry) => entry.symbol === symbol.toUpperCase() && entry.timeframe === timeframe && registered.has(entry.id));
+  const accuracy = result?.evidence?.model_holdout_direction_accuracy_pct ?? candidate?.metrics?.metrics?.direction_accuracy_pct;
+  const holdoutRows = result?.evidence?.model_holdout_rows ?? candidate?.metrics?.holdout_rows;
+  const evaluation = result?.evidence?.model_evaluation;
+  const walkForward = evaluation?.walk_forward;
+  const costs = evaluation?.cost_assumptions;
+  const observed = (liveAccuracy.data?.groups ?? []).find((group) => group.provider === "external_ml" && group.timeframe === timeframe && group.provider_version === result?.provider_version);
+  const latestCloseMs = lastTimestamp == null ? null : (lastTimestamp < 1_000_000_000_000 ? lastTimestamp * 1000 : lastTimestamp) + selected.seconds * 1000;
+  const staleInput = latestCloseMs != null && Date.now() - latestCloseMs > selected.seconds * 2000;
+
+  return <div className="mt-4 rounded-xl border border-violet-900/60 bg-violet-950/10 p-3">
+    {staleInput && <div className="mb-3 rounded-md border border-amber-900/70 bg-amber-950/20 px-2 py-1.5 text-[11px] text-amber-300">WAIT: latest closed candle is stale. Refresh market data before using this model.</div>}
+    {result?.available && result.reason && <div className="mb-3 rounded-md border border-amber-900/70 bg-amber-950/20 px-2 py-1.5 text-[11px] text-amber-300">WAIT reason: {result.reason.replace(/_/g, " ")}</div>}
+    {result?.available && <div className="mb-3 grid gap-2 rounded-md border border-violet-900/50 bg-slate-950/40 p-2 text-[11px] text-slate-400 md:grid-cols-3">
+      <span>Walk-forward: {walkForward?.mean_direction_accuracy_pct == null ? "not recorded" : `${walkForward.mean_direction_accuracy_pct.toFixed(1)}%`}</span>
+      <span>Trade-valid folds: {walkForward?.trade_fold_count ?? 0}/{walkForward?.fold_count ?? 0}</span>
+      <span>Estimated cost: {costs?.estimated_round_trip_cost_pct == null ? "not recorded" : `${costs.estimated_round_trip_cost_pct.toFixed(3)}%`} | Net edge: {evaluation?.expected_net_return_pct == null ? "not recorded" : `${evaluation.expected_net_return_pct.toFixed(4)}%`}</span>
+    </div>}
+    {result?.available && <div className="mb-3 rounded-md border border-sky-900/60 bg-slate-950/40 px-2 py-1.5 text-[11px] text-slate-400">Live shadow outcomes for this model version: {observed?.samples ? `${observed.direction_accuracy_pct?.toFixed(1) ?? "n/a"}% direction accuracy, n=${observed.samples}` : "not enough settled observations yet"}. This is separate from training holdout accuracy.</div>}
+    {result?.available && observed?.shadow_health && <div className={cn("mb-3 rounded-md border px-2 py-1.5 text-[11px]", observed.shadow_health.status === "SHADOW_HEALTHY" ? "border-emerald-900/70 bg-emerald-950/20 text-emerald-300" : observed.shadow_health.status === "REVIEW_REQUIRED" ? "border-rose-900/70 bg-rose-950/20 text-rose-300" : "border-amber-900/70 bg-amber-950/20 text-amber-300")}>Shadow health: {observed.shadow_health.status?.replaceAll("_", " ")} - {observed.shadow_health.reason?.replaceAll("_", " ")}. Review-only; it never changes live execution.</div>}
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div><div className="text-[11px] uppercase tracking-wide text-violet-300">Python ML shadow decision · closed candles only</div><div className="mt-1 text-xs text-slate-400">Manual decision support only. Never places, blocks, or changes a live order.</div></div>
+      <Badge variant="outline" className="border-violet-800 text-[10px] text-violet-300">Shadow only</Badge>
+    </div>
+    <div className="mt-3 grid gap-3 md:grid-cols-[180px_1fr]">
+      <Select value={timeframe} onValueChange={(value) => setTimeframe(value as PythonTimeframe)}><SelectTrigger className="h-9 border-slate-800 bg-slate-950 text-xs"><SelectValue /></SelectTrigger><SelectContent>{PYTHON_TIMEFRAMES.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select>
+      <div className="text-[11px] text-slate-500">{timeframe === "45m" ? "45m is derived from three consecutive closed 15m Binance Futures candles." : `Native Binance Futures ${timeframe} candles.`}</div>
+    </div>
+    {query.isLoading || chart.isLoading ? <div className="mt-3 text-xs text-slate-500">Reading the latest closed-candle model input…</div> : candles.length < 20 ? <div className="mt-3 text-xs text-amber-400">WAIT · at least 20 fully closed {timeframe} candles are required.</div> : !result ? <div className="mt-3 text-xs text-amber-400">WAIT · Python provider is disabled or unavailable on the server.</div> : result.available ? <div className="mt-3 grid gap-3 md:grid-cols-3"><div><div className="text-[11px] text-slate-500">Python direction</div><Badge variant="outline" className={cn("mt-1 text-sm", decisionBadgeClass(result.direction))}>{result.direction ?? "WAIT"}</Badge></div><div><div className="text-[11px] text-slate-500">Predicted return</div><div className="mt-1 text-sm font-medium text-slate-200">{result.predicted_return_pct == null ? "—" : `${result.predicted_return_pct.toFixed(4)}%`}</div></div><div><div className="text-[11px] text-slate-500">Holdout direction accuracy</div><div className="mt-1 text-sm font-medium text-slate-200">{accuracy == null ? "Not recorded" : `${accuracy.toFixed(1)}%${holdoutRows ? ` · n=${holdoutRows}` : ""}`}</div></div></div> : <div className="mt-3 text-xs text-amber-400">WAIT · {result.reason?.replaceAll("_", " ") ?? "model not trained or not published for this symbol/timeframe"}</div>}
+    <div className="mt-3 border-t border-slate-800 pt-2 text-[11px] text-slate-500">Model: {result?.provider_version ?? `${symbol.toUpperCase()}-${timeframe} pending`} · Holdout accuracy is an out-of-sample metric, not a promise for this individual decision.</div>
+  </div>;
+}
+
 function ProviderShadowCards({ symbol, candles, workspaceId, integrationId }: { symbol: string; candles: ForecastCandle[]; workspaceId?: string; integrationId?: string }) {
   const query = useQuery({
     queryKey: ["prediction-observatory", symbol, candles.length, candles.at(-1)?.timestamp],
@@ -180,7 +285,7 @@ type FreshDatasetDashboard = {
   }>;
   candidates?: Array<{
     id: string; dataset_id: string; symbol: string; timeframe: string; provider: string; status: string;
-    metrics?: { quality_gate?: { passed?: boolean }; metrics?: { direction_accuracy_pct?: number; mae?: number; baseline_mae?: number } };
+    metrics?: { quality_gate?: { passed?: boolean }; metrics?: { direction_accuracy_pct?: number; mae?: number; baseline_mae?: number }; holdout_rows?: number };
   }>;
   registry?: Array<{ candidate_id: string; status: string; execution: boolean; influence: boolean }>;
 };
@@ -302,6 +407,7 @@ export function MultiWindowForecastPanel({
           ))}
         </div>
       )}
+      {expanded && <PythonShadowDecisionCard symbol={symbol} workspaceId={workspaceId} integrationId={integrationId} mode={mode} />}
       {expanded && <ProviderShadowCards symbol={symbol} candles={windowCandles.short} workspaceId={workspaceId} integrationId={integrationId} />}
       {expanded && <AccuracyStatusCard workspaceId={workspaceId} />}
       {expanded && <FreshDatasetStatusCard workspaceId={workspaceId} />}
