@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout";
 import { DirectionDecisionCard } from "@/components/trading/DirectionDecisionCard";
 import { ExecutionSafetyControls, type ExecutionSafetyValues } from "@/components/trading/ExecutionSafetyControls";
+import { MlShadowCard } from "@/components/trading/MlShadowCard";
 import { MobileTradeNav } from "@/components/trading/MobileTradeNav";
 import { NearTermForecastCard } from "@/components/trading/NearTermForecastCard";
 import { ProfitCalculatorCard } from "@/components/trading/ProfitCalculatorCard";
@@ -1082,6 +1083,10 @@ export default function QuickTradePage() {
             />
           </div>
           <ForecastComparisonCard current={forecastComparison.data?.current ?? forecastQuery.data?.forecast} unified={forecastComparison.data?.unified} helpers={forecastComparison.data?.helpers} agreement={forecastComparison.data?.comparison?.agreement} selected={predictionSource} onSelect={setPredictionSource} />
+
+          {/* Phase 1 Python ML shadow -- follows the selected expiry and only ever
+              shows that horizon's own champion. Display only; never an order input. */}
+          {symbol && <MlShadowCard symbol={symbol} durationSeconds={duration} workspaceId={workspaceId} />}
 
           {/* VNext Dynamic Decision Engine, Phase A -- optional, collapsed-by-default
               3-window (short/medium/long) forecast comparison. Purely informational. */}
