@@ -17,22 +17,32 @@ type ForecastMetrics = { status: "ok" | "insufficient_data"; samples: number; di
 type DecisionMetrics = { status: "ok" | "insufficient_data"; samples: number; wait_samples: number; net_win_rate_pct: number | null; average_net_pct: number | null };
 type LiveEvaluation = { minimum_samples: number; pending: number; forecast: ForecastMetrics; decision: DecisionMetrics };
 
+type SimResult = { raw_signals?: number; trades: number; total_net_pct: number; average_net_pct: number | null; net_win_rate_pct: number | null };
+
 type ModelSummary = {
   model_version: string | null;
+  model_type?: "regression" | "side_classifier";
   status: string;
   trained_at: string | null;
   promoted_at: string | null;
   training_samples: number;
   holdout_samples: number;
-  holdout: { mae_pct: number | null; baseline_zero_mae_pct: number | null; direction_hit_pct: number | null; fee_aware?: { trade_count?: number; average_net_pct?: number | null; total_net_pct?: number | null } | null };
-  calibration: { state: string; holdout_interval_coverage_pct: number | null; target_coverage_pct: number };
+  holdout: {
+    mae_pct: number | null; baseline_zero_mae_pct: number | null; direction_hit_pct: number | null;
+    fee_aware?: { trade_count?: number; average_net_pct?: number | null; total_net_pct?: number | null } | null;
+    non_overlapping?: SimResult | null;
+    baselines?: { never_trade?: SimResult; always_buy?: SimResult; always_sell?: SimResult } | null;
+    effective_samples?: number | null;
+  };
+  calibration: { state: string; holdout_interval_coverage_pct?: number | null; target_coverage_pct?: number; sides?: Record<string, { brier: number | null; brier_climatology: number | null; state: string }> };
   decision_reason: string | null;
   comparison?: Record<string, unknown> | null;
 };
 
 type MlShadowPayload = {
   enabled?: boolean;
-  status: "DISABLED" | "UNSUPPORTED_SYMBOL" | "UNSUPPORTED_DURATION" | "NO_CHAMPION" | "NO_PREDICTION_YET" | "READY" | "DATA_STALE";
+  status: "DISABLED" | "UNSUPPORTED_SYMBOL" | "UNSUPPORTED_DURATION" | "COST_EXCEEDS_MOVE" | "NO_CHAMPION" | "NO_PREDICTION_YET" | "READY" | "DATA_STALE";
+  message?: string;
   horizon_minutes?: number | null;
   supported_horizons_minutes?: number[];
   supported_symbols?: string[];
@@ -47,6 +57,11 @@ type MlShadowPayload = {
     predicted_low: number | null;
     predicted_high: number | null;
     expected_move_pct: number | null;
+    model_type?: "regression" | "side_classifier";
+    p_buy?: number | null;
+    p_sell?: number | null;
+    probability_floor?: number | null;
+    funding_estimate_buy_pct?: number | null;
     buy_net_pct: number | null;
     sell_net_pct: number | null;
     cost_pct: number | null;
@@ -76,6 +91,7 @@ type LearningPayload = {
 };
 
 const pct = (value: number | null | undefined, digits = 3) => (value == null ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`);
+const prob = (value: number | null | undefined) => (value == null ? "—" : `${(value * 100).toFixed(1)}%`);
 const price = (value: number | null | undefined) => (value == null ? "—" : value.toLocaleString(undefined, { maximumFractionDigits: 2 }));
 const words = (value?: string | null) => (value ? value.replaceAll("_", " ") : "—");
 const age = (seconds?: number | null) => (seconds == null ? "—" : seconds < 120 ? `${seconds}s` : `${Math.round(seconds / 60)}m`);
@@ -150,15 +166,16 @@ export function MlShadowCard({ symbol, durationSeconds, workspaceId }: { symbol:
   const data = query.data;
   const p = data?.prediction;
   const horizonLabel = data?.horizon_minutes ? `${data.horizon_minutes}m model` : `${Math.round(durationSeconds / 60)}m`;
-  const supported = (data?.supported_horizons_minutes ?? [15, 60, 240]).map((h) => `${h}m`).join(" / ");
+  const supported = (data?.supported_horizons_minutes ?? [60, 120, 240, 1440]).map((h) => `${h}m`).join(" / ");
 
   let notice: string | null = null;
   if (query.isError) notice = "Python ML shadow status could not be loaded.";
   else if (!data) notice = query.isLoading ? "Loading Python ML shadow…" : null;
   else if (data.status === "DISABLED") notice = "Python ML shadow learning is disabled on the server.";
   else if (data.status === "UNSUPPORTED_SYMBOL") notice = `No Python ML model for this symbol. Shadow learning covers ${(data.supported_symbols ?? []).join(", ")}.`;
+  else if (data.status === "COST_EXCEEDS_MOVE") notice = data.message ?? "No model for this expiry: trading costs exceed the typical price move at this horizon.";
   else if (data.status === "UNSUPPORTED_DURATION") notice = `No Python model for this expiry. Models exist for ${supported} only; another horizon's model is never shown in its place.`;
-  else if (data.status === "NO_CHAMPION") notice = `No validated ${horizonLabel} for ${symbol} yet. A model is shown only after it beats the zero-return baseline (and any previous champion) on unseen data.`;
+  else if (data.status === "NO_CHAMPION") notice = `No validated ${horizonLabel} for ${symbol} yet. A model is shown only after it is profitable after fees and funding on unseen data, one position at a time, and beats always-BUY / always-SELL.`;
   else if (data.status === "NO_PREDICTION_YET") notice = "Champion ready; waiting for the next closed 5m candle to produce a shadow prediction.";
 
   return <div className="space-y-3 rounded-2xl border border-violet-900/60 bg-slate-950/60 p-4">
@@ -174,26 +191,35 @@ export function MlShadowCard({ symbol, durationSeconds, workspaceId }: { symbol:
 
     {p && (data?.status === "READY" || data?.status === "DATA_STALE") && <>
       {data.status === "DATA_STALE" && <div className="rounded-md border border-amber-900/70 bg-amber-950/20 px-2 py-1.5 text-[11px] text-amber-300">WAIT · DATA STALE: the newest shadow prediction is {age(p.data_age_seconds)} old. Values below are historical, not current.</div>}
-      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      {p.model_type === "side_classifier" ? <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div><div className="text-[11px] text-slate-500">Shadow decision</div><Badge variant="outline" className={cn("mt-1 text-sm", decisionClass(p.decision))}>{p.decision}</Badge></div>
+        <Metric label="Price at prediction" value={price(p.current_price)} />
+        <Metric label="P(BUY wins after costs)" value={prob(p.p_buy)} tone={(p.p_buy ?? 0) >= (p.probability_floor ?? 1) ? "text-emerald-300" : undefined} />
+        <Metric label="P(SELL wins after costs)" value={prob(p.p_sell)} tone={(p.p_sell ?? 0) >= (p.probability_floor ?? 1) ? "text-emerald-300" : undefined} />
+        <Metric label="Probability floor" value={prob(p.probability_floor)} />
+        <Metric label="Data age" value={age(p.data_age_seconds)} />
+      </div> : <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <div><div className="text-[11px] text-slate-500">Shadow decision</div><Badge variant="outline" className={cn("mt-1 text-sm", decisionClass(p.decision))}>{p.decision}</Badge></div>
         <Metric label="Price at prediction" value={price(p.current_price)} />
         <Metric label="Predicted expiry price" value={price(p.predicted_expiry_price)} />
         <Metric label="Low / high (p10–p90)" value={p.predicted_low == null ? "—" : `${price(p.predicted_low)} / ${price(p.predicted_high)}`} />
         <Metric label="Expected move" value={pct(p.expected_move_pct)} />
         <Metric label="Data age" value={age(p.data_age_seconds)} />
-      </div>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Metric label="BUY net (after costs)" value={pct(p.buy_net_pct)} tone={(p.buy_net_pct ?? 0) > 0 ? "text-emerald-300" : "text-slate-300"} />
-        <Metric label="SELL net (after costs)" value={pct(p.sell_net_pct)} tone={(p.sell_net_pct ?? 0) > 0 ? "text-emerald-300" : "text-slate-300"} />
+      </div>}
+      <div className="grid gap-3 sm:grid-cols-4">
+        <Metric label={p.model_type === "side_classifier" ? "BUY expected net" : "BUY net (after costs)"} value={pct(p.buy_net_pct)} tone={(p.buy_net_pct ?? 0) > 0 ? "text-emerald-300" : "text-slate-300"} />
+        <Metric label={p.model_type === "side_classifier" ? "SELL expected net" : "SELL net (after costs)"} value={pct(p.sell_net_pct)} tone={(p.sell_net_pct ?? 0) > 0 ? "text-emerald-300" : "text-slate-300"} />
         <Metric label="Cost / required move" value={`${p.cost_pct?.toFixed(3) ?? "—"}% / ${p.required_move_pct?.toFixed(3) ?? "—"}%`} />
+        <Metric label="Funding est. (long pays)" value={pct(p.funding_estimate_buy_pct, 4)} />
       </div>
-      <div className="text-[11px] text-slate-500">Reason: {words(p.decision_reason)} · Costs from the Quick Trade cost model, charged once.</div>
+      <div className="text-[11px] text-slate-500">Reason: {words(p.decision_reason)} · Fees from the Quick Trade cost model, charged once; funding: longs pay, shorts receive.</div>
     </>}
 
     {data?.model && <div className="grid gap-2 border-t border-slate-800 pt-2 text-[11px] text-slate-400 md:grid-cols-3">
       <span>Model: {data.model.model_version} · {data.model.training_samples.toLocaleString()} training samples</span>
       <span>Holdout MAE {data.model.holdout.mae_pct?.toFixed(3) ?? "—"}% vs zero-baseline {data.model.holdout.baseline_zero_mae_pct?.toFixed(3) ?? "—"}% (n={data.model.holdout_samples.toLocaleString()})</span>
-      <span>Calibration: {words(data.model.calibration.state)}{data.model.calibration.holdout_interval_coverage_pct != null ? ` · p10–p90 covered ${data.model.calibration.holdout_interval_coverage_pct.toFixed(1)}% (target ${data.model.calibration.target_coverage_pct}%)` : ""}</span>
+      <span>Calibration: {words(data.model.calibration.state)}{data.model.calibration.holdout_interval_coverage_pct != null ? ` · p10–p90 covered ${data.model.calibration.holdout_interval_coverage_pct.toFixed(1)}% (target ${data.model.calibration.target_coverage_pct}%)` : ""}{data.model.calibration.sides ? ` · Brier buy ${data.model.calibration.sides.buy?.brier?.toFixed(3) ?? "—"} / sell ${data.model.calibration.sides.sell?.brier?.toFixed(3) ?? "—"}` : ""}</span>
+      {data.model.holdout.non_overlapping && <span className="md:col-span-3">Holdout, one position at a time (after fees + funding): {data.model.holdout.non_overlapping.trades} trades of {data.model.holdout.non_overlapping.raw_signals ?? "—"} raw signals · net {pct(data.model.holdout.non_overlapping.total_net_pct, 2)} · win {data.model.holdout.non_overlapping.net_win_rate_pct?.toFixed(1) ?? "—"}% · vs always-BUY {pct(data.model.holdout.baselines?.always_buy?.total_net_pct, 2)} / always-SELL {pct(data.model.holdout.baselines?.always_sell?.total_net_pct, 2)} · ~{Math.round(data.model.holdout.effective_samples ?? 0)} independent outcomes</span>}
     </div>}
 
     <LiveEvaluationLine evaluation={data?.live_evaluation} />
