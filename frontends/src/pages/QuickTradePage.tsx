@@ -1084,10 +1084,6 @@ export default function QuickTradePage() {
           </div>
           <ForecastComparisonCard current={forecastComparison.data?.current ?? forecastQuery.data?.forecast} unified={forecastComparison.data?.unified} helpers={forecastComparison.data?.helpers} agreement={forecastComparison.data?.comparison?.agreement} selected={predictionSource} onSelect={setPredictionSource} />
 
-          {/* Phase 1 Python ML shadow -- follows the selected expiry and only ever
-              shows that horizon's own champion. Display only; never an order input. */}
-          {symbol && <MlShadowCard symbol={symbol} durationSeconds={duration} workspaceId={workspaceId} />}
-
           {/* VNext Dynamic Decision Engine, Phase A -- optional, collapsed-by-default
               3-window (short/medium/long) forecast comparison. Purely informational. */}
           {symbol && (
@@ -1451,6 +1447,11 @@ export default function QuickTradePage() {
                   {isBuy ? "↑ BUY / UP  ✦" : "Buy / Up"}
                 </Button>
               </div>
+
+              {/* Keep the Python decision directly below the trade buttons so it
+                  stays next to the selected expiry. Changing the expiry remounts
+                  this card and loads that horizon's own shadow model. */}
+              {symbol && <MlShadowCard key={`${symbol}:${duration}`} symbol={symbol} durationSeconds={duration} workspaceId={workspaceId} />}
 
               {/* Active trades for this symbol */}
               {activeForSymbol.length > 0 && (
