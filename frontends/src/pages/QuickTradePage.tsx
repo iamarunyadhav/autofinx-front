@@ -4,6 +4,7 @@ import { AppShell } from "@/components/layout";
 import { DirectionDecisionCard } from "@/components/trading/DirectionDecisionCard";
 import { ExecutionSafetyControls, type ExecutionSafetyValues } from "@/components/trading/ExecutionSafetyControls";
 import { MlShadowCard } from "@/components/trading/MlShadowCard";
+import { PaperWalletControl } from "@/components/trading/PaperWalletControl";
 import { MobileTradeNav } from "@/components/trading/MobileTradeNav";
 import { NearTermForecastCard } from "@/components/trading/NearTermForecastCard";
 import { ProfitCalculatorCard } from "@/components/trading/ProfitCalculatorCard";
@@ -638,7 +639,8 @@ export default function QuickTradePage() {
     return (
       balances.find((a: any) => String(a?.wallet_type ?? "").toLowerCase() === "paper") ??
       balances.find((a: any) => String(a?.type ?? "").toLowerCase() === "cash" && String(a?.currency ?? "").toUpperCase() === "USD") ??
-      balances[0]
+      // Paper mode never falls back to an exchange wallet — that would look like real money.
+      null
     );
   }, [activeMode, balances, selectedIntegrationId, selectedProvider]);
 
@@ -911,13 +913,20 @@ export default function QuickTradePage() {
                   {activeMode === "live" ? "Live timed trade" : "Paper quick trade"}
                 </div>
                 <div className="mt-1 text-3xl font-bold">
-                  {selectedBalance?.currency ?? "USD"} {balance.toFixed(2)}
+                  {activeMode !== "live" && !selectedBalance
+                    ? "No paper wallet yet"
+                    : `${selectedBalance?.currency ?? "USD"} ${balance.toFixed(2)}`}
                 </div>
                 <div className="mt-1 text-sm text-slate-500">
                   {activeMode === "live"
                     ? "Opens Binance futures position · auto-closes at expiry"
-                    : "Paper wallet · no real funds at risk"}
+                    : selectedBalance
+                      ? "Paper wallet · no real funds at risk"
+                      : "Create a practice wallet (starts at USD 10,000) · no real funds at risk"}
                 </div>
+                {activeMode !== "live" && (
+                  <PaperWalletControl workspaceId={workspaceId} hasPaperWallet={String(selectedBalance?.wallet_type ?? "").toLowerCase() === "paper"} />
+                )}
               </div>
               <div className="grid gap-3 md:grid-cols-4">
                 <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">
