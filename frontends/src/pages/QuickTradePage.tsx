@@ -5,6 +5,7 @@ import { DirectionDecisionCard } from "@/components/trading/DirectionDecisionCar
 import { ExecutionSafetyControls, type ExecutionSafetyValues } from "@/components/trading/ExecutionSafetyControls";
 import { MlShadowCard } from "@/components/trading/MlShadowCard";
 import { PaperWalletControl } from "@/components/trading/PaperWalletControl";
+import { MlAutopilotPanel } from "@/components/trading/MlAutopilotPanel";
 import { MobileTradeNav } from "@/components/trading/MobileTradeNav";
 import { NearTermForecastCard } from "@/components/trading/NearTermForecastCard";
 import { ProfitCalculatorCard } from "@/components/trading/ProfitCalculatorCard";
@@ -1461,6 +1462,9 @@ export default function QuickTradePage() {
                   stays next to the selected expiry. Changing the expiry remounts
                   this card and loads that horizon's own shadow model. */}
               {symbol && <MlShadowCard key={`${symbol}:${duration}`} symbol={symbol} durationSeconds={duration} workspaceId={workspaceId} />}
+
+              {/* ML Paper Autopilot: simulated, own table — paper mode only. */}
+              {activeMode !== "live" && <MlAutopilotPanel workspaceId={workspaceId} />}
 
               {/* Active trades for this symbol */}
               {activeForSymbol.length > 0 && (
