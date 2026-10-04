@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { authorizedFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { MlSignalsBoard, type SignalRow } from "@/components/trading/MlSignalsBoard";
 
 /*
  * ML Paper Autopilot — simulated trades opened automatically on the python
@@ -13,6 +14,9 @@ import { cn } from "@/lib/utils";
  * Fully separate from the user's own trades: its own table and its own
  * virtual balance. It never touches the paper wallet, Quick Trade rows, live
  * data or orders, and nothing here feeds order placement.
+ *
+ * In LIVE mode only the read-only signal board is shown (manual trading;
+ * no autopilot section).
  */
 
 type Stats = {
@@ -31,16 +35,12 @@ type TradeRow = {
   gross_return_pct: number | null; net_return_pct: number | null; pnl_usd: number | null; outcome: "WIN" | "LOSS" | null;
 };
 
-type SignalRow = {
-  symbol: string; horizon_minutes: number; model_version: string | null; model_type: string | null;
-  decision: "BUY" | "SELL" | "WAIT" | null; decision_reason: string | null; p_buy: number | null; p_sell: number | null;
-  signal_time: string | null; signal_age_seconds: number | null; action: string;
-  raw_trade_signals: number; trades_taken: number;
-};
-
 type AutopilotPayload = {
   enabled: boolean;
-  settings: { starting_balance_usd: number; stake_usd: number; cost_pct: number; min_closed_trades: number; rule: string };
+  settings: {
+    starting_balance_usd: number; stake_usd: number; cost_pct: number; min_closed_trades: number; rule: string;
+    trade_horizons_minutes: number[]; stability: { confirm_predictions: number; entry_probability: number; exit_probability: number };
+  };
   summary: Stats & {
     status: "ok" | "insufficient_data"; balance_usd: number; total_return_pct: number;
     open_trades: number; max_drawdown_usd: number; cancelled_trades: number;
@@ -67,11 +67,6 @@ const hz = (m: number) => (m >= 1440 ? `${m / 1440}d` : m >= 60 ? `${m / 60}h` :
 const when = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
 const tone = (v: number | null | undefined) => (v == null || v === 0 ? "text-slate-200" : v > 0 ? "text-emerald-300" : "text-rose-300");
 const words = (v?: string | null) => (v ? v.replaceAll("_", " ") : "—");
-
-const ACTION_LABEL: Record<string, string> = {
-  traded: "Traded", pending_entry: "Entering next run", skipped_position_open: "Skipped — position open",
-  signal_stale: "Signal too old", wait: "Model says wait", no_signal_yet: "No signal yet", no_champion: "No champion model",
-};
 
 function sideClass(side?: string | null) {
   if (side === "BUY") return "border-emerald-500/30 bg-emerald-500/15 text-emerald-300";
@@ -181,7 +176,7 @@ function StatsTable({ rows }: { rows: { label: string; stats: Stats }[] }) {
   );
 }
 
-export function MlAutopilotPanel({ workspaceId }: { workspaceId?: string }) {
+export function MlAutopilotPanel({ workspaceId, mode = "paper" }: { workspaceId?: string; mode?: "paper" | "live" }) {
   const query = useQuery({
     queryKey: ["ml-autopilot", workspaceId],
     queryFn: () => authorizedFetch("/quick-trade/ml-autopilot", "GET", undefined, { params: { workspace_id: workspaceId } }) as Promise<AutopilotPayload>,
@@ -190,25 +185,34 @@ export function MlAutopilotPanel({ workspaceId }: { workspaceId?: string }) {
     retry: false,
   });
   const data = query.data;
+  const paper = mode === "paper";
 
   return (
     <Card className="border-slate-800 bg-slate-950 text-slate-50">
       <CardHeader className="pb-3">
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-          ML Paper Autopilot
-          <Badge variant="outline" className="border-sky-500/30 bg-sky-500/10 text-sky-300">Simulated · separate from your trades</Badge>
-          {data && !data.enabled && <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">Paused</Badge>}
+          {paper ? "ML Paper Autopilot" : "ML Signals"}
+          {paper
+            ? <Badge variant="outline" className="border-sky-500/30 bg-sky-500/10 text-sky-300">Simulated · separate from your trades</Badge>
+            : <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">Read-only · you trade manually</Badge>}
+          {paper && data && !data.enabled && <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">Paused</Badge>}
         </CardTitle>
         <p className="text-xs text-slate-500">
-          Opens a virtual trade automatically whenever a python champion model says BUY or SELL, and closes it at expiry.
-          {data && <> Stake {usd(data.settings.stake_usd)} per trade, fee + slippage {data.settings.cost_pct}% per round trip plus real funding, one position per symbol × horizon.</>}
-          {" "}Your manual trades, paper wallet and live account are never touched.
+          {paper ? (
+            <>Opens a virtual trade automatically when a champion model gives a <span className="text-slate-300">confirmed</span> BUY or SELL, and closes it at expiry.
+              {data && <> Stake {usd(data.settings.stake_usd)} per trade, fee + slippage {data.settings.cost_pct}% per round trip plus real funding, one position per coin × horizon, traded horizons {data.settings.trade_horizons_minutes.map(hz).join(", ")}.</>}
+              {" "}Your manual trades, paper wallet and live account are never touched.</>
+          ) : (
+            <>What every model says right now, how well it tested and how its training is going. Nothing here places an order: the ML never trades your live account.</>
+          )}
+          {data && <> A side becomes <span className="text-slate-300">stable</span> after {data.settings.stability.confirm_predictions} readings in a row at ≥{(data.settings.stability.entry_probability * 100).toFixed(0)}%, and holds until it drops below {(data.settings.stability.exit_probability * 100).toFixed(0)}%.</>}
         </p>
       </CardHeader>
-      <CardContent>
-        {query.isLoading && <div className="text-xs text-slate-500">Loading autopilot…</div>}
-        {query.isError && <div className="text-xs text-rose-300">Autopilot data unavailable.</div>}
-        {data && <Body data={data} />}
+      <CardContent className="space-y-4">
+        {query.isLoading && <div className="text-xs text-slate-500">Loading…</div>}
+        {query.isError && <div className="text-xs text-rose-300">ML data unavailable.</div>}
+        {data && <MlSignalsBoard workspaceId={workspaceId} signals={data.signals} confirm={data.settings.stability.confirm_predictions} showAutopilot={paper} />}
+        {data && paper && <Body data={data} />}
       </CardContent>
     </Card>
   );
@@ -223,7 +227,7 @@ function Body({ data }: { data: AutopilotPayload }) {
   return (
     <Tabs defaultValue="overview">
       <TabsList className="mb-3 bg-slate-900">
-        <TabsTrigger value="overview">Overview</TabsTrigger>
+        <TabsTrigger value="overview">Autopilot results</TabsTrigger>
         <TabsTrigger value="trades">Trades ({s.closed_trades}{s.open_trades ? ` + ${s.open_trades} open` : ""})</TabsTrigger>
         <TabsTrigger value="breakdown">Breakdown</TabsTrigger>
       </TabsList>
@@ -250,27 +254,6 @@ function Body({ data }: { data: AutopilotPayload }) {
           <EquityChart data={data.equity_curve} start={data.settings.starting_balance_usd} />
         </div>
 
-        <div>
-          <div className="mb-1 text-xs font-medium text-slate-400">What each model is saying right now</div>
-          <div className="grid gap-2 md:grid-cols-2">
-            {data.signals.map((sig) => (
-              <div key={`${sig.symbol}-${sig.horizon_minutes}`} className={cn("rounded-lg border border-slate-800 p-2.5 text-xs", sig.action === "no_champion" && "opacity-50")}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-slate-200">{sig.symbol} · {hz(sig.horizon_minutes)}</span>
-                  <Badge variant="outline" className={sideClass(sig.decision)}>{sig.decision ?? "—"}</Badge>
-                </div>
-                <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-slate-500">
-                  <span>P(buy) {prob(sig.p_buy)}</span><span>P(sell) {prob(sig.p_sell)}</span>
-                  <span>{sig.signal_age_seconds == null ? "" : `${Math.round(sig.signal_age_seconds / 60)}m ago`}</span>
-                </div>
-                <div className="mt-1 flex justify-between text-[11px]">
-                  <span className="text-slate-300">{ACTION_LABEL[sig.action] ?? words(sig.action)}</span>
-                  <span className="text-slate-500">{sig.trades_taken} taken / {sig.raw_trade_signals} BUY·SELL signals</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
       </TabsContent>
 
       <TabsContent value="trades" className="space-y-4">

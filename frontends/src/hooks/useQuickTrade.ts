@@ -855,14 +855,15 @@ export function useQuickTradeActive(workspaceId?: string, source?: string, robot
   });
 }
 
-export function useQuickTradeHistory(workspaceId?: string, source?: string, robotSessionId?: string, limit = 100) {
+export function useQuickTradeHistory(workspaceId?: string, source?: string, robotSessionId?: string, limit = 100, mode?: "paper" | "live") {
   const search = new URLSearchParams();
   if (source) search.set("source", source);
+  if (mode) search.set("mode", mode);
   if (robotSessionId) search.set("robot_session_id", robotSessionId);
   search.set("limit", String(limit));
 
   return useQuery({
-    queryKey: ["quick-trade-history", workspaceId, source, robotSessionId, limit],
+    queryKey: ["quick-trade-history", workspaceId, source, robotSessionId, limit, mode],
     queryFn: async () => {
       if (!workspaceId) return [];
       return authorizedFetch(`/workspaces/${workspaceId}/quick-trades/history?${search.toString()}`) as Promise<QuickTradeRecord[]>;

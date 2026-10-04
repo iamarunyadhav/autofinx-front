@@ -344,10 +344,11 @@ const TradeContextCard = memo(function TradeContextCard({
 
 interface HistoryCardProps {
   trades: QuickTradeRecord[];
+  mode: "paper" | "live";
 }
 
 // Memoized: settled trade history never depends on the live tick.
-const HistoryCard = memo(function HistoryCard({ trades }: HistoryCardProps) {
+const HistoryCard = memo(function HistoryCard({ trades, mode }: HistoryCardProps) {
   const wins = trades.filter((t) => Number(t.profit_loss) > 0).length;
   const total = trades.filter((t) => t.settled_at != null && t.status !== "open").length;
   return (
@@ -355,6 +356,7 @@ const HistoryCard = memo(function HistoryCard({ trades }: HistoryCardProps) {
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-base">
           History
+          <Badge variant="outline" className="border-slate-700 text-[10px] uppercase text-slate-400">{mode}</Badge>
           <a href="#quick-trade-research" className="ml-auto text-xs text-cyan-300 underline">Export / analyze trades</a>
           {total > 0 && (
             <Badge className="bg-slate-800 text-slate-300">
@@ -365,7 +367,7 @@ const HistoryCard = memo(function HistoryCard({ trades }: HistoryCardProps) {
       </CardHeader>
       <CardContent className="space-y-2">
         {trades.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-slate-800 p-4 text-center text-sm text-slate-600">No trades yet</div>
+          <div className="rounded-2xl border border-dashed border-slate-800 p-4 text-center text-sm text-slate-600">No {mode} trades yet</div>
         )}
         {trades.map((t) => <HistoryTradeCard key={t.id} trade={t} />)}
       </CardContent>
@@ -558,7 +560,8 @@ export default function QuickTradePage() {
       ? chartQuery.data?.quote?.price : undefined;
 
   const activeTrades = useQuickTradeActive(workspaceId);
-  const historyTrades = useQuickTradeHistory(workspaceId, undefined, undefined, 8);
+  // Paper and live history are kept apart: each mode shows only its own trades.
+  const historyTrades = useQuickTradeHistory(workspaceId, undefined, undefined, 8, activeMode === "live" ? "live" : "paper");
   const placeQuickTrade = usePlaceQuickTrade();
   const settleTrades = useSettleQuickTrades();
   const activeCryptoSymbols = useMemo(() => (activeTrades.data ?? [])
@@ -1463,8 +1466,9 @@ export default function QuickTradePage() {
                   this card and loads that horizon's own shadow model. */}
               {symbol && <MlShadowCard key={`${symbol}:${duration}`} symbol={symbol} durationSeconds={duration} workspaceId={workspaceId} />}
 
-              {/* ML Paper Autopilot: simulated, own table — paper mode only. */}
-              {activeMode !== "live" && <MlAutopilotPanel workspaceId={workspaceId} />}
+              {/* ML board: paper = Paper Autopilot (simulated, own table);
+                  live = read-only signals, the user trades manually. */}
+              <MlAutopilotPanel workspaceId={workspaceId} mode={activeMode === "live" ? "live" : "paper"} />
 
               {/* Active trades for this symbol */}
               {activeForSymbol.length > 0 && (
@@ -1544,7 +1548,7 @@ export default function QuickTradePage() {
               />
 
               {/* Recent history */}
-              <HistoryCard trades={historyTrades.data ?? []} />
+              <HistoryCard trades={historyTrades.data ?? []} mode={activeMode === "live" ? "live" : "paper"} />
             </div>
           </div>
         </div>
