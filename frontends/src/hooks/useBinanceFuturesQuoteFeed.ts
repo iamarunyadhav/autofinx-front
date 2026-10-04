@@ -17,6 +17,39 @@ const EMPTY_STATE: BinanceFuturesQuoteState = {
   connected: false,
 };
 
+// bookTicker on a futures pair is near-continuous. A socket that stays open
+// but delivers nothing this long is a silent stall (sleep, Wi-Fi change,
+// half-open TCP): it never fires onclose, so it is closed here to reconnect.
+const SILENT_STALL_MS = 10_000;
+
+/**
+ * Watchdog shared by both feeds: force-closes a silently stalled socket and
+ * reconnects at once when the tab becomes visible or the network comes back.
+ * Returns a cleanup function.
+ */
+function watchSocket(getSocket: () => WebSocket | null, lastFrameAt: () => number, resetBackoff: () => void): () => void {
+  const reconnectNow = () => {
+    const socket = getSocket();
+    if (!socket || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) return;
+    resetBackoff();
+    socket.close(); // onclose schedules the reconnect
+  };
+  const watchdog = window.setInterval(() => {
+    if (Date.now() - lastFrameAt() > SILENT_STALL_MS) reconnectNow();
+  }, 2_000);
+  const onWake = () => {
+    if (document.visibilityState === "visible" && Date.now() - lastFrameAt() > 3_000) reconnectNow();
+  };
+  document.addEventListener("visibilitychange", onWake);
+  window.addEventListener("online", onWake);
+
+  return () => {
+    window.clearInterval(watchdog);
+    document.removeEventListener("visibilitychange", onWake);
+    window.removeEventListener("online", onWake);
+  };
+}
+
 /**
  * Browser-only display quote stream for Quick Trade.
  *
@@ -51,6 +84,7 @@ export function useBinanceFuturesQuoteFeed(symbol: string, enabled: boolean): Bi
     let animationFrame: number | null = null;
     let attempt = 0;
     let lastEventAt = 0;
+    let lastFrameAt = Date.now();
 
     const flushLatest = () => {
       animationFrame = null;
@@ -67,6 +101,7 @@ export function useBinanceFuturesQuoteFeed(symbol: string, enabled: boolean): Bi
 
     const connect = () => {
       if (stopped) return;
+      lastFrameAt = Date.now();
       socket = new WebSocket(`wss://fstream.binance.com/public/ws/${streamSymbol}@bookTicker`);
 
       socket.onopen = () => {
@@ -76,6 +111,7 @@ export function useBinanceFuturesQuoteFeed(symbol: string, enabled: boolean): Bi
       };
 
       socket.onmessage = (event) => {
+        lastFrameAt = Date.now();
         try {
           const payload = JSON.parse(String(event.data));
           const eventAt = Number(payload?.E);
@@ -109,6 +145,7 @@ export function useBinanceFuturesQuoteFeed(symbol: string, enabled: boolean): Bi
     };
 
     connect();
+    const stopWatch = watchSocket(() => socket, () => lastFrameAt, () => { attempt = 0; });
     const staleTimer = window.setInterval(() => {
       setState((previous) => previous.receivedAt != null && Date.now() - previous.receivedAt > 2000
         ? { ...previous, connected: false } : previous);
@@ -116,6 +153,7 @@ export function useBinanceFuturesQuoteFeed(symbol: string, enabled: boolean): Bi
 
     return () => {
       stopped = true;
+      stopWatch();
       window.clearInterval(staleTimer);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (animationFrame !== null) cancelAnimationFrame(animationFrame);
@@ -155,6 +193,7 @@ export function useBinanceFuturesQuoteFeeds(symbols: string[], enabled: boolean)
     let reconnectTimer: number | null = null;
     let animationFrame: number | null = null;
     let attempt = 0;
+    let lastFrameAt = Date.now();
     const streams = normalizedSymbols.map((symbol) => `${symbol.toLowerCase()}@bookTicker`).join("/");
 
     const flushLatest = () => {
@@ -168,9 +207,11 @@ export function useBinanceFuturesQuoteFeeds(symbols: string[], enabled: boolean)
     };
     const connect = () => {
       if (stopped) return;
+      lastFrameAt = Date.now();
       socket = new WebSocket(`wss://fstream.binance.com/public/stream?streams=${streams}`);
       socket.onopen = () => { attempt = 0; };
       socket.onmessage = (event) => {
+        lastFrameAt = Date.now();
         try {
           const payload = JSON.parse(String(event.data))?.data;
           const symbol = String(payload?.s ?? "").toUpperCase();
@@ -188,8 +229,10 @@ export function useBinanceFuturesQuoteFeeds(symbols: string[], enabled: boolean)
     };
 
     connect();
+    const stopWatch = watchSocket(() => socket, () => lastFrameAt, () => { attempt = 0; });
     return () => {
       stopped = true;
+      stopWatch();
       if (reconnectTimer !== null) clearTimeout(reconnectTimer);
       if (animationFrame !== null) cancelAnimationFrame(animationFrame);
       socket?.close();
