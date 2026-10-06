@@ -39,6 +39,7 @@ import { AssetClassToggle } from "@/components/trading/AssetClassToggle";
 import { ProviderSelect } from "@/components/trading/ProviderSelect";
 import { useProviderCatalog } from "@/hooks/useProviderCatalog";
 import { RatioBotStageTracker } from "@/components/trading/RatioBotStageTracker";
+import { RatioThresholdSlider } from "@/components/trading/RatioThresholdSlider";
 import { RatioBotEconomicsCard } from "@/components/trading/RatioBotEconomicsCard";
 import { RatioBotStrategyManagerCard, type StrategyManagerSnapshot } from "@/components/trading/RatioBotStrategyManagerCard";
 import { RatioBotRecoveryCard } from "@/components/trading/RatioBotRecoveryCard";
@@ -3691,12 +3692,24 @@ export default function RatioBotPage() {
                         <CardTitle>Strategy & Timing</CardTitle>
                       </CardHeader>
                       <CardContent className="grid gap-4 md:grid-cols-2">
-                        <Field label="Sell threshold ratio">
-                          <Input type="number" step="0.0001" value={form.sell_threshold_ratio} onChange={(event) => setForm((current) => ({ ...current, sell_threshold_ratio: event.target.value }))} />
-                        </Field>
-                        <Field label="Buy threshold ratio">
-                          <Input type="number" step="0.0001" value={form.buy_threshold_ratio} onChange={(event) => setForm((current) => ({ ...current, buy_threshold_ratio: event.target.value }))} />
-                        </Field>
+                        <RatioThresholdSlider
+                          side="sell"
+                          value={form.sell_threshold_ratio}
+                          onChange={(ratio) => setForm((current) => ({ ...current, sell_threshold_ratio: ratio }))}
+                          feeBps={form.fee_bps}
+                          slippageBps={form.max_slippage_bps}
+                          anchorPrice={buyAnchorForTargets}
+                          currentPrice={latestPrice}
+                        />
+                        <RatioThresholdSlider
+                          side="buy"
+                          value={form.buy_threshold_ratio}
+                          onChange={(ratio) => setForm((current) => ({ ...current, buy_threshold_ratio: ratio }))}
+                          feeBps={form.fee_bps}
+                          slippageBps={form.max_slippage_bps}
+                          anchorPrice={sellAnchorForTargets}
+                          currentPrice={latestPrice}
+                        />
                         <Field label="Trigger mode">
                           <Select value={form.trigger_mode} onValueChange={(value: BotForm["trigger_mode"]) => setForm((current) => ({ ...current, trigger_mode: value }))}>
                             <SelectTrigger>
