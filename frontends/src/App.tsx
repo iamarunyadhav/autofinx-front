@@ -50,6 +50,11 @@ const AuditPage = lazy(() => import("./pages/AuditPage"));
 const AuditResearchPage = lazy(() => import("./pages/AuditResearchPage"));
 const NexusPage = lazy(() => import("./pages/NexusPage"));
 const IntelligenceControlPage = lazy(() => import("./pages/IntelligenceControlPage"));
+const MlOverviewPage = lazy(() => import("./pages/ml-training/MlOverviewPage"));
+const MlCandlesPage = lazy(() => import("./pages/ml-training/MlCandlesPage"));
+const MlRunsPage = lazy(() => import("./pages/ml-training/MlRunsPage"));
+const MlModelsPage = lazy(() => import("./pages/ml-training/MlModelsPage"));
+const MlSystemPage = lazy(() => import("./pages/ml-training/MlSystemPage"));
 const JobsPage = lazy(() => import("./pages/JobsPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const AccessPage = lazy(() => import("./pages/AccessPage"));
@@ -264,6 +269,31 @@ const App = () => (
               <Route path="/intelligence-control" element={
                 <ModuleRoute moduleKey="intelligence-control">
                   <IntelligenceControlPage />
+                </ModuleRoute>
+              } />
+              <Route path="/ml-training" element={
+                <ModuleRoute moduleKey="ml-training">
+                  <MlOverviewPage />
+                </ModuleRoute>
+              } />
+              <Route path="/ml-training/candles" element={
+                <ModuleRoute moduleKey="ml-training">
+                  <MlCandlesPage />
+                </ModuleRoute>
+              } />
+              <Route path="/ml-training/runs" element={
+                <ModuleRoute moduleKey="ml-training">
+                  <MlRunsPage />
+                </ModuleRoute>
+              } />
+              <Route path="/ml-training/models" element={
+                <ModuleRoute moduleKey="ml-training">
+                  <MlModelsPage />
+                </ModuleRoute>
+              } />
+              <Route path="/ml-training/system" element={
+                <ModuleRoute moduleKey="ml-training">
+                  <MlSystemPage />
                 </ModuleRoute>
               } />
               <Route path="/payouts/:id" element={

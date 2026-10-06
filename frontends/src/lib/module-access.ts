@@ -1,5 +1,12 @@
 export type ModuleMode = "active" | "deactive";
 
+/** Sub-item rendered under a module in the sidebar; it is a route, not a separately switchable module. */
+export interface ModuleChild {
+  key: string;
+  label: string;
+  path: string;
+}
+
 export interface ModuleDefinition {
   key: string;
   label: string;
@@ -7,6 +14,7 @@ export interface ModuleDefinition {
   description: string;
   defaultMode: ModuleMode;
   manageable?: boolean;
+  children?: ModuleChild[];
 }
 
 export const MODULE_DEFINITIONS: ModuleDefinition[] = [
@@ -25,6 +33,20 @@ export const MODULE_DEFINITIONS: ModuleDefinition[] = [
   { key: "audit", label: "Audit", path: "/audit", description: "Live workflow tracing for Future Trade, Robot Trade, queues, and server processes.", defaultMode: "active" },
   { key: "audit-research", label: "Audit Research", path: "/audit-research", description: "Ratio Bot decision audit sessions: event timeline, rule-level decision explainability, incidents, and prediction-accuracy reporting.", defaultMode: "active" },
   { key: "intelligence-control", label: "Intelligence Control", path: "/intelligence-control", description: "On/off switches for AI/automation capabilities: Unified Forecast Engine shadow/live modes and scheduled backtest/calibration jobs.", defaultMode: "active" },
+  {
+    key: "ml-training",
+    label: "ML Training",
+    path: "/ml-training",
+    description: "Shadow ML pipeline: candle collection, training runs, models and server load. Shadow only, never places orders.",
+    defaultMode: "active",
+    children: [
+      { key: "ml-overview", label: "Overview", path: "/ml-training" },
+      { key: "ml-candles", label: "Candles & Data", path: "/ml-training/candles" },
+      { key: "ml-runs", label: "Training Runs", path: "/ml-training/runs" },
+      { key: "ml-models", label: "Models", path: "/ml-training/models" },
+      { key: "ml-system", label: "System", path: "/ml-training/system" },
+    ],
+  },
   { key: "scheduler", label: "Scheduler", path: "/scheduler", description: "Scheduler controls required for automation timing.", defaultMode: "active" },
   { key: "risk", label: "Risk", path: "/risk", description: "Risk and kill switch controls.", defaultMode: "active" },
   { key: "wallet", label: "Wallet", path: "/wallet", description: "Wallet balances and transfer flows.", defaultMode: "active" },

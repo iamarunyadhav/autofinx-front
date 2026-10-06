@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import {
@@ -6,15 +7,19 @@ import {
   BriefcaseBusiness,
   Bot,
   Brain,
+  BrainCircuit,
   Calendar,
   Cpu,
   CandlestickChart,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CreditCard,
+  Database,
   FlaskConical,
   Gem,
   Grid3x3,
+  Layers,
   LayoutDashboard,
   ListChecks,
   Link,
@@ -35,7 +40,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useModuleAccess } from "@/hooks/useModuleAccess";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { MODULE_DEFINITIONS } from "@/lib/module-access";
+import { MODULE_DEFINITIONS, type ModuleChild } from "@/lib/module-access";
 
 interface SidebarProps {
   activePath: string;
@@ -64,6 +69,7 @@ const iconMap = {
   "audit-research": SearchCheck,
   "nexus": SearchCheck,
   "intelligence-control": Cpu,
+  "ml-training": BrainCircuit,
   scheduler: Calendar,
   risk: Shield,
   wallet: Wallet,
@@ -85,6 +91,129 @@ const iconMap = {
   access: Settings,
   settings: Settings,
 } as const;
+
+const childIconMap = {
+  "ml-overview": LayoutDashboard,
+  "ml-candles": Database,
+  "ml-runs": ListChecks,
+  "ml-models": Layers,
+  "ml-system": ServerCog,
+} as const;
+
+interface NavGroupProps {
+  item: { key: string; label: string; path: string; children?: ModuleChild[] };
+  Icon: (typeof iconMap)[keyof typeof iconMap];
+  activePath: string;
+  collapsed: boolean;
+  isMobileView: boolean;
+  onNavigate: (path: string) => void;
+}
+
+/** Collapsible sidebar group: a module with `children` sub-routes. */
+function NavGroup({ item, Icon, activePath, collapsed, isMobileView, onNavigate }: NavGroupProps) {
+  const children = item.children ?? [];
+  const groupActive = activePath === item.path || activePath.startsWith(`${item.path}/`);
+  // null = follow the route (open while inside the group); a click overrides it.
+  const [manual, setManual] = useState<boolean | null>(null);
+  const open = manual ?? groupActive;
+  const showLabels = !collapsed || isMobileView;
+  const childActive = (child: ModuleChild) =>
+    activePath === child.path || (child.path !== item.path && activePath.startsWith(`${child.path}/`));
+  const rowSize = isMobileView ? "px-3 py-3 min-h-11" : "px-3 py-2.5";
+
+  if (!showLabels) {
+    return (
+      <div className="space-y-1">
+        <button
+          type="button"
+          onClick={() => onNavigate(item.path)}
+          title={item.label}
+          aria-label={item.label}
+          aria-current={groupActive ? "page" : undefined}
+          className={cn(
+            "w-full flex items-center justify-center rounded-lg transition-all duration-200",
+            rowSize,
+            groupActive
+              ? "bg-sidebar-accent text-sidebar-primary"
+              : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+          )}
+        >
+          <Icon className="w-5 h-5 shrink-0" />
+        </button>
+        {groupActive &&
+          children.map((child) => {
+            const ChildIcon = childIconMap[child.key as keyof typeof childIconMap] ?? Icon;
+            const active = childActive(child);
+            return (
+              <button
+                key={child.key}
+                type="button"
+                onClick={() => onNavigate(child.path)}
+                title={child.label}
+                aria-label={child.label}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "w-full flex items-center justify-center rounded-lg py-2 transition-colors",
+                  active
+                    ? "bg-sidebar-accent text-sidebar-primary"
+                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+                )}
+              >
+                <ChildIcon className="w-4 h-4 shrink-0" />
+              </button>
+            );
+          })}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setManual(!open)}
+        aria-expanded={open}
+        className={cn(
+          "w-full flex items-center gap-3 rounded-lg transition-all duration-200",
+          rowSize,
+          groupActive
+            ? "bg-sidebar-accent text-sidebar-primary"
+            : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+        )}
+      >
+        <Icon className="w-5 h-5 shrink-0" />
+        <span className="text-sm font-medium whitespace-nowrap overflow-hidden">{item.label}</span>
+        <ChevronDown className={cn("ml-auto w-4 h-4 shrink-0 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="mt-1 ml-5 pl-2 border-l border-sidebar-border space-y-1">
+          {children.map((child) => {
+            const ChildIcon = childIconMap[child.key as keyof typeof childIconMap] ?? Icon;
+            const active = childActive(child);
+            return (
+              <button
+                key={child.key}
+                type="button"
+                onClick={() => onNavigate(child.path)}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "w-full flex items-center gap-2.5 rounded-md text-left transition-colors",
+                  isMobileView ? "px-3 py-2.5 min-h-11" : "px-3 py-2",
+                  active
+                    ? "bg-sidebar-accent text-sidebar-primary"
+                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+                )}
+              >
+                <ChildIcon className="w-4 h-4 shrink-0" />
+                <span className="text-sm whitespace-nowrap overflow-hidden">{child.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface SidebarContentProps {
   activePath: string;
@@ -140,6 +269,20 @@ function SidebarContent({
           const isActive =
             activePath === item.path ||
             (item.path !== "/" && activePath.startsWith(`${item.path}/`));
+
+          if (item.children && item.children.length > 0) {
+            return (
+              <NavGroup
+                key={item.key}
+                item={item}
+                Icon={Icon}
+                activePath={activePath}
+                collapsed={collapsed}
+                isMobileView={isMobileView}
+                onNavigate={onNavigate}
+              />
+            );
+          }
 
           return (
             <button
