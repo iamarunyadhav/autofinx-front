@@ -13,7 +13,7 @@ import { useMlOverview, useMlResumeBackfill, useMlRetryRun, useMlSystem } from "
 import { useNow } from "@/hooks/useMlTrainingLive";
 import { cn } from "@/lib/utils";
 import {
-  ML_TONE_CLASS, mlAgo, mlCoin, mlDateTime, mlDuration, mlEffectiveRun, mlHorizonLabel, mlNumber, mlReasonText, mlWords,
+  ML_TONE_CLASS, mlAgo, mlCoin, mlDateTime, mlDuration, mlEffectiveRun, mlHorizonLabel, mlNumber, mlReasonText, mlStallLimit, mlWords,
   type MlRunTone,
 } from "@/lib/mlTraining";
 import type { MlAlert, MlHorizonRow, MlRunSummary, MlSystem } from "@/types/mlTraining";
@@ -135,7 +135,7 @@ function ActiveRunCard({ run, nowMs, fetchedAt, stallSeconds, onOpen }: { run: M
 
 function horizonChip(h: MlHorizonRow, stallSeconds: number): { text: string; tone: MlRunTone; title: string; runId: string | null } {
   if (h.active_run) {
-    const stalled = h.active_run.status === "RUNNING" && h.active_run.heartbeat_age_seconds != null && h.active_run.heartbeat_age_seconds > stallSeconds;
+    const stalled = h.active_run.status === "RUNNING" && h.active_run.heartbeat_age_seconds != null && h.active_run.heartbeat_age_seconds > mlStallLimit(h.active_run.phase, stallSeconds);
     return { text: stalled ? "stalled" : h.active_run.status === "QUEUED" ? "queued" : "training", tone: stalled ? "bad" : "running", title: "A run is active", runId: h.active_run.id };
   }
   const last = h.last_run;

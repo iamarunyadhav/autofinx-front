@@ -273,6 +273,7 @@ export interface MlSystem {
   training: {
     timeout_seconds: number | null;
     stall_seconds: number | null;
+    export_stall_seconds?: number | null;
     auto_retry: boolean | null;
     max_attempts: number | null;
   } | null;

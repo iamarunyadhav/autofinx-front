@@ -10,6 +10,17 @@ import type { MlErrorCode, MlRunPhase, MlRunStatus, MlRunSummary } from "@/types
 /** Used until GET /system tells us the real `training.stall_seconds`. */
 export const DEFAULT_STALL_SECONDS = 180;
 
+/**
+ * The export phase can sit inside one long database query, so the server only
+ * calls a run stalled after `training.export_stall_seconds` (default 1800) there.
+ */
+export const DEFAULT_EXPORT_STALL_SECONDS = 1800;
+
+/** Seconds without a heartbeat after which a RUNNING run in `phase` counts as stalled. */
+export function mlStallLimit(phase: string | null | undefined, stallSeconds: number, exportStallSeconds: number = DEFAULT_EXPORT_STALL_SECONDS): number {
+  return phase === "exporting" ? Math.max(stallSeconds, exportStallSeconds) : stallSeconds;
+}
+
 /** Horizons the pipeline trains, used only when the overview has not listed any. */
 export const ML_FALLBACK_HORIZONS = [15, 60, 120, 240, 1440];
 
@@ -77,7 +88,7 @@ export function mlEffectiveRun(run: MlRunSummary, stallSeconds: number, nowMs: n
   const active = run.status === "RUNNING";
   const heartbeatAge = active && run.heartbeat_age_seconds != null ? run.heartbeat_age_seconds + drift : run.heartbeat_age_seconds;
   const elapsed = run.status === "RUNNING" && run.elapsed_seconds != null ? run.elapsed_seconds + drift : run.elapsed_seconds;
-  const stalled = active && heartbeatAge != null && heartbeatAge > stallSeconds;
+  const stalled = active && heartbeatAge != null && heartbeatAge > mlStallLimit(run.phase, stallSeconds);
 
   let label: MlEffectiveRun["label"] = run.status;
   let tone: MlRunTone = "neutral";

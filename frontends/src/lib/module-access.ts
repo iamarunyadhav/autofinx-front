@@ -47,6 +47,7 @@ export const MODULE_DEFINITIONS: ModuleDefinition[] = [
       { key: "ml-system", label: "System", path: "/ml-training/system" },
     ],
   },
+  { key: "strategy-lab", label: "Strategy Lab", path: "/strategy-lab", description: "Research only: audit uploaded strategy ideas as text and test reviewed translations on development data, with owner approval between stages. Never executes uploaded code, never places orders.", defaultMode: "active" },
   { key: "scheduler", label: "Scheduler", path: "/scheduler", description: "Scheduler controls required for automation timing.", defaultMode: "active" },
   { key: "risk", label: "Risk", path: "/risk", description: "Risk and kill switch controls.", defaultMode: "active" },
   { key: "wallet", label: "Wallet", path: "/wallet", description: "Wallet balances and transfer flows.", defaultMode: "active" },

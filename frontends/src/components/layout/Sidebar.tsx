@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import {
   Activity,
   BarChart3,
+  Beaker,
   BriefcaseBusiness,
   Bot,
   Brain,
@@ -70,6 +71,7 @@ const iconMap = {
   "nexus": SearchCheck,
   "intelligence-control": Cpu,
   "ml-training": BrainCircuit,
+  "strategy-lab": Beaker,
   scheduler: Calendar,
   risk: Shield,
   wallet: Wallet,

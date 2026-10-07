@@ -55,6 +55,8 @@ const MlCandlesPage = lazy(() => import("./pages/ml-training/MlCandlesPage"));
 const MlRunsPage = lazy(() => import("./pages/ml-training/MlRunsPage"));
 const MlModelsPage = lazy(() => import("./pages/ml-training/MlModelsPage"));
 const MlSystemPage = lazy(() => import("./pages/ml-training/MlSystemPage"));
+const StrategyLabPage = lazy(() => import("./pages/strategy-lab/StrategyLabPage"));
+const StrategyLabCandidatePage = lazy(() => import("./pages/strategy-lab/CandidatePage"));
 const JobsPage = lazy(() => import("./pages/JobsPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const AccessPage = lazy(() => import("./pages/AccessPage"));
@@ -294,6 +296,16 @@ const App = () => (
               <Route path="/ml-training/system" element={
                 <ModuleRoute moduleKey="ml-training">
                   <MlSystemPage />
+                </ModuleRoute>
+              } />
+              <Route path="/strategy-lab" element={
+                <ModuleRoute moduleKey="strategy-lab">
+                  <StrategyLabPage />
+                </ModuleRoute>
+              } />
+              <Route path="/strategy-lab/:candidateId" element={
+                <ModuleRoute moduleKey="strategy-lab">
+                  <StrategyLabCandidatePage />
                 </ModuleRoute>
               } />
               <Route path="/payouts/:id" element={
