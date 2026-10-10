@@ -60,6 +60,8 @@ import { quickTradeCosts } from "@/lib/quickTradeCosts";
 import { QuickTradeResearchPanel } from "@/components/trading/QuickTradeResearchPanel";
 import { ForecastComparisonCard } from "@/components/trading/ForecastComparisonCard";
 import { MultiWindowForecastPanel } from "@/components/trading/MultiWindowForecastPanel";
+import { ManualQuickTradeSection } from "@/components/trading/manual/ManualQuickTradeSection";
+import { TradeModeSwitch, type TradeMode } from "@/components/trading/manual/TradeModeSwitch";
 
 function useCountdown(expiresAt: string | undefined) {
   const [secs, setSecs] = useState(0);
@@ -379,6 +381,8 @@ export default function QuickTradePage() {
   const navigate = useNavigate();
   const { currentWorkspace } = useWorkspace();
   const workspaceId = currentWorkspace?.id;
+  // Manual SL/TP is a SEPARATE mode with its own backend and tables. "time" (the default) renders exactly the page below.
+  const [tradeMode, setTradeMode] = useState<TradeMode>("time");
   const { data: balances = [] } = useBalances(workspaceId);
   const { data: metadata } = useQuickTradeMetadata(workspaceId);
   const runtimeSafety = useRuntimeSafetySettings(workspaceId);
@@ -904,10 +908,27 @@ export default function QuickTradePage() {
     setIndicatorSet((cur) => (checked ? Array.from(new Set([...cur, key])) : cur.filter((e) => e !== key)));
   }, []);
 
+  if (tradeMode === "manual") {
+    return (
+      <AppShell>
+        <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(37,99,235,0.16),_transparent_28%),linear-gradient(180deg,#020617_0%,#020617_35%,#071120_100%)] text-slate-50">
+          <div className="mx-auto max-w-7xl space-y-5 px-4 pb-28 pt-4 md:px-6">
+            <TradeModeSwitch mode={tradeMode} onChange={setTradeMode} />
+            {workspaceId
+              ? <ManualQuickTradeSection workspaceId={workspaceId} />
+              : <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 text-sm text-slate-400">Select a workspace to use Manual SL/TP.</div>}
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(37,99,235,0.16),_transparent_28%),linear-gradient(180deg,#020617_0%,#020617_35%,#071120_100%)] text-slate-50">
         <div className="mx-auto max-w-7xl space-y-5 px-4 pb-28 pt-4 md:px-6">
+          <TradeModeSwitch mode={tradeMode} onChange={setTradeMode} />
+
 
           {/* ── Top bar: balance + mode + provider ── */}
           <div className="rounded-[28px] border border-slate-800 bg-slate-950/80 p-4 shadow-[0_20px_60px_rgba(2,6,23,0.4)]">
