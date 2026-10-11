@@ -27,6 +27,9 @@ export interface ManualStatus {
     max_leverage: number;
     min_sl_pct: number;
     max_sl_pct: number;
+    min_trailing_pct: number;
+    max_trailing_pct: number;
+    max_trailing_activation_pct: number;
     max_open_positions: number;
     price_tolerance_pct: number;
   };
@@ -117,6 +120,11 @@ export interface ManualPosition {
   sl_basis: "price_movement";
   sl_trigger_price: number | null;
   tp_pct: number | null;
+  trailing_pct: number | null;
+  trailing_activation_pct: number | null;
+  trailing_activation_price: number | null;
+  trailing_status: string;
+  trailing_algo_id: string | null;
   tp_trigger_price: number | null;
   estimated_liquidation_price: number | null;
   exchange_liquidation_price: number | null;
@@ -177,6 +185,8 @@ export interface OrderForm {
   leverage: number;
   slPct: number | null;
   tpPct: number | null;
+  trailingPct: number | null;
+  trailingActivationPct: number | null;
 }
 
 /**
@@ -212,6 +222,8 @@ export function buildOpenRequest(form: OrderForm, ctx: { idempotencyKey: string;
     leverage: form.leverage,
     sl_pct: form.slPct,
     tp_pct: form.tpPct,
+    trailing_pct: form.trailingPct,
+    trailing_activation_pct: form.trailingActivationPct,
     reference_price: ctx.referencePrice,
     idempotency_key: ctx.idempotencyKey,
     integration_id: ctx.integrationId ?? undefined,
@@ -227,6 +239,8 @@ export function buildPreviewRequest(form: OrderForm, integrationId?: string | nu
     leverage: form.leverage,
     sl_pct: form.slPct,
     tp_pct: form.tpPct,
+    trailing_pct: form.trailingPct,
+    trailing_activation_pct: form.trailingActivationPct,
     integration_id: integrationId ?? undefined,
   };
 }

@@ -135,6 +135,7 @@ function PositionCard({ workspaceId, position }: CardProps) {
         <Cell label="ROE" value={live?.roe_pct != null ? `${live.roe_pct.toFixed(2)}%` : "-"} tone={pnlTone(live?.roe_pct)} />
         <Cell label={`Stop-loss (${p.sl_pct}% price move)`} value={fmtPrice(p.sl_trigger_price)} tone="neg" />
         <Cell label={p.tp_pct != null ? `Take-profit (${p.tp_pct}% price move)` : "Take-profit"} value={p.tp_pct != null ? fmtPrice(p.tp_trigger_price) : "not set"} tone={p.tp_pct != null ? "pos" : undefined} />
+        <Cell label="Trailing" value={p.trailing_pct != null ? `${p.trailing_pct}% give-back${p.trailing_activation_pct != null ? ` after +${p.trailing_activation_pct}%` : ""}` : "not set"} tone={p.trailing_pct != null ? "pos" : undefined} />
         <Cell label={`Liquidation (${liqSource})`} value={fmtPrice(liq)} tone="warn" />
         <Cell
           label="Funding"

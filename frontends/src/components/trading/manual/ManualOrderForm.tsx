@@ -52,13 +52,15 @@ export function ManualOrderForm({ workspaceId, status, symbol, onSymbolChange, l
   const [leverage, setLeverage] = useState<number>(5);
   const [slPct, setSlPct] = useState<number | null>(1);
   const [tpPct, setTpPct] = useState<number | null>(null);
+  const [trailingPct, setTrailingPct] = useState<number | null>(null);
+  const [trailingActivationPct, setTrailingActivationPct] = useState<number | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [ack, setAck] = useState(false);
   const [openError, setOpenError] = useState<{ code: string; text: string } | null>(null);
   const [result, setResult] = useState<ManualPosition | null>(null);
   const idemRef = useRef<string>("");
 
-  const form = useMemo<OrderForm>(() => ({ symbol, direction, stake, leverage, slPct, tpPct }), [symbol, direction, stake, leverage, slPct, tpPct]);
+  const form = useMemo<OrderForm>(() => ({ symbol, direction, stake, leverage, slPct, tpPct, trailingPct, trailingActivationPct }), [symbol, direction, stake, leverage, slPct, tpPct, trailingPct, trailingActivationPct]);
   const preview = useManualPreview(workspaceId);
   const open = useOpenManualPosition(workspaceId);
 
@@ -66,6 +68,7 @@ export function ManualOrderForm({ workspaceId, status, symbol, onSymbolChange, l
     && stake >= limits.min_stake && stake <= limits.max_stake
     && Number.isInteger(leverage) && leverage >= 1 && leverage <= limits.max_leverage
     && (tpPct == null || tpPct > 0);
+  const trailingValid = trailingPct == null || (trailingPct >= limits.min_trailing_pct && trailingPct <= limits.max_trailing_pct && (trailingActivationPct == null || (trailingActivationPct >= 0 && trailingActivationPct <= limits.max_trailing_activation_pct)));
 
   // Exchange-backed preview, debounced. The review screen shows ONLY this (never the local estimate).
   const previewMutate = preview.mutate;
@@ -162,6 +165,14 @@ export function ManualOrderForm({ workspaceId, status, symbol, onSymbolChange, l
           <Label className="text-xs text-slate-400">Take-profit % (optional) - price movement</Label>
           {numInput(tpPct, setTpPct, { step: "0.1", min: 0 })}
         </div>
+        <div>
+          <Label className="text-xs text-slate-400">Trailing give-back % (optional)</Label>
+          {numInput(trailingPct, setTrailingPct, { step: "0.1", min: limits.min_trailing_pct })}
+        </div>
+        <div>
+          <Label className="text-xs text-slate-400">Trail activation profit %</Label>
+          {numInput(trailingActivationPct, setTrailingActivationPct, { step: "0.1", min: 0 })}
+        </div>
       </div>
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-300">
@@ -180,13 +191,14 @@ export function ManualOrderForm({ workspaceId, status, symbol, onSymbolChange, l
         {preview.isError && <div className="mt-1 text-rose-300">{parseApiError((preview.error as Error).message).text}</div>}
         {p?.live_gate && <div className="mt-1 text-amber-300">{p.live_gate}</div>}
         {blocking.map((e) => <div key={e.code} className="mt-1 text-rose-300">{e.message}</div>)}
+        {!trailingValid && <div className="mt-1 text-rose-300">Trailing values are outside the allowed exchange range.</div>}
       </div>
 
       <Button
         type="button"
         size="lg"
         className="w-full bg-blue-600 font-bold text-white hover:bg-blue-500"
-        disabled={!valid || !p || !p.ok || preview.isPending || open.isPending || Boolean(p?.live_gate)}
+        disabled={!valid || !trailingValid || !p || !p.ok || preview.isPending || open.isPending || Boolean(p?.live_gate)}
         onClick={openReview}
       >
         Review &amp; Open Position
@@ -217,6 +229,7 @@ export function ManualOrderForm({ workspaceId, status, symbol, onSymbolChange, l
               <span className="text-slate-500">Fees (entry + exit at stop)</span><span>{fmtPrice(p.entry_fee_estimate + p.exit_fee_estimate_at_sl, 4)} USDT</span>
               <span className="text-slate-500">Slippage risk (est.)</span><span>{fmtPrice(p.slippage_risk_estimate, 4)} USDT</span>
               <span className="text-slate-500">Take-profit</span><span className="text-emerald-300">{p.take_profit ? `${fmtPrice(p.take_profit.trigger_price)} (net ${fmtPnl(p.take_profit.net_profit)} USDT)` : "not set"}</span>
+              <span className="text-slate-500">Trailing exit</span><span className="text-violet-300">{trailingPct != null ? `${trailingPct}% give-back${trailingActivationPct != null ? ` after +${trailingActivationPct}%` : " immediately"}` : "not set"}</span>
               <span className="text-slate-500">Est. liquidation</span><span className="text-amber-300">{fmtPrice(p.estimated_liquidation_price)} ({p.estimated_liquidation_distance_pct?.toFixed(2)}% away)</span>
               <span className="text-slate-500">Funding</span><span>{p.funding_rate != null ? `${(p.funding_rate * 100).toFixed(4)}% / 8h` : "unknown"}</span>
               <span className="text-slate-500">Expiry</span><span className="font-semibold">None - stays open until a verified exit</span>
