@@ -101,6 +101,7 @@ function PositionCard({ workspaceId, position }: CardProps) {
         <Badge className={isLong ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300"}>{isLong ? "LONG / BUY" : "SHORT / SELL"}</Badge>
         <Badge className="bg-slate-700/50 text-slate-200">{STATUS_LABEL[p.status] ?? p.status}</Badge>
         <Badge className={p.environment === "testnet" ? "bg-amber-500/10 text-amber-300" : "bg-emerald-500/10 text-emerald-300"}>{p.environment === "testnet" ? "TESTNET" : "LIVE"}</Badge>
+        <Badge className="bg-slate-700/50 text-slate-200">{p.account_label ?? "Account unavailable"}</Badge>
         <Badge className="bg-blue-500/10 text-blue-300">No expiry</Badge>
         <div className={cn("ml-auto flex items-center gap-1.5 text-xs", prot.tone === "ok" ? "text-emerald-300" : prot.tone === "warn" ? "text-amber-300" : "text-rose-300")}>
           {prot.tone === "ok" ? <ShieldCheck className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}

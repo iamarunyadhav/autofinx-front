@@ -915,7 +915,12 @@ export default function QuickTradePage() {
           <div className="mx-auto max-w-7xl space-y-5 px-4 pb-28 pt-4 md:px-6">
             <TradeModeSwitch mode={tradeMode} onChange={setTradeMode} />
             {workspaceId
-              ? <ManualQuickTradeSection workspaceId={workspaceId} />
+              ? <ManualQuickTradeSection
+                  workspaceId={workspaceId}
+                  integrations={tradingState?.active_integrations ?? []}
+                  feed={{ connected: feed.connected, source: feed.source, latencyMs: feed.latencyMs }}
+                  onDeposit={() => navigate("/wallet")}
+                />
               : <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 text-sm text-slate-400">Select a workspace to use Manual SL/TP.</div>}
           </div>
         </div>

@@ -1,9 +1,10 @@
-import { useCallback, useMemo, useState } from "react";
-import { Info } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Info, Wifi, WifiOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { DEFAULT_OVERLAYS, type OverlayToggles } from "@/lib/chartStructure";
 import { CHART_TIMEFRAMES, MANUAL_SYMBOLS, localEstimate, parseApiError, type ChartTimeframe, type ManualPreview, type OrderForm } from "@/lib/manualTrade";
@@ -12,6 +13,22 @@ import { useManualPositions, useManualStatus, useSetManualEnabled } from "@/hook
 import { ManualOrderForm } from "./ManualOrderForm";
 import { ManualPositionPanel } from "./ManualPositionPanel";
 import { ManualTradeChart, type ChartLine } from "./ManualTradeChart";
+
+export interface ManualIntegrationOption {
+  id: string;
+  provider_key: string;
+  display_name: string;
+  status: string;
+  last_health_status?: string | null;
+  environment?: string | null;
+}
+
+interface Props {
+  workspaceId: string;
+  integrations: ManualIntegrationOption[];
+  feed: { connected: boolean; source?: string | null; latencyMs?: number | null };
+  onDeposit: () => void;
+}
 
 const OVERLAY_LABELS: { key: keyof OverlayToggles; label: string }[] = [
   { key: "ema50", label: "EMA 50" },
@@ -26,7 +43,7 @@ const OVERLAY_LABELS: { key: keyof OverlayToggles; label: string }[] = [
  * The whole Manual SL/TP experience. Chart timeframe and overlays are DISPLAY settings: nothing in this component sends a
  * timeframe to the backend, so changing them cannot affect an order or an open position.
  */
-export function ManualQuickTradeSection({ workspaceId }: { workspaceId: string }) {
+export function ManualQuickTradeSection({ workspaceId, integrations, feed, onDeposit }: Props) {
   const status = useManualStatus(workspaceId);
   const setEnabled = useSetManualEnabled(workspaceId);
   const [symbol, setSymbol] = useState<string>(MANUAL_SYMBOLS[0]);
@@ -34,12 +51,45 @@ export function ManualQuickTradeSection({ workspaceId }: { workspaceId: string }
   const [toggles, setToggles] = useState<OverlayToggles>(DEFAULT_OVERLAYS);
   const [form, setForm] = useState<OrderForm | null>(null);
   const [preview, setPreview] = useState<ManualPreview | null>(null);
+  const binanceIntegrations = useMemo(() => integrations.filter((i) => i.provider_key.toLowerCase() === "binance"), [integrations]);
+  const [environment, setEnvironment] = useState<"testnet" | "live">(() =>
+    binanceIntegrations.some((i) => i.environment === "testnet") ? "testnet" : "live"
+  );
+  const [integrationId, setIntegrationId] = useState("");
+  const [selectionInitialized, setSelectionInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!selectionInitialized && binanceIntegrations.length > 0) {
+      const preferred = binanceIntegrations.find((i) => (i.environment === "testnet" ? "testnet" : "live") === environment);
+      setIntegrationId(preferred?.id ?? binanceIntegrations[0]?.id ?? "");
+      setEnvironment((preferred ?? binanceIntegrations[0]).environment === "testnet" ? "testnet" : "live");
+      setSelectionInitialized(true);
+    } else if (integrationId && !binanceIntegrations.some((i) => i.id === integrationId)) {
+      setIntegrationId("");
+    }
+  }, [binanceIntegrations, environment, integrationId, selectionInitialized]);
 
   const candles = useManualChartCandles(symbol, timeframe);
   const active = useManualPositions(workspaceId, "active");
   const history = useManualPositions(workspaceId, "history");
 
   const onFormChange = useCallback((f: OrderForm, p: ManualPreview | null) => { setForm(f); setPreview(p); }, []);
+  const selectedIntegration = binanceIntegrations.find((i) => i.id === integrationId) ?? null;
+  const exchangeBalance = preview?.integration_id === integrationId ? preview.available_balance : null;
+
+  const selectEnvironment = (next: "testnet" | "live") => {
+    setEnvironment(next);
+    const matching = binanceIntegrations.find((i) => (i.environment === "testnet" ? "testnet" : "live") === next);
+    setIntegrationId(matching?.id ?? "");
+    setPreview(null);
+  };
+
+  const selectIntegration = (id: string) => {
+    const account = binanceIntegrations.find((i) => i.id === id);
+    setIntegrationId(id);
+    setEnvironment(account?.environment === "testnet" ? "testnet" : "live");
+    setPreview(null);
+  };
 
   const openForSymbol = active.data?.find((p) => p.symbol === symbol && !p.is_terminal) ?? null;
   const planned = useMemo(() => (form ? localEstimate(form, candles.lastPrice) : null), [form, candles.lastPrice]);
@@ -96,6 +146,62 @@ export function ManualQuickTradeSection({ workspaceId }: { workspaceId: string }
 
   return (
     <div className="space-y-5">
+      <div className="rounded-[28px] border border-slate-800 bg-slate-950/80 p-4 shadow-[0_20px_60px_rgba(2,6,23,0.4)]">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <div className="text-xs uppercase tracking-[0.28em] text-slate-500">Manual SL/TP trade</div>
+            <div className="mt-1 text-3xl font-bold">
+              {exchangeBalance == null ? "USDT balance checking..." : `USDT ${exchangeBalance.toFixed(2)}`}
+            </div>
+            <div className="mt-1 text-sm text-slate-500">Opens a Binance futures position · exchange-native SL · no expiry</div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">
+              <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Environment</div>
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="ghost" size="sm" className={environment === "testnet" ? "bg-amber-500 text-slate-950" : "bg-slate-950 text-slate-300"} onClick={() => selectEnvironment("testnet")}>Testnet</Button>
+                <Button variant="ghost" size="sm" className={environment === "live" ? "bg-emerald-500 text-slate-950" : "bg-slate-950 text-slate-300"} onClick={() => selectEnvironment("live")}>Live</Button>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">
+              <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Asset class</div>
+              <div className="flex h-9 items-center rounded-md bg-slate-950 px-3 text-sm font-medium text-cyan-300">Crypto</div>
+            </div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">
+              <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Provider</div>
+              <div className="flex h-9 items-center rounded-md bg-slate-950 px-3 text-sm text-slate-100">Binance</div>
+            </div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">
+              <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Account</div>
+              <Select value={integrationId || undefined} onValueChange={selectIntegration}>
+                <SelectTrigger className="h-9 border-slate-800 bg-slate-950 text-slate-100"><SelectValue placeholder="No account" /></SelectTrigger>
+                <SelectContent>
+                  {binanceIntegrations.map((i) => (
+                    <SelectItem key={i.id} value={i.id}>
+                      {i.display_name} — {i.environment === "testnet" ? "TESTNET" : "LIVE"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Badge className={environment === "testnet" ? "bg-amber-500/10 text-amber-300" : "bg-emerald-500/10 text-emerald-300"}>{environment === "testnet" ? "SANDBOX TESTNET" : "LIVE MAINNET"}</Badge>
+          <Badge className="bg-blue-500/10 text-blue-300">BINANCE</Badge>
+          <Badge className="bg-slate-700/50 text-slate-300">{selectedIntegration?.display_name ?? "No matching account"}</Badge>
+          <Badge className={selectedIntegration?.status === "active" ? "bg-emerald-500/10 text-emerald-300" : "bg-amber-500/10 text-amber-300"}>{selectedIntegration?.status === "active" ? "Account active" : "Connection required"}</Badge>
+          <div className="ml-auto flex items-center gap-2">
+            {feed.connected
+              ? <><Wifi className="h-3.5 w-3.5 text-emerald-400" /><span className="text-xs text-emerald-400">{feed.source === "ws" ? "Binance chart WS" : "Live feed"} · {feed.latencyMs ?? 0}ms</span></>
+              : <><WifiOff className="h-3.5 w-3.5 text-slate-600" /><span className="text-xs text-slate-600">Connecting...</span></>}
+          </div>
+          <Button size="sm" className="rounded-2xl bg-emerald-500 px-5 text-slate-950 hover:bg-emerald-400" onClick={onDeposit}>Deposit</Button>
+        </div>
+        {!selectedIntegration && <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-sm text-amber-200">No active Binance {environment === "testnet" ? "Testnet" : "Live"} account is connected. The Account menu still lists every connected Binance account; add a separate Live connection with Testnet OFF before opening a Mainnet position.</div>}
+        {environment === "live" && !st.allow_mainnet && <div className="mt-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-200">Live Mainnet is safety-blocked until the Binance exchange verification checklist is completed and the server explicitly enables it.</div>}
+      </div>
+
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-2 text-xs text-slate-400">
         <Info className="h-4 w-4 text-blue-300" />
         <span>Manual SL/TP: you pick the side; the stop-loss is placed ON the exchange and survives closing this page or restarting the server. Not verified on the exchange yet - {st.allow_mainnet ? "mainnet allowed" : "TESTNET only"}.</span>
@@ -127,7 +233,9 @@ export function ManualQuickTradeSection({ workspaceId }: { workspaceId: string }
             <div className="mt-1 text-[11px] text-slate-500">Overlays are visual aids computed only from candles already closed; they never place or change a trade.</div>
           </div>
         </div>
-        <ManualOrderForm workspaceId={workspaceId} status={st} symbol={symbol} onSymbolChange={setSymbol} lastPrice={candles.lastPrice} onFormChange={onFormChange} />
+        {integrationId
+          ? <ManualOrderForm workspaceId={workspaceId} status={st} integrationId={integrationId} symbol={symbol} onSymbolChange={setSymbol} lastPrice={candles.lastPrice} onFormChange={onFormChange} />
+          : <div className="rounded-[24px] border border-slate-800 bg-slate-950/80 p-6 text-sm text-amber-200">Select or connect a Binance {environment === "testnet" ? "Testnet" : "Live"} account to preview and open an order.</div>}
       </div>
 
       <ManualPositionPanel workspaceId={workspaceId} positions={active.data ?? []} title="Open manual positions" empty="No open manual positions." />

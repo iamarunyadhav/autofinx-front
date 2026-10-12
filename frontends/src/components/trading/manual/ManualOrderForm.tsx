@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 interface Props {
   workspaceId: string;
   status: ManualStatus;
+  integrationId: string;
   symbol: string;
   onSymbolChange: (s: string) => void;
   lastPrice: number | null;
@@ -44,7 +45,7 @@ const OUTCOME_TEXT: Record<string, { text: string; tone: "ok" | "warn" | "bad" }
 };
 
 /** Order form for Manual SL/TP + the two-step (Review, then separate final confirmation) open flow. */
-export function ManualOrderForm({ workspaceId, status, symbol, onSymbolChange, lastPrice, onFormChange }: Props) {
+export function ManualOrderForm({ workspaceId, status, integrationId, symbol, onSymbolChange, lastPrice, onFormChange }: Props) {
   const { toast } = useToast();
   const limits = status.limits;
   const [direction, setDirection] = useState<ManualDirection>("long");
@@ -74,11 +75,11 @@ export function ManualOrderForm({ workspaceId, status, symbol, onSymbolChange, l
   const previewMutate = preview.mutate;
   useEffect(() => {
     if (!valid) return;
-    const t = window.setTimeout(() => previewMutate(buildPreviewRequest(form)), 600);
+    const t = window.setTimeout(() => previewMutate(buildPreviewRequest(form, integrationId)), 600);
     return () => window.clearTimeout(t);
-  }, [form, valid, previewMutate]);
+  }, [form, integrationId, valid, previewMutate]);
 
-  const p = valid ? preview.data ?? null : null;
+  const p = valid && preview.data?.integration_id === integrationId ? preview.data : null;
   useEffect(() => { onFormChange(form, p); }, [form, p, onFormChange]);
 
   const local = useMemo(() => localEstimate(form, lastPrice), [form, lastPrice]);
@@ -109,7 +110,7 @@ export function ManualOrderForm({ workspaceId, status, symbol, onSymbolChange, l
         setOpenError(err);
         if (err.code === "price_moved" || err.code === "stale_mark_price") {
           idemRef.current = "";   // nothing was sent: a fresh confirmation needs a fresh request id
-          previewMutate(buildPreviewRequest(form));
+          previewMutate(buildPreviewRequest(form, integrationId));
         }
       },
     });

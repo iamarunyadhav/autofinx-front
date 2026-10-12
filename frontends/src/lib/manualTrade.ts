@@ -105,6 +105,8 @@ export interface ManualPosition {
   mode: "manual_sl_tp";
   status: ManualStatusName;
   environment: "testnet" | "live";
+  integration_id: string | null;
+  account_label: string | null;
   symbol: string;
   direction: ManualDirection;
   position_mode: string;
