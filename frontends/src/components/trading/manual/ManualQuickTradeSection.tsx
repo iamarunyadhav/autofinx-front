@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { DEFAULT_OVERLAYS, type OverlayToggles } from "@/lib/chartStructure";
 import { CHART_TIMEFRAMES, MANUAL_SYMBOLS, localEstimate, parseApiError, type ChartTimeframe, type ManualPreview, type OrderForm } from "@/lib/manualTrade";
 import { useManualChartCandles } from "@/hooks/useManualChartCandles";
-import { useManualPositions, useManualStatus, useSetManualEnabled } from "@/hooks/useQuickTradeManual";
+import { useManualExchangeBalance, useManualPositions, useManualStatus, useSetManualEnabled } from "@/hooks/useQuickTradeManual";
 import { ManualOrderForm } from "./ManualOrderForm";
 import { ManualPositionPanel } from "./ManualPositionPanel";
 import { ManualTradeChart, type ChartLine } from "./ManualTradeChart";
@@ -75,7 +75,8 @@ export function ManualQuickTradeSection({ workspaceId, integrations, feed, onDep
 
   const onFormChange = useCallback((f: OrderForm, p: ManualPreview | null) => { setForm(f); setPreview(p); }, []);
   const selectedIntegration = binanceIntegrations.find((i) => i.id === integrationId) ?? null;
-  const exchangeBalance = preview?.integration_id === integrationId ? preview.available_balance : null;
+  const exchangeBalanceQuery = useManualExchangeBalance(workspaceId, integrationId || undefined);
+  const exchangeBalance = exchangeBalanceQuery.data?.available ?? null;
 
   const selectEnvironment = (next: "testnet" | "live") => {
     setEnvironment(next);
@@ -151,7 +152,7 @@ export function ManualQuickTradeSection({ workspaceId, integrations, feed, onDep
           <div>
             <div className="text-xs uppercase tracking-[0.28em] text-slate-500">Manual SL/TP trade</div>
             <div className="mt-1 text-3xl font-bold">
-              {exchangeBalance == null ? "USDT balance checking..." : `USDT ${exchangeBalance.toFixed(2)}`}
+              {exchangeBalance == null ? "USDT balance unavailable" : `USDT ${exchangeBalance.toFixed(2)}`}
             </div>
             <div className="mt-1 text-sm text-slate-500">Opens a Binance futures position · exchange-native SL · no expiry</div>
           </div>
@@ -199,6 +200,7 @@ export function ManualQuickTradeSection({ workspaceId, integrations, feed, onDep
           <Button size="sm" className="rounded-2xl bg-emerald-500 px-5 text-slate-950 hover:bg-emerald-400" onClick={onDeposit}>Deposit</Button>
         </div>
         {!selectedIntegration && <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-sm text-amber-200">No active Binance {environment === "testnet" ? "Testnet" : "Live"} account is connected. The Account menu still lists every connected Binance account; add a separate Live connection with Testnet OFF before opening a Mainnet position.</div>}
+        {selectedIntegration && exchangeBalanceQuery.data?.error && <div className="mt-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-200">Live balance could not be read from this account: {exchangeBalanceQuery.data.error}</div>}
         {environment === "live" && !st.allow_mainnet && <div className="mt-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-200">Live Mainnet is safety-blocked until the Binance exchange verification checklist is completed and the server explicitly enables it.</div>}
       </div>
 

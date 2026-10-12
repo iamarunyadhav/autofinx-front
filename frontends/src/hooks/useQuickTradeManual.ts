@@ -19,6 +19,16 @@ export function useManualStatus(workspaceId?: string) {
   });
 }
 
+export function useManualExchangeBalance(workspaceId: string | undefined, integrationId: string | undefined) {
+  return useQuery({
+    queryKey: ["qtm-exchange-balance", workspaceId, integrationId],
+    enabled: Boolean(workspaceId && integrationId),
+    queryFn: () => authorizedFetch(`/workspaces/${workspaceId!}/wallet/exchange-balance?asset=USDT&integration_id=${encodeURIComponent(integrationId!)}`) as Promise<{ available: number | null; balance?: number | null; error?: string | null; environment?: string | null }>,
+    refetchInterval: 15_000,
+    staleTime: 5_000,
+  });
+}
+
 export function useSetManualEnabled(workspaceId?: string) {
   const qc = useQueryClient();
   return useMutation({
