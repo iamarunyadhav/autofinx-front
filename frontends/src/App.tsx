@@ -60,6 +60,7 @@ const StrategyLabCandidatePage = lazy(() => import("./pages/strategy-lab/Candida
 const JobsPage = lazy(() => import("./pages/JobsPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const AccessPage = lazy(() => import("./pages/AccessPage"));
+const V5ResearchPage = lazy(() => import("./pages/V5ResearchPage"));
 
 const queryClient = new QueryClient();
 
@@ -80,6 +81,7 @@ const App = () => (
         <BrowserRouter>
           <Suspense fallback={<RouteFallback />}>
             <Routes>
+              <Route path="/v5-research" element={<ProtectedRoute><V5ResearchPage /></ProtectedRoute>} />
               <Route path="/nexus" element={<ModuleRoute moduleKey="nexus"><NexusPage /></ModuleRoute>} />
               <Route path="/auth" element={<AuthPage />} />
               <Route path="/" element={

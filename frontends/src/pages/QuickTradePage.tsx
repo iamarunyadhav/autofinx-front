@@ -917,6 +917,7 @@ export default function QuickTradePage() {
             {workspaceId
               ? <ManualQuickTradeSection
                   workspaceId={workspaceId}
+                  symbols={symbolsForClass.filter((o) => o.asset_class === "CRYPTO")}
                   integrations={tradingState?.active_integrations ?? []}
                   feed={{ connected: feed.connected, source: feed.source, latencyMs: feed.latencyMs }}
                   onDeposit={() => navigate("/wallet")}

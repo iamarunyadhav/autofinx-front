@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { DEFAULT_OVERLAYS, type OverlayToggles } from "@/lib/chartStructure";
+import { DEFAULT_OVERLAYS, ema, type OverlayToggles } from "@/lib/chartStructure";
 import { CHART_TIMEFRAMES, MANUAL_SYMBOLS, localEstimate, parseApiError, type ChartTimeframe, type ManualPreview, type OrderForm } from "@/lib/manualTrade";
 import { useManualChartCandles } from "@/hooks/useManualChartCandles";
 import { useManualExchangeBalance, useManualPositions, useManualStatus, useSetManualEnabled } from "@/hooks/useQuickTradeManual";
@@ -25,6 +25,7 @@ export interface ManualIntegrationOption {
 
 interface Props {
   workspaceId: string;
+  symbols: { symbol: string; display?: string }[];
   integrations: ManualIntegrationOption[];
   feed: { connected: boolean; source?: string | null; latencyMs?: number | null };
   onDeposit: () => void;
@@ -43,10 +44,11 @@ const OVERLAY_LABELS: { key: keyof OverlayToggles; label: string }[] = [
  * The whole Manual SL/TP experience. Chart timeframe and overlays are DISPLAY settings: nothing in this component sends a
  * timeframe to the backend, so changing them cannot affect an order or an open position.
  */
-export function ManualQuickTradeSection({ workspaceId, integrations, feed, onDeposit }: Props) {
+export function ManualQuickTradeSection({ workspaceId, symbols, integrations, feed, onDeposit }: Props) {
   const status = useManualStatus(workspaceId);
   const setEnabled = useSetManualEnabled(workspaceId);
-  const [symbol, setSymbol] = useState<string>(MANUAL_SYMBOLS[0]);
+  const availableSymbols = useMemo(() => symbols.length > 0 ? symbols : MANUAL_SYMBOLS.map((symbol) => ({ symbol })), [symbols]);
+  const [symbol, setSymbol] = useState<string>(availableSymbols[0]?.symbol ?? MANUAL_SYMBOLS[0]);
   const [timeframe, setTimeframe] = useState<ChartTimeframe>("15m");
   const [toggles, setToggles] = useState<OverlayToggles>(DEFAULT_OVERLAYS);
   const [form, setForm] = useState<OrderForm | null>(null);
@@ -57,6 +59,10 @@ export function ManualQuickTradeSection({ workspaceId, integrations, feed, onDep
   );
   const [integrationId, setIntegrationId] = useState("");
   const [selectionInitialized, setSelectionInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!availableSymbols.some((s) => s.symbol === symbol)) setSymbol(availableSymbols[0]?.symbol ?? MANUAL_SYMBOLS[0]);
+  }, [availableSymbols, symbol]);
 
   useEffect(() => {
     if (!selectionInitialized && binanceIntegrations.length > 0) {
@@ -94,6 +100,20 @@ export function ManualQuickTradeSection({ workspaceId, integrations, feed, onDep
 
   const openForSymbol = active.data?.find((p) => p.symbol === symbol && !p.is_terminal) ?? null;
   const planned = useMemo(() => (form ? localEstimate(form, candles.lastPrice) : null), [form, candles.lastPrice]);
+  const directionInsight = useMemo(() => {
+    const closes = candles.bars.map((b) => b.close);
+    if (closes.length < 55) return { direction: "NEUTRAL", confidence: null, strength: "Insufficient data", basis: "Waiting for closed candles" };
+    const e20 = ema(closes, 20).at(-1) ?? null;
+    const e50 = ema(closes, 50).at(-1) ?? null;
+    const last = closes.at(-1) ?? 0;
+    const lookback = closes[Math.max(0, closes.length - 11)] ?? last;
+    const momentum = lookback > 0 ? ((last - lookback) / lookback) * 100 : 0;
+    const votes = [(e20 != null && last > e20) ? 1 : -1, (e50 != null && last > e50) ? 1 : -1, momentum > 0 ? 1 : -1];
+    const score = votes.reduce((a, b) => a + b, 0);
+    const direction = score > 0 ? "BUY / LONG" : score < 0 ? "SELL / SHORT" : "NEUTRAL";
+    const confidence = Math.round(Math.abs(score) / 3 * 100);
+    return { direction, confidence, strength: confidence >= 75 ? "Strong" : confidence >= 50 ? "Moderate" : "Weak", basis: "EMA20/EMA50 + closed-candle momentum" };
+  }, [candles.bars]);
 
   const lines = useMemo<ChartLine[]>(() => {
     if (openForSymbol) {
@@ -233,10 +253,16 @@ export function ManualQuickTradeSection({ workspaceId, integrations, feed, onDep
               ))}
             </div>
             <div className="mt-1 text-[11px] text-slate-500">Overlays are visual aids computed only from candles already closed; they never place or change a trade.</div>
+            <div className="mt-3 grid gap-2 rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs md:grid-cols-4">
+              <div><div className="text-slate-500">Direction advisory</div><div className="mt-1 font-bold text-slate-100">{directionInsight.direction}</div></div>
+              <div><div className="text-slate-500">Signal strength</div><div className="mt-1 font-bold text-cyan-300">{directionInsight.strength}</div></div>
+              <div><div className="text-slate-500">Confidence</div><div className="mt-1 font-bold text-violet-300">{directionInsight.confidence == null ? "—" : `${directionInsight.confidence}%`}</div></div>
+              <div><div className="text-slate-500">Basis</div><div className="mt-1 text-slate-300">{directionInsight.basis}</div></div>
+            </div>
           </div>
         </div>
         {integrationId
-          ? <ManualOrderForm workspaceId={workspaceId} status={st} integrationId={integrationId} symbol={symbol} onSymbolChange={setSymbol} lastPrice={candles.lastPrice} onFormChange={onFormChange} />
+          ? <ManualOrderForm workspaceId={workspaceId} status={st} integrationId={integrationId} symbols={availableSymbols} symbol={symbol} onSymbolChange={setSymbol} lastPrice={candles.lastPrice} onFormChange={onFormChange} />
           : <div className="rounded-[24px] border border-slate-800 bg-slate-950/80 p-6 text-sm text-amber-200">Select or connect a Binance {environment === "testnet" ? "Testnet" : "Live"} account to preview and open an order.</div>}
       </div>
 

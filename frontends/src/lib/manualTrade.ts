@@ -20,7 +20,10 @@ export interface ManualStatus {
   can_manage: boolean;
   exchange_verification: string;
   sl_basis: "price_movement";
+  /** Server opt-in switch (default off): whether a trade WITHOUT a stop-loss may be requested at all. */
+  allow_no_stop_loss: boolean;
   limits: {
+    no_stop_loss_max_leverage: number;
     symbols: string[];
     min_stake: number;
     max_stake: number;
@@ -47,15 +50,19 @@ export interface ManualPreview {
   quantity: number;
   notional: number;
   margin_required: number;
-  sl_pct: number;
+  /** True when the explicit no-stop-loss opt-in was sent; every stop-related number below is then null. */
+  no_stop_loss: boolean;
+  sl_pct: number | null;
   sl_basis: "price_movement";
-  sl_trigger_price: number;
-  sl_distance_pct: number;
-  margin_loss_pct_at_sl: number;
-  estimated_loss_at_sl: number;
-  gross_loss_at_sl: number;
+  sl_trigger_price: number | null;
+  sl_distance_pct: number | null;
+  margin_loss_pct_at_sl: number | null;
+  estimated_loss_at_sl: number | null;
+  gross_loss_at_sl: number | null;
+  /** Approximate worst case without a stop: the isolated margin (estimate, not a guarantee). */
+  max_loss_without_stop_estimate: number | null;
   entry_fee_estimate: number;
-  exit_fee_estimate_at_sl: number;
+  exit_fee_estimate_at_sl: number | null;
   slippage_risk_estimate: number;
   take_profit: null | { trigger_price: number; distance_pct: number; gross_profit: number; exit_fee: number; net_profit: number };
   estimated_liquidation_price: number | null;
@@ -118,7 +125,9 @@ export interface ManualPosition {
   entry_reference_price: number | null;
   entry_price: number | null;
   entry_slippage_pct: number | null;
-  sl_pct: number;
+  /** True when opened by explicit opt-in WITHOUT an exchange stop-loss (status stays OPEN_PROTECTED; see protection_status NO_STOP). */
+  no_stop_loss: boolean;
+  sl_pct: number | null;
   sl_basis: "price_movement";
   sl_trigger_price: number | null;
   tp_pct: number | null;
@@ -130,7 +139,7 @@ export interface ManualPosition {
   tp_trigger_price: number | null;
   estimated_liquidation_price: number | null;
   exchange_liquidation_price: number | null;
-  protection_status: "NONE" | "PENDING" | "PROTECTED" | "FAILED" | "LOST" | "UNKNOWN";
+  protection_status: "NONE" | "PENDING" | "PROTECTED" | "FAILED" | "LOST" | "UNKNOWN" | "NO_STOP";
   sl_status: string;
   tp_status: string;
   sl_algo_id: string | null;
@@ -186,6 +195,8 @@ export interface OrderForm {
   stake: number;
   leverage: number;
   slPct: number | null;
+  /** Explicit opt-in to trade WITHOUT a stop-loss (only offered when the server allows it). */
+  noStopLoss?: boolean;
   tpPct: number | null;
   trailingPct: number | null;
   trailingActivationPct: number | null;
@@ -203,26 +214,30 @@ export function localTrigger(direction: ManualDirection, entry: number, pct: num
 }
 
 export function localEstimate(form: OrderForm, price: number | null) {
-  if (!price || !(price > 0) || form.slPct == null || !(form.slPct > 0)) return null;
+  if (!price || !(price > 0)) return null;
+  if (!form.noStopLoss && (form.slPct == null || !(form.slPct > 0))) return null;
   const notional = form.stake * form.leverage;
   const quantity = notional / price;
-  const sl = localTrigger(form.direction, price, form.slPct, "sl");
   const tp = form.tpPct != null && form.tpPct > 0 ? localTrigger(form.direction, price, form.tpPct, "tp") : null;
+  if (form.noStopLoss || form.slPct == null) return { notional, quantity, slTrigger: null, tpTrigger: tp, grossLossAtSl: null, marginLossPct: null };
+  const sl = localTrigger(form.direction, price, form.slPct, "sl");
   const grossLoss = Math.abs(price - sl) * quantity;
-  return { notional, quantity, slTrigger: sl, tpTrigger: tp, grossLossAtSl: grossLoss, marginLossPct: form.stake > 0 ? (grossLoss / form.stake) * 100 : 0 };
+  return { notional, quantity, slTrigger: sl as number | null, tpTrigger: tp, grossLossAtSl: grossLoss as number | null, marginLossPct: (form.stake > 0 ? (grossLoss / form.stake) * 100 : 0) as number | null };
 }
 
 /**
  * Body for POST /quick-trade-manual/positions. Deliberately has NO timeframe, duration or expiry field: the chart timeframe
  * is a display setting and can never influence the trade. `idempotency_key` must be reused for retries of the SAME confirmation.
  */
-export function buildOpenRequest(form: OrderForm, ctx: { idempotencyKey: string; referencePrice: number; integrationId?: string | null }) {
+export function buildOpenRequest(form: OrderForm, ctx: { idempotencyKey: string; referencePrice: number; integrationId?: string | null; noStopLossAck?: boolean }) {
   return {
     symbol: form.symbol,
     direction: form.direction,
     stake_amount: form.stake,
     leverage: form.leverage,
-    sl_pct: form.slPct,
+    // No-stop is an explicit opt-in + acknowledgement; a stop-loss is never silently dropped.
+    sl_pct: form.noStopLoss ? null : form.slPct,
+    ...(form.noStopLoss ? { no_stop_loss: true, no_stop_loss_ack: ctx.noStopLossAck === true } : {}),
     tp_pct: form.tpPct,
     trailing_pct: form.trailingPct,
     trailing_activation_pct: form.trailingActivationPct,
@@ -239,10 +254,11 @@ export function buildPreviewRequest(form: OrderForm, integrationId?: string | nu
     direction: form.direction,
     stake_amount: form.stake,
     leverage: form.leverage,
-    sl_pct: form.slPct,
+    sl_pct: form.noStopLoss ? null : form.slPct,
+    ...(form.noStopLoss ? { no_stop_loss: true } : {}),
     tp_pct: form.tpPct,
-    trailing_pct: form.trailingPct,
-    trailing_activation_pct: form.trailingActivationPct,
+    trailing_pct: form.noStopLoss ? null : form.trailingPct,
+    trailing_activation_pct: form.noStopLoss ? null : form.trailingActivationPct,
     integration_id: integrationId ?? undefined,
   };
 }
@@ -270,8 +286,15 @@ export const STATUS_LABEL: Record<ManualStatusName, string> = {
   LIQUIDATED: "Liquidated",
 };
 
+/** Lifecycle label; an open trade without a stop must never read "protected". */
+export function statusLabel(p: Pick<ManualPosition, "status" | "no_stop_loss">): string {
+  if (p.status === "OPEN_PROTECTED" && p.no_stop_loss) return "Open - NO stop-loss";
+  return STATUS_LABEL[p.status] ?? p.status;
+}
+
 /** Protection is only ever described as protected when the backend says so (verified on the exchange). */
 export function protectionLabel(p: ManualPosition): { text: string; tone: "ok" | "warn" | "bad" } {
+  if (p.no_stop_loss && !p.is_terminal) return { text: "NO STOP-LOSS - you must close manually", tone: "warn" };
   if (p.protection_status === "PROTECTED" && p.status === "OPEN_PROTECTED") return { text: "Exchange stop-loss verified", tone: "ok" };
   if (p.protection_status === "UNKNOWN") return { text: "Protection state unreadable (not assumed lost)", tone: "warn" };
   if (p.protection_status === "LOST" || p.protection_status === "FAILED") return { text: "NOT protected", tone: "bad" };

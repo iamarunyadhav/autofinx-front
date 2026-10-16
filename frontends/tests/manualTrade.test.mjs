@@ -77,3 +77,37 @@ test('formatters never invent numbers', () => {
   assert.equal(m.fmtPnl(-0.004), '-0.004000');
   assert.equal(m.fmtAge(3700), '1h 1m');
 });
+
+test('no-stop: the request carries an explicit opt-in + ack (never just a missing sl_pct); a normal request carries neither', () => {
+  const ctx = { idempotencyKey: 'k-1', referencePrice: 80000, integrationId: null };
+  const normal = m.buildOpenRequest({ symbol: 'BTCUSDT', direction: 'long', stake: 50, leverage: 3, slPct: 1, tpPct: null }, ctx);
+  assert.equal(normal.sl_pct, 1);
+  assert.ok(!('no_stop_loss' in normal) && !('no_stop_loss_ack' in normal));
+
+  const form = { symbol: 'BTCUSDT', direction: 'long', stake: 50, leverage: 3, slPct: 1, noStopLoss: true, tpPct: 2, trailingPct: 1, trailingActivationPct: 1 };
+  const noAck = m.buildOpenRequest(form, ctx);
+  assert.equal(noAck.sl_pct, null);
+  assert.equal(noAck.no_stop_loss, true);
+  assert.equal(noAck.no_stop_loss_ack, false);
+  assert.equal(m.buildOpenRequest(form, { ...ctx, noStopLossAck: true }).no_stop_loss_ack, true);
+  const prev = m.buildPreviewRequest(form);
+  assert.equal(prev.no_stop_loss, true);
+  assert.equal(prev.sl_pct, null);
+  assert.equal(prev.trailing_pct, null);
+});
+
+test('no-stop: local estimate has no stop numbers, and a missing stop without the opt-in is still not estimable', () => {
+  const e = m.localEstimate({ symbol: 'BTCUSDT', direction: 'long', stake: 100, leverage: 5, slPct: null, noStopLoss: true, tpPct: 2 }, 80000);
+  assert.equal(e.slTrigger, null);
+  assert.equal(e.grossLossAtSl, null);
+  assert.equal(e.tpTrigger, 81600);
+  assert.equal(m.localEstimate({ symbol: 'BTCUSDT', direction: 'long', stake: 100, leverage: 5, slPct: null, tpPct: null }, 80000), null);
+});
+
+test('no-stop: an open trade without a stop is never labelled protected', () => {
+  const p = { protection_status: 'NO_STOP', status: 'OPEN_PROTECTED', is_terminal: false, no_stop_loss: true };
+  assert.equal(m.protectionLabel(p).tone, 'warn');
+  assert.match(m.protectionLabel(p).text, /NO STOP-LOSS/);
+  assert.equal(m.statusLabel(p), 'Open - NO stop-loss');
+  assert.equal(m.statusLabel({ status: 'OPEN_PROTECTED', no_stop_loss: false }), 'Open - protected');
+});

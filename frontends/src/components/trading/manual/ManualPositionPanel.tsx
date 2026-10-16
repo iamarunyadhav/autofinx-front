@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { cn } from "@/lib/utils";
 import {
   STATUS_LABEL,
+  statusLabel,
   fmtAge,
   fmtPnl,
   fmtPrice,
@@ -85,7 +86,7 @@ function PositionCard({ workspaceId, position }: CardProps) {
     close.mutate(p.id, {
       onSuccess: (result) => {
         if (result.status === "CLOSE_FAILED") {
-          setCloseError(result.last_error ?? "The exchange did not confirm the close. Your exchange stop-loss is unchanged; try again or press Refresh.");
+          setCloseError(result.last_error ?? (p.no_stop_loss ? "The exchange did not confirm the close. The position is still open (it has no stop-loss): try again or press Refresh." : "The exchange did not confirm the close. Your exchange stop-loss is unchanged; try again or press Refresh."));
         } else {
           setCloseOpen(false);
         }
@@ -99,7 +100,7 @@ function PositionCard({ workspaceId, position }: CardProps) {
       <div className="flex flex-wrap items-center gap-2">
         <div className="text-lg font-bold text-slate-50">{p.symbol}</div>
         <Badge className={isLong ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300"}>{isLong ? "LONG / BUY" : "SHORT / SELL"}</Badge>
-        <Badge className="bg-slate-700/50 text-slate-200">{STATUS_LABEL[p.status] ?? p.status}</Badge>
+        <Badge className="bg-slate-700/50 text-slate-200">{statusLabel(p)}</Badge>
         <Badge className={p.environment === "testnet" ? "bg-amber-500/10 text-amber-300" : "bg-emerald-500/10 text-emerald-300"}>{p.environment === "testnet" ? "TESTNET" : "LIVE"}</Badge>
         <Badge className="bg-slate-700/50 text-slate-200">{p.account_label ?? "Account unavailable"}</Badge>
         <Badge className="bg-blue-500/10 text-blue-300">No expiry</Badge>
@@ -125,6 +126,18 @@ function PositionCard({ workspaceId, position }: CardProps) {
         </div>
       )}
 
+      {p.no_stop_loss && !p.is_terminal && (
+        <div className="flex gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <div className="font-semibold">No stop-loss: you must close this position manually</div>
+            <div className="text-amber-200/90">
+              Nothing closes it automatically except {p.tp_pct != null ? "take-profit and " : ""}liquidation (approx. {fmtPrice(liq)}{live?.mark_price != null && liq != null && liq > 0 ? `, ${(Math.abs(live.mark_price - liq) / live.mark_price * 100).toFixed(2)}% from mark` : ""}).
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         <Cell label="Entry" value={fmtPrice(p.entry_price)} />
         <Cell label="Mark" value={fmtPrice(live?.mark_price)} />
@@ -134,15 +147,17 @@ function PositionCard({ workspaceId, position }: CardProps) {
         <Cell label="Unrealized P&L" value={fmtPnl(live?.unrealized_pnl)} tone={pnlTone(live?.unrealized_pnl)} />
         <Cell label="Est. net P&L (after fees)" value={fmtPnl(live?.estimated_net_pnl)} tone={pnlTone(live?.estimated_net_pnl)} />
         <Cell label="ROE" value={live?.roe_pct != null ? `${live.roe_pct.toFixed(2)}%` : "-"} tone={pnlTone(live?.roe_pct)} />
-        <Cell label={`Stop-loss (${p.sl_pct}% price move)`} value={fmtPrice(p.sl_trigger_price)} tone="neg" />
+        {p.no_stop_loss
+          ? <Cell label="Stop-loss" value="none (opted out)" tone="warn" />
+          : <Cell label={`Stop-loss (${p.sl_pct}% price move)`} value={fmtPrice(p.sl_trigger_price)} tone="neg" />}
         <Cell label={p.tp_pct != null ? `Take-profit (${p.tp_pct}% price move)` : "Take-profit"} value={p.tp_pct != null ? fmtPrice(p.tp_trigger_price) : "not set"} tone={p.tp_pct != null ? "pos" : undefined} />
         <Cell label="Trailing" value={p.trailing_pct != null ? `${p.trailing_pct}% give-back${p.trailing_activation_pct != null ? ` after +${p.trailing_activation_pct}%` : ""}` : "not set"} tone={p.trailing_pct != null ? "pos" : undefined} />
-        <Cell label={`Liquidation (${liqSource})`} value={fmtPrice(liq)} tone="warn" />
+        <Cell label={`Liquidation (${liqSource === "estimate" ? "approx. estimate" : liqSource})`} value={fmtPrice(liq)} tone="warn" />
         <Cell
           label="Funding"
           value={live?.funding_rate != null ? `${(live.funding_rate * 100).toFixed(4)}% / 8h${live.next_funding_ms ? ` - next ${new Date(live.next_funding_ms).toLocaleTimeString()}` : ""}` : "-"}
         />
-        <Cell label="Exchange stop" value={p.sl_status === "WORKING" ? `working${p.sl_algo_id ? ` #${p.sl_algo_id}` : ""}` : p.sl_status.toLowerCase()} tone={p.sl_status === "WORKING" ? "pos" : "warn"} />
+        <Cell label="Exchange stop" value={p.no_stop_loss ? "none by choice" : p.sl_status === "WORKING" ? `working${p.sl_algo_id ? ` #${p.sl_algo_id}` : ""}` : p.sl_status.toLowerCase()} tone={p.no_stop_loss ? "warn" : p.sl_status === "WORKING" ? "pos" : "warn"} />
         <Cell label="Exchange take-profit" value={p.tp_pct == null ? "-" : p.tp_status === "WORKING" ? "working" : p.tp_status.toLowerCase()} tone={p.tp_pct != null && p.tp_status !== "WORKING" ? "warn" : undefined} />
         <Cell label="Position age" value={fmtAge(p.age_seconds)} />
         <Cell label="Last reconciled" value={p.last_reconciled_at ? new Date(p.last_reconciled_at).toLocaleTimeString() : "not yet"} />
@@ -158,7 +173,7 @@ function PositionCard({ workspaceId, position }: CardProps) {
       )}
 
       {live == null && !p.is_terminal && (
-        <div className="text-xs text-amber-300">Live exchange numbers are unavailable right now{p.live?.error ? ` (${p.live.error})` : ""}. The exchange stop-loss is unaffected.</div>
+        <div className="text-xs text-amber-300">Live exchange numbers are unavailable right now{p.live?.error ? ` (${p.live.error})` : ""}. {p.no_stop_loss ? "This position has no stop-loss." : "The exchange stop-loss is unaffected."}</div>
       )}
 
       <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -218,7 +233,7 @@ function PositionCard({ workspaceId, position }: CardProps) {
           </DialogHeader>
           <div className="grid grid-cols-1 gap-1 text-xs md:grid-cols-2">
             <div>Position id: <span className="font-mono">{p.id}</span></div>
-            <div>Status: {p.status} / protection {p.protection_status}</div>
+            <div>Status: {p.status} / protection {p.protection_status}{p.no_stop_loss ? " (opened by explicit no-stop-loss opt-in)" : ""}</div>
             <div>Entry order id: <span className="font-mono">{p.entry_order_id ?? "-"}</span></div>
             <div>Close order id: <span className="font-mono">{p.close_order_id ?? "-"}</span></div>
             <div>Stop-loss algo id: <span className="font-mono">{p.sl_algo_id ?? "-"}</span> ({p.sl_status})</div>
