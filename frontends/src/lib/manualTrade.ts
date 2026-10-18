@@ -8,7 +8,13 @@
 
 export type ManualDirection = "long" | "short";
 
-export const MANUAL_SYMBOLS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT"] as const;
+// Fallback only; the backend asset catalog is the normal source of truth.
+// Keep this aligned so the selector remains useful while metadata is loading.
+export const MANUAL_SYMBOLS = [
+  "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT",
+  "AVAXUSDT", "LINKUSDT", "TRXUSDT", "DOTUSDT", "MATICUSDT", "NEARUSDT", "LTCUSDT",
+  "UNIUSDT", "ATOMUSDT", "ETCUSDT", "FILUSDT", "APTUSDT", "ARBUSDT",
+] as const;
 export const CHART_TIMEFRAMES = ["5m", "15m", "1h", "4h"] as const;
 export type ChartTimeframe = (typeof CHART_TIMEFRAMES)[number];
 
