@@ -114,6 +114,18 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
     const confidence = Math.round(Math.abs(score) / 3 * 100);
     return { direction, confidence, strength: confidence >= 75 ? "Strong" : confidence >= 50 ? "Moderate" : "Weak", basis: "EMA20/EMA50 + closed-candle momentum" };
   }, [candles.bars]);
+  const market24h = useMemo(() => {
+    const bars = candles.bars;
+    const last = candles.lastPrice ?? bars.at(-1)?.close ?? null;
+    if (last == null || bars.length === 0) return { changePct: null, quoteVolume: null, high: null, low: null };
+    const cutoff = (bars.at(-1)?.time ?? Math.floor(Date.now() / 1000)) - 24 * 60 * 60;
+    const recent = bars.filter((bar) => bar.time >= cutoff);
+    const open = recent[0]?.open ?? null;
+    const high = recent.length ? Math.max(...recent.map((bar) => bar.high)) : null;
+    const low = recent.length ? Math.min(...recent.map((bar) => bar.low)) : null;
+    const quoteVolume = recent.reduce((sum, bar) => sum + (bar.volume * bar.close), 0);
+    return { changePct: open && open > 0 ? ((last - open) / open) * 100 : null, quoteVolume, high, low };
+  }, [candles.bars, candles.lastPrice]);
 
   const lines = useMemo<ChartLine[]>(() => {
     if (openForSymbol) {
@@ -253,6 +265,12 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
               ))}
             </div>
             <div className="mt-1 text-[11px] text-slate-500">Overlays are visual aids computed only from candles already closed; they never place or change a trade.</div>
+            <div className="mt-3 grid gap-2 rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs sm:grid-cols-4">
+              <div><div className="text-slate-500">24h move</div><div className={cn("mt-1 font-bold", (market24h.changePct ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300")}>{market24h.changePct == null ? "—" : `${market24h.changePct >= 0 ? "+" : ""}${market24h.changePct.toFixed(2)}%`}</div></div>
+              <div><div className="text-slate-500">24h quote volume (approx.)</div><div className="mt-1 font-bold text-slate-100">{market24h.quoteVolume == null ? "—" : `${(market24h.quoteVolume / 1_000_000).toFixed(2)}M USDT`}</div></div>
+              <div><div className="text-slate-500">24h high / low</div><div className="mt-1 font-bold text-slate-100">{market24h.high == null ? "—" : `${market24h.high.toFixed(2)} / ${market24h.low?.toFixed(2)}`}</div></div>
+              <div><div className="text-slate-500">Est. liquidation</div><div className="mt-1 font-bold text-amber-300">{preview?.estimated_liquidation_price == null ? "Set order details" : preview.estimated_liquidation_price.toFixed(2)}</div></div>
+            </div>
             <div className="mt-3 grid gap-2 rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs md:grid-cols-4">
               <div><div className="text-slate-500">Direction advisory</div><div className="mt-1 font-bold text-slate-100">{directionInsight.direction}</div></div>
               <div><div className="text-slate-500">Signal strength</div><div className="mt-1 font-bold text-cyan-300">{directionInsight.strength}</div></div>
