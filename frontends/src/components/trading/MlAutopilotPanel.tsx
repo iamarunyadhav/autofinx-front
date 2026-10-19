@@ -176,6 +176,25 @@ function StatsTable({ rows }: { rows: { label: string; stats: Stats }[] }) {
   );
 }
 
+function VerificationChecklist({ data }: { data: AutopilotPayload }) {
+  const summary = data.summary;
+  const championCount = data.signals.filter((signal) => Boolean(signal.model_version)).length;
+  const awaitingData = data.signals.filter((signal) => signal.action === "no_champion" || signal.action === "no_signal_yet").length;
+  const eligible = data.signals.filter((signal) => signal.action === "pending_entry" || signal.action === "traded").length;
+  const rows = [
+    { label: "V5 paper autopilot enabled", ok: data.enabled, detail: data.enabled ? "Scheduler may open only simulated trades." : "Disabled by V5 ML configuration." },
+    { label: "Champion models available", ok: championCount > 0, detail: `${championCount}/${data.signals.length} symbol × horizon scopes have a champion.` },
+    { label: "Fresh confirmed signals", ok: eligible > 0, detail: eligible > 0 ? `${eligible} scope(s) are eligible or already simulated.` : "No signal has passed champion, freshness and confirmation gates yet." },
+    { label: "Paper sample is large enough", ok: summary.closed_trades >= data.settings.min_closed_trades, detail: `${summary.closed_trades}/${data.settings.min_closed_trades} closed paper trades; early results are not a conclusion.` },
+    { label: "No live execution", ok: true, detail: "V5 writes only to its separate virtual-paper ledger; it cannot open a Quick Trade, futures or wallet order." },
+  ];
+  return <div className="space-y-3">
+    <div className="rounded-lg border border-sky-500/25 bg-sky-500/5 p-3 text-xs text-slate-300"><span className="font-medium text-sky-200">How V5 verifies itself:</span> data → champion → confirmed signal → paper trade → closed outcome → win-rate / drawdown / holdout review. A failed row is a blocker to investigate, never a reason to lower safeguards.</div>
+    <div className="space-y-2">{rows.map((row) => <div key={row.label} className="flex gap-3 rounded border border-slate-800 bg-slate-900/40 p-3"><span className={cn("mt-0.5 font-bold", row.ok ? "text-emerald-300" : "text-amber-300")}>{row.ok ? "✓" : "○"}</span><div><div className="font-medium text-slate-200">{row.label}</div><div className="mt-0.5 text-[11px] text-slate-500">{row.detail}</div></div></div>)}</div>
+    {awaitingData > 0 && <div className="text-xs text-amber-200">{awaitingData} scope(s) are waiting for a champion model or a fresh prediction. This explains why no V5 paper trade has opened; it is not an order failure.</div>}
+  </div>;
+}
+
 export function MlAutopilotPanel({ workspaceId, mode = "paper" }: { workspaceId?: string; mode?: "paper" | "live" }) {
   const query = useQuery({
     queryKey: ["ml-autopilot", workspaceId],
@@ -191,7 +210,7 @@ export function MlAutopilotPanel({ workspaceId, mode = "paper" }: { workspaceId?
     <Card className="border-slate-800 bg-slate-950 text-slate-50">
       <CardHeader className="pb-3">
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-          {paper ? "ML Paper Autopilot" : "ML Signals"}
+          {paper ? "V5 Paper Research" : "V5 ML Signals"}
           {paper
             ? <Badge variant="outline" className="border-sky-500/30 bg-sky-500/10 text-sky-300">Simulated · separate from your trades</Badge>
             : <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">Read-only · you trade manually</Badge>}
@@ -199,7 +218,7 @@ export function MlAutopilotPanel({ workspaceId, mode = "paper" }: { workspaceId?
         </CardTitle>
         <p className="text-xs text-slate-500">
           {paper ? (
-            <>Opens a virtual trade automatically when a champion model gives a <span className="text-slate-300">confirmed</span> BUY or SELL, and closes it at expiry.
+            <>This is the V5 tab inside Quick Trade Paper mode. It opens a virtual trade automatically when a champion model gives a <span className="text-slate-300">confirmed</span> BUY or SELL, and closes it at expiry.
               {data && <> Stake {usd(data.settings.stake_usd)} per trade, fee + slippage {data.settings.cost_pct}% per round trip plus real funding, one position per coin × horizon, traded horizons {data.settings.trade_horizons_minutes.map(hz).join(", ")}.</>}
               {" "}Your manual trades, paper wallet and live account are never touched.</>
           ) : (
@@ -227,9 +246,10 @@ function Body({ data }: { data: AutopilotPayload }) {
   return (
     <Tabs defaultValue="overview">
       <TabsList className="mb-3 bg-slate-900">
-        <TabsTrigger value="overview">Autopilot results</TabsTrigger>
-        <TabsTrigger value="trades">Trades ({s.closed_trades}{s.open_trades ? ` + ${s.open_trades} open` : ""})</TabsTrigger>
-        <TabsTrigger value="breakdown">Breakdown</TabsTrigger>
+        <TabsTrigger value="overview">V5 overview</TabsTrigger>
+        <TabsTrigger value="trades">V5 paper trades ({s.closed_trades}{s.open_trades ? ` + ${s.open_trades} open` : ""})</TabsTrigger>
+        <TabsTrigger value="verification">Training &amp; verification</TabsTrigger>
+        <TabsTrigger value="breakdown">Metrics breakdown</TabsTrigger>
       </TabsList>
 
       <TabsContent value="overview" className="space-y-4">
@@ -265,6 +285,10 @@ function Body({ data }: { data: AutopilotPayload }) {
           <div className="mb-1 text-xs font-medium text-slate-400">Closed trades (latest 50)</div>
           <TradesTable rows={data.recent_trades} />
         </div>
+      </TabsContent>
+
+      <TabsContent value="verification">
+        <VerificationChecklist data={data} />
       </TabsContent>
 
       <TabsContent value="breakdown" className="space-y-4">
