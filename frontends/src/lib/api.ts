@@ -81,6 +81,29 @@ export const api = {
   delete<T>(path: string, body?: any) {
     return apiRequest<T>(path, 'DELETE', body);
   },
+  async upload<T>(path: string, form: FormData): Promise<ApiResponse<T>> {
+    const headers: Record<string, string> = await authHeaders();
+    delete headers['Content-Type'];
+    const response = await fetch(`${apiBase()}${normalizePath(path)}`, { method: 'POST', headers, body: form });
+    const raw = await response.text();
+    const parsed = raw ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : null;
+    if (!response.ok) throw new Error(parsed?.message || raw || 'Upload failed');
+    return { data: parsed as T };
+  },
+  async download(path: string, filename: string): Promise<void> {
+    const headers: Record<string, string> = await authHeaders();
+    const response = await fetch(`${apiBase()}${normalizePath(path)}`, { headers });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(body || "Download failed");
+    }
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  },
 };
 
 export async function callEdgeFunction<T>(

@@ -62,6 +62,8 @@ export function ManualOrderForm({ workspaceId, status, integrationId, symbols, s
   const [reviewOpen, setReviewOpen] = useState(false);
   const [ack, setAck] = useState(false);
   const [openError, setOpenError] = useState<{ code: string; text: string } | null>(null);
+  const [symbolSearch, setSymbolSearch] = useState("");
+  const [symbolPage, setSymbolPage] = useState(0);
   const [result, setResult] = useState<ManualPosition | null>(null);
   const idemRef = useRef<string>("");
 
@@ -87,6 +89,14 @@ export function ManualOrderForm({ workspaceId, status, integrationId, symbols, s
   }, [form, integrationId, valid, previewMutate]);
 
   const p = valid && preview.data?.integration_id === integrationId ? preview.data : null;
+  const filteredSymbols = useMemo(() => {
+    const query = symbolSearch.trim().toUpperCase();
+    return symbols.filter((item) => !query || item.symbol.includes(query) || (item.display ?? "").toUpperCase().includes(query));
+  }, [symbolSearch, symbols]);
+  const symbolPageCount = Math.max(1, Math.ceil(filteredSymbols.length / 10));
+  const pagedSymbols = filteredSymbols.slice(symbolPage * 10, symbolPage * 10 + 10);
+  useEffect(() => { setSymbolPage((page) => Math.min(page, symbolPageCount - 1)); }, [symbolPageCount]);
+  useEffect(() => { setSymbolPage(0); }, [symbolSearch]);
   useEffect(() => { onFormChange(form, p); }, [form, p, onFormChange]);
 
   const local = useMemo(() => localEstimate(form, lastPrice), [form, lastPrice]);
@@ -153,10 +163,22 @@ export function ManualOrderForm({ workspaceId, status, integrationId, symbols, s
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label className="text-xs text-slate-400">Symbol</Label>
+          <Input value={symbolSearch} onChange={(event) => setSymbolSearch(event.target.value)} placeholder="Search Binance coin..." className="mb-2 border-slate-800 bg-slate-950 text-slate-100" />
           <Select value={symbol} onValueChange={onSymbolChange}>
             <SelectTrigger className="border-slate-800 bg-slate-950 text-slate-100"><SelectValue /></SelectTrigger>
-            <SelectContent>{symbols.map((s) => <SelectItem key={s.symbol} value={s.symbol}>{s.display ?? s.symbol}</SelectItem>)}</SelectContent>
+            <SelectContent>
+              {pagedSymbols.map((s) => <SelectItem key={s.symbol} value={s.symbol}>{s.display ?? s.symbol}</SelectItem>)}
+              {pagedSymbols.length === 0 && <div className="px-2 py-1.5 text-xs text-slate-500">No matching Binance coin</div>}
+            </SelectContent>
           </Select>
+          <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
+            <span>{filteredSymbols.length} coins · showing {Math.min(10, filteredSymbols.length)} per page</span>
+            <span className="flex items-center gap-1">
+              <Button type="button" size="sm" variant="ghost" disabled={symbolPage === 0} className="h-6 px-2" onClick={() => setSymbolPage((page) => Math.max(0, page - 1))}>Prev</Button>
+              <span>{symbolPage + 1}/{symbolPageCount}</span>
+              <Button type="button" size="sm" variant="ghost" disabled={symbolPage >= symbolPageCount - 1} className="h-6 px-2" onClick={() => setSymbolPage((page) => Math.min(symbolPageCount - 1, page + 1))}>Next</Button>
+            </span>
+          </div>
         </div>
         <div>
           <Label className="text-xs text-slate-400">Stake / margin (USDT)</Label>

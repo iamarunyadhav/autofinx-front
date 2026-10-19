@@ -52,6 +52,13 @@ type AutopilotPayload = {
     avg_entry_slippage_pct: number | null; live_quote_entries: number; live_quote_exits: number;
   };
   equity_curve: { t: string | null; balance: number }[];
+  universe: {
+    mode: "configured_cohort" | "v5_shortlist";
+    symbols: string[];
+    reason: string;
+    as_of: string | null;
+    candidates: { symbol: string; rank: number; score: number; reason: string | null; direction: string | null; volatility_15m: number | null }[];
+  };
   signals: SignalRow[];
   open_trades: TradeRow[];
   recent_trades: TradeRow[];
@@ -176,6 +183,55 @@ function StatsTable({ rows }: { rows: { label: string; stats: Stats }[] }) {
   );
 }
 
+function VerificationChecklist({ data }: { data: AutopilotPayload }) {
+  const summary = data.summary;
+  const championCount = data.signals.filter((signal) => Boolean(signal.model_version)).length;
+  const awaitingData = data.signals.filter((signal) => signal.action === "no_champion" || signal.action === "no_signal_yet").length;
+  const eligible = data.signals.filter((signal) => signal.action === "pending_entry" || signal.action === "traded").length;
+  const rows = [
+    { label: "V5 paper autopilot enabled", ok: data.enabled, detail: data.enabled ? "Scheduler may open only simulated trades." : "Disabled by V5 ML configuration." },
+    { label: "Champion models available", ok: championCount > 0, detail: `${championCount}/${data.signals.length} symbol × horizon scopes have a champion.` },
+    { label: "Fresh confirmed signals", ok: eligible > 0, detail: eligible > 0 ? `${eligible} scope(s) are eligible or already simulated.` : "No signal has passed champion, freshness and confirmation gates yet." },
+    { label: "Paper sample is large enough", ok: summary.closed_trades >= data.settings.min_closed_trades, detail: `${summary.closed_trades}/${data.settings.min_closed_trades} closed paper trades; early results are not a conclusion.` },
+    { label: "No live execution", ok: true, detail: "V5 writes only to its separate virtual-paper ledger; it cannot open a Quick Trade, futures or wallet order." },
+  ];
+  return <div className="space-y-3">
+    <div className="rounded-lg border border-sky-500/25 bg-sky-500/5 p-3 text-xs text-slate-300"><span className="font-medium text-sky-200">How V5 verifies itself:</span> data → champion → confirmed signal → paper trade → closed outcome → win-rate / drawdown / holdout review. A failed row is a blocker to investigate, never a reason to lower safeguards.</div>
+    <div className="space-y-2">{rows.map((row) => <div key={row.label} className="flex gap-3 rounded border border-slate-800 bg-slate-900/40 p-3"><span className={cn("mt-0.5 font-bold", row.ok ? "text-emerald-300" : "text-amber-300")}>{row.ok ? "✓" : "○"}</span><div><div className="font-medium text-slate-200">{row.label}</div><div className="mt-0.5 text-[11px] text-slate-500">{row.detail}</div></div></div>)}</div>
+    {awaitingData > 0 && <div className="text-xs text-amber-200">{awaitingData} scope(s) are waiting for a champion model or a fresh prediction. This explains why no V5 paper trade has opened; it is not an order failure.</div>}
+  </div>;
+}
+
+function V5Universe({ universe }: { universe: AutopilotPayload["universe"] }) {
+  const dynamic = universe.mode === "v5_shortlist";
+  return (
+    <div className="rounded-lg border border-sky-500/25 bg-sky-500/5 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs font-medium text-sky-100">V5 research universe</div>
+        <Badge variant="outline" className="border-sky-500/30 bg-sky-500/10 text-sky-300">{dynamic ? "Dynamic shortlist" : "Configured cohort"}</Badge>
+      </div>
+      <p className="mt-1 text-[11px] text-slate-400">
+        {dynamic
+          ? "Only fresh, liquid, closed-candle quality candidates may open a virtual V5 trade. This is a research gate, not a profitability claim."
+          : "The complete configured cohort is shown because dynamic V5 gating is disabled."}
+        {universe.as_of && ` Last V5 scan: ${when(universe.as_of)}.`}
+      </p>
+      {universe.candidates.length ? (
+        <div className="mt-3 grid gap-2 md:grid-cols-3">
+          {universe.candidates.map((candidate) => (
+            <div key={candidate.symbol} className="rounded border border-slate-800 bg-slate-950/50 p-2 text-xs">
+              <div className="flex items-center justify-between gap-2"><span className="font-medium text-slate-100">#{candidate.rank} {candidate.symbol}</span><span className="tabular-nums text-sky-300">{(candidate.score * 100).toFixed(0)} quality</span></div>
+              <div className="mt-1 text-[11px] text-slate-500">{candidate.direction ?? "—"} · 15m range {candidate.volatility_15m == null ? "—" : `${(candidate.volatility_15m * 100).toFixed(2)}%`}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-2 text-xs text-amber-200">{words(universe.reason)}. No V5 paper entry is allowed until this gate becomes green.</div>
+      )}
+    </div>
+  );
+}
+
 export function MlAutopilotPanel({ workspaceId, mode = "paper" }: { workspaceId?: string; mode?: "paper" | "live" }) {
   const query = useQuery({
     queryKey: ["ml-autopilot", workspaceId],
@@ -191,7 +247,7 @@ export function MlAutopilotPanel({ workspaceId, mode = "paper" }: { workspaceId?
     <Card className="border-slate-800 bg-slate-950 text-slate-50">
       <CardHeader className="pb-3">
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-          {paper ? "ML Paper Autopilot" : "ML Signals"}
+          {paper ? "V5 Paper Research" : "V5 ML Signals"}
           {paper
             ? <Badge variant="outline" className="border-sky-500/30 bg-sky-500/10 text-sky-300">Simulated · separate from your trades</Badge>
             : <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">Read-only · you trade manually</Badge>}
@@ -199,7 +255,7 @@ export function MlAutopilotPanel({ workspaceId, mode = "paper" }: { workspaceId?
         </CardTitle>
         <p className="text-xs text-slate-500">
           {paper ? (
-            <>Opens a virtual trade automatically when a champion model gives a <span className="text-slate-300">confirmed</span> BUY or SELL, and closes it at expiry.
+            <>This is the V5 tab inside Quick Trade Paper mode. It opens a virtual trade automatically when a champion model gives a <span className="text-slate-300">confirmed</span> BUY or SELL, and closes it at expiry.
               {data && <> Stake {usd(data.settings.stake_usd)} per trade, fee + slippage {data.settings.cost_pct}% per round trip plus real funding, one position per coin × horizon, traded horizons {data.settings.trade_horizons_minutes.map(hz).join(", ")}.</>}
               {" "}Your manual trades, paper wallet and live account are never touched.</>
           ) : (
@@ -227,12 +283,14 @@ function Body({ data }: { data: AutopilotPayload }) {
   return (
     <Tabs defaultValue="overview">
       <TabsList className="mb-3 bg-slate-900">
-        <TabsTrigger value="overview">Autopilot results</TabsTrigger>
-        <TabsTrigger value="trades">Trades ({s.closed_trades}{s.open_trades ? ` + ${s.open_trades} open` : ""})</TabsTrigger>
-        <TabsTrigger value="breakdown">Breakdown</TabsTrigger>
+        <TabsTrigger value="overview">V5 overview</TabsTrigger>
+        <TabsTrigger value="trades">V5 paper trades ({s.closed_trades}{s.open_trades ? ` + ${s.open_trades} open` : ""})</TabsTrigger>
+        <TabsTrigger value="verification">Training &amp; verification</TabsTrigger>
+        <TabsTrigger value="breakdown">Metrics breakdown</TabsTrigger>
       </TabsList>
 
       <TabsContent value="overview" className="space-y-4">
+        <V5Universe universe={data.universe} />
         {s.status === "insufficient_data" && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
             Early results: {s.closed_trades}/{data.settings.min_closed_trades} closed trades. Below that, win rate and P&L are mostly noise. Judge after 2–4 weeks.
@@ -265,6 +323,10 @@ function Body({ data }: { data: AutopilotPayload }) {
           <div className="mb-1 text-xs font-medium text-slate-400">Closed trades (latest 50)</div>
           <TradesTable rows={data.recent_trades} />
         </div>
+      </TabsContent>
+
+      <TabsContent value="verification">
+        <VerificationChecklist data={data} />
       </TabsContent>
 
       <TabsContent value="breakdown" className="space-y-4">
