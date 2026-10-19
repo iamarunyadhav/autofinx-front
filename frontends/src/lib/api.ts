@@ -90,6 +90,20 @@ export const api = {
     if (!response.ok) throw new Error(parsed?.message || raw || 'Upload failed');
     return { data: parsed as T };
   },
+  async download(path: string, filename: string): Promise<void> {
+    const headers: Record<string, string> = await authHeaders();
+    const response = await fetch(`${apiBase()}${normalizePath(path)}`, { headers });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(body || "Download failed");
+    }
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  },
 };
 
 export async function callEdgeFunction<T>(
