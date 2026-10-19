@@ -52,6 +52,13 @@ type AutopilotPayload = {
     avg_entry_slippage_pct: number | null; live_quote_entries: number; live_quote_exits: number;
   };
   equity_curve: { t: string | null; balance: number }[];
+  universe: {
+    mode: "configured_cohort" | "v5_shortlist";
+    symbols: string[];
+    reason: string;
+    as_of: string | null;
+    candidates: { symbol: string; rank: number; score: number; reason: string | null; direction: string | null; volatility_15m: number | null }[];
+  };
   signals: SignalRow[];
   open_trades: TradeRow[];
   recent_trades: TradeRow[];
@@ -195,6 +202,36 @@ function VerificationChecklist({ data }: { data: AutopilotPayload }) {
   </div>;
 }
 
+function V5Universe({ universe }: { universe: AutopilotPayload["universe"] }) {
+  const dynamic = universe.mode === "v5_shortlist";
+  return (
+    <div className="rounded-lg border border-sky-500/25 bg-sky-500/5 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs font-medium text-sky-100">V5 research universe</div>
+        <Badge variant="outline" className="border-sky-500/30 bg-sky-500/10 text-sky-300">{dynamic ? "Dynamic shortlist" : "Configured cohort"}</Badge>
+      </div>
+      <p className="mt-1 text-[11px] text-slate-400">
+        {dynamic
+          ? "Only fresh, liquid, closed-candle quality candidates may open a virtual V5 trade. This is a research gate, not a profitability claim."
+          : "The complete configured cohort is shown because dynamic V5 gating is disabled."}
+        {universe.as_of && ` Last V5 scan: ${when(universe.as_of)}.`}
+      </p>
+      {universe.candidates.length ? (
+        <div className="mt-3 grid gap-2 md:grid-cols-3">
+          {universe.candidates.map((candidate) => (
+            <div key={candidate.symbol} className="rounded border border-slate-800 bg-slate-950/50 p-2 text-xs">
+              <div className="flex items-center justify-between gap-2"><span className="font-medium text-slate-100">#{candidate.rank} {candidate.symbol}</span><span className="tabular-nums text-sky-300">{(candidate.score * 100).toFixed(0)} quality</span></div>
+              <div className="mt-1 text-[11px] text-slate-500">{candidate.direction ?? "—"} · 15m range {candidate.volatility_15m == null ? "—" : `${(candidate.volatility_15m * 100).toFixed(2)}%`}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-2 text-xs text-amber-200">{words(universe.reason)}. No V5 paper entry is allowed until this gate becomes green.</div>
+      )}
+    </div>
+  );
+}
+
 export function MlAutopilotPanel({ workspaceId, mode = "paper" }: { workspaceId?: string; mode?: "paper" | "live" }) {
   const query = useQuery({
     queryKey: ["ml-autopilot", workspaceId],
@@ -253,6 +290,7 @@ function Body({ data }: { data: AutopilotPayload }) {
       </TabsList>
 
       <TabsContent value="overview" className="space-y-4">
+        <V5Universe universe={data.universe} />
         {s.status === "insufficient_data" && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
             Early results: {s.closed_trades}/{data.settings.min_closed_trades} closed trades. Below that, win rate and P&L are mostly noise. Judge after 2–4 weeks.
