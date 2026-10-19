@@ -41,6 +41,7 @@ type RankingSnapshot = {
     removed?: boolean;
   }[];
 };
+type KnowledgeItem = { id: string; title: string; status: string; evidence_level?: string; payload?: { category?: string; content?: string; source_url?: string | null; verification?: Record<string, string>; training_eligible?: boolean } };
 
 type DecisionDiagnostics = {
   sample_count: number;
@@ -188,6 +189,26 @@ export default function V5ResearchPage() {
   const { currentWorkspace } = useWorkspace();
   const workspaceId = currentWorkspace?.id;
   const queryClient = useQueryClient();
+  const [knowledgeTitle, setKnowledgeTitle] = useState("");
+  const [knowledgeContent, setKnowledgeContent] = useState("");
+  const [knowledgeFile, setKnowledgeFile] = useState<File | null>(null);
+  const [knowledgeCategory, setKnowledgeCategory] = useState("CANDLE");
+  const knowledge = useQuery({
+    queryKey: ["v5-knowledge", workspaceId], enabled: Boolean(workspaceId), retry: false,
+    queryFn: () => api.get<{ items: KnowledgeItem[] }>(`/workspaces/${workspaceId}/v5/research/knowledge`).then((response) => response.data),
+  });
+  const createKnowledge = useMutation({
+    mutationFn: () => api.post(`/workspaces/${workspaceId}/v5/research/knowledge`, { title: knowledgeTitle, content: knowledgeContent, category: knowledgeCategory }),
+    onSuccess: () => { setKnowledgeTitle(""); setKnowledgeContent(""); queryClient.invalidateQueries({ queryKey: ["v5-knowledge", workspaceId] }); },
+  });
+  const uploadKnowledge = useMutation({
+    mutationFn: async () => { const form = new FormData(); form.append("title", knowledgeTitle); form.append("category", knowledgeCategory); if (knowledgeContent) form.append("content", knowledgeContent); if (knowledgeFile) form.append("document", knowledgeFile); return api.upload(`/workspaces/${workspaceId}/v5/research/knowledge/upload`, form); },
+    onSuccess: () => { setKnowledgeTitle(""); setKnowledgeContent(""); setKnowledgeFile(null); queryClient.invalidateQueries({ queryKey: ["v5-knowledge", workspaceId] }); },
+  });
+  const reviewKnowledge = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: "APPROVED" | "REJECTED" }) => api.post(`/workspaces/${workspaceId}/v5/research/knowledge/${id}/review`, { action, reason: action === "APPROVED" ? "Human-reviewed V5 research knowledge." : "Rejected during V5 knowledge review." }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["v5-knowledge", workspaceId] }),
+  });
   const overview = useQuery({
     queryKey: ["v5-overview"],
     queryFn: async () => (await api.get<{ execution_authorized: boolean; latest_run?: { candidates?: Candidate[] } }>("/../v5/research/overview")).data,
@@ -249,6 +270,23 @@ export default function V5ResearchPage() {
         </Card>
 
         <ShadowDiagnosticsPanel workspaceId={workspaceId} symbols={diagnosticSymbols} />
+
+        <Card>
+          <CardHeader><CardTitle>V5 Knowledge Review &amp; Paper Validation</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground">Add validated video/chart knowledge here. It remains a research candidate until backtest, paper-trade and holdout gates pass. Approval never changes live trading.</p>
+            <div className="grid gap-2 md:grid-cols-[1fr_180px]">
+              <input className="rounded border bg-background px-3 py-2 text-sm" placeholder="Knowledge title" value={knowledgeTitle} onChange={(event) => setKnowledgeTitle(event.target.value)} />
+              <select className="rounded border bg-background px-3 py-2 text-sm" value={knowledgeCategory} onChange={(event) => setKnowledgeCategory(event.target.value)}><option>CANDLE</option><option>TREND</option><option>SUPPORT_RESISTANCE</option><option>RISK</option><option>OTHER</option></select>
+            </div>
+            <textarea className="min-h-24 w-full rounded border bg-background px-3 py-2 text-sm" placeholder="Describe the rule and when it should/should not apply" value={knowledgeContent} onChange={(event) => setKnowledgeContent(event.target.value)} />
+            <div className="flex flex-wrap items-center gap-2"><button className="rounded border px-3 py-2 text-sm disabled:opacity-50" disabled={!workspaceId || !knowledgeTitle.trim() || !knowledgeContent.trim() || createKnowledge.isPending} onClick={() => createKnowledge.mutate()}>Add text for validation</button><input type="file" accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown" onChange={(event) => setKnowledgeFile(event.target.files?.[0] ?? null)} /><button className="rounded border border-sky-400/50 px-3 py-2 text-sm text-sky-300 disabled:opacity-50" disabled={!workspaceId || !knowledgeTitle.trim() || !knowledgeFile || uploadKnowledge.isPending} onClick={() => uploadKnowledge.mutate()}>Upload document</button></div>
+            <div className="space-y-2">{(knowledge.data?.items ?? []).map((item) => <div className="rounded border p-3" key={item.id}>
+              <div className="flex flex-wrap items-center justify-between gap-2"><div><b>{item.title}</b><span className="ml-2 text-xs text-muted-foreground">{item.payload?.category} · {item.status}</span></div>{item.status === "PROPOSED" && <div className="flex gap-2"><button className="rounded border border-emerald-400/50 px-2 py-1 text-xs text-emerald-300" onClick={() => reviewKnowledge.mutate({ id: item.id, action: "APPROVED" })}>Approve knowledge</button><button className="rounded border border-rose-400/50 px-2 py-1 text-xs text-rose-300" onClick={() => reviewKnowledge.mutate({ id: item.id, action: "REJECTED" })}>Reject</button></div>}</div>
+              <p className="mt-1 text-xs text-muted-foreground">{item.payload?.content}</p><div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground"><span>Backtest: {item.payload?.verification?.backtest ?? "PENDING"}</span><span>Paper: {item.payload?.verification?.paper_trade ?? "PENDING"}</span><span>Holdout: {item.payload?.verification?.holdout ?? "PENDING"}</span><span>Training eligible: NO</span></div>
+            </div>)}</div>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader><CardTitle>My Selected Top 3</CardTitle></CardHeader>
