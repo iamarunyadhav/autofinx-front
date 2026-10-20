@@ -218,6 +218,10 @@ export default function V5ResearchPage() {
   const downloadKnowledge = useMutation({
     mutationFn: async (format: "txt" | "pdf") => api.download(`/workspaces/${workspaceId}/v5/research/knowledge/download?format=${format}`, `v5-knowledge-review.${format}`),
   });
+  const runKnowledgePaper = useMutation({
+    mutationFn: (id: string) => api.post(`/workspaces/${workspaceId}/v5/research/knowledge/${id}/paper-run`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["v5-knowledge-paper-experiments", workspaceId] }),
+  });
   const overview = useQuery({
     queryKey: ["v5-overview"],
     queryFn: async () => (await api.get<{ execution_authorized: boolean; latest_run?: { candidates?: Candidate[] } }>("/../v5/research/overview")).data,
@@ -307,7 +311,7 @@ export default function V5ResearchPage() {
             {knowledgeExperiments.isLoading && <p className="text-xs text-muted-foreground">Loading experiment candidates…</p>}
             {knowledgeExperiments.isError && <p className="text-xs text-destructive">Knowledge experiment status unavailable.</p>}
             {!knowledgeExperiments.isLoading && !knowledgeExperiments.isError && !(knowledgeExperiments.data?.items?.length) && <p className="text-xs text-muted-foreground">No knowledge items yet. Upload and review a transcript or document above.</p>}
-            <div className="space-y-2">{(knowledgeExperiments.data?.items ?? []).map((item) => <div className="rounded border p-3" key={item.id}><div className="flex flex-wrap items-center justify-between gap-2"><div><b>{item.title}</b><span className="ml-2 text-xs text-muted-foreground">{item.category}</span></div><span className={item.status === "APPROVED" ? "text-xs text-emerald-300" : "text-xs text-amber-300"}>{item.paper_track.replaceAll("_", " ")}</span></div><div className="mt-2 grid gap-1 text-[11px] text-muted-foreground sm:grid-cols-3"><span>Paper trades: {item.paper_trades.length}</span><span>Training eligible: NO</span><span>Live execution: NO</span></div><p className="mt-2 text-xs text-muted-foreground">{item.note}</p></div>)}</div>
+            <div className="space-y-2">{(knowledgeExperiments.data?.items ?? []).map((item) => <div className="rounded border p-3" key={item.id}><div className="flex flex-wrap items-center justify-between gap-2"><div><b>{item.title}</b><span className="ml-2 text-xs text-muted-foreground">{item.category}</span></div><div className="flex items-center gap-2"><span className={item.status === "APPROVED" ? "text-xs text-emerald-300" : "text-xs text-amber-300"}>{item.paper_track.replaceAll("_", " ")}</span>{item.status === "APPROVED" && <button className="rounded border border-violet-400/50 px-2 py-1 text-xs text-violet-300" onClick={() => runKnowledgePaper.mutate(item.id)} disabled={runKnowledgePaper.isPending}>Run isolated paper check</button>}</div></div><div className="mt-2 grid gap-1 text-[11px] text-muted-foreground sm:grid-cols-3"><span>Paper trades: {item.paper_trades.length}</span><span>Training eligible: NO</span><span>Live execution: NO</span></div><p className="mt-2 text-xs text-muted-foreground">{item.note}</p></div>)}</div>
           </CardContent>
         </Card>
 
