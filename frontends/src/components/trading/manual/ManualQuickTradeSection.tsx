@@ -13,6 +13,7 @@ import { useManualExchangeBalance, useManualPositions, useManualStatus, useSetMa
 import { ManualOrderForm } from "./ManualOrderForm";
 import { ManualPositionPanel } from "./ManualPositionPanel";
 import { ManualTradeChart, type ChartLine } from "./ManualTradeChart";
+import { MlAutopilotPanel } from "@/components/trading/MlAutopilotPanel";
 
 export interface ManualIntegrationOption {
   id: string;
@@ -54,7 +55,7 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
   const [form, setForm] = useState<OrderForm | null>(null);
   const [preview, setPreview] = useState<ManualPreview | null>(null);
   const binanceIntegrations = useMemo(() => integrations.filter((i) => i.provider_key.toLowerCase() === "binance"), [integrations]);
-  const [environment, setEnvironment] = useState<"testnet" | "live">(() =>
+  const [environment, setEnvironment] = useState<"paper" | "testnet" | "live">(() =>
     binanceIntegrations.some((i) => i.environment === "testnet") ? "testnet" : "live"
   );
   const [integrationId, setIntegrationId] = useState("");
@@ -66,6 +67,7 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
 
   useEffect(() => {
     if (!selectionInitialized && binanceIntegrations.length > 0) {
+      if (environment === "paper") return;
       const preferred = binanceIntegrations.find((i) => (i.environment === "testnet" ? "testnet" : "live") === environment);
       setIntegrationId(preferred?.id ?? binanceIntegrations[0]?.id ?? "");
       setEnvironment((preferred ?? binanceIntegrations[0]).environment === "testnet" ? "testnet" : "live");
@@ -84,8 +86,13 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
   const exchangeBalanceQuery = useManualExchangeBalance(workspaceId, integrationId || undefined);
   const exchangeBalance = exchangeBalanceQuery.data?.available ?? null;
 
-  const selectEnvironment = (next: "testnet" | "live") => {
+  const selectEnvironment = (next: "paper" | "testnet" | "live") => {
     setEnvironment(next);
+    if (next === "paper") {
+      setIntegrationId("");
+      setPreview(null);
+      return;
+    }
     const matching = binanceIntegrations.find((i) => (i.environment === "testnet" ? "testnet" : "live") === next);
     setIntegrationId(matching?.id ?? "");
     setPreview(null);
@@ -191,7 +198,8 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
           <div className="grid gap-3 md:grid-cols-4">
             <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">
               <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Environment</div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
+                <Button variant="ghost" size="sm" className={environment === "paper" ? "bg-sky-400 text-slate-950" : "bg-slate-950 text-slate-300"} onClick={() => selectEnvironment("paper")}>Paper</Button>
                 <Button variant="ghost" size="sm" className={environment === "testnet" ? "bg-amber-500 text-slate-950" : "bg-slate-950 text-slate-300"} onClick={() => selectEnvironment("testnet")}>Testnet</Button>
                 <Button variant="ghost" size="sm" className={environment === "live" ? "bg-emerald-500 text-slate-950" : "bg-slate-950 text-slate-300"} onClick={() => selectEnvironment("live")}>Live</Button>
               </div>
@@ -206,7 +214,7 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
             </div>
             <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-2">
               <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Account</div>
-              <Select value={integrationId || undefined} onValueChange={selectIntegration}>
+              <Select value={integrationId || undefined} onValueChange={selectIntegration} disabled={environment === "paper"}>
                 <SelectTrigger className="h-9 border-slate-800 bg-slate-950 text-slate-100"><SelectValue placeholder="No account" /></SelectTrigger>
                 <SelectContent>
                   {binanceIntegrations.map((i) => (
@@ -220,7 +228,7 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Badge className={environment === "testnet" ? "bg-amber-500/10 text-amber-300" : "bg-emerald-500/10 text-emerald-300"}>{environment === "testnet" ? "SANDBOX TESTNET" : "LIVE MAINNET"}</Badge>
+          <Badge className={environment === "paper" ? "bg-sky-500/10 text-sky-300" : environment === "testnet" ? "bg-amber-500/10 text-amber-300" : "bg-emerald-500/10 text-emerald-300"}>{environment === "paper" ? "INTERNAL PAPER" : environment === "testnet" ? "SANDBOX TESTNET" : "LIVE MAINNET"}</Badge>
           <Badge className="bg-blue-500/10 text-blue-300">BINANCE</Badge>
           <Badge className="bg-slate-700/50 text-slate-300">{selectedIntegration?.display_name ?? "No matching account"}</Badge>
           <Badge className={selectedIntegration?.status === "active" ? "bg-emerald-500/10 text-emerald-300" : "bg-amber-500/10 text-amber-300"}>{selectedIntegration?.status === "active" ? "Account active" : "Connection required"}</Badge>
@@ -231,7 +239,8 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
           </div>
           <Button size="sm" className="rounded-2xl bg-emerald-500 px-5 text-slate-950 hover:bg-emerald-400" onClick={onDeposit}>Deposit</Button>
         </div>
-        {!selectedIntegration && <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-sm text-amber-200">No active Binance {environment === "testnet" ? "Testnet" : "Live"} account is connected. The Account menu still lists every connected Binance account; add a separate Live connection with Testnet OFF before opening a Mainnet position.</div>}
+        {environment === "paper" && <div className="mt-3 rounded-2xl border border-sky-500/25 bg-sky-500/10 px-4 py-2.5 text-sm text-sky-200">Paper mode is internal simulation only. No Binance account, exchange order, wallet, or live position is used.</div>}
+        {environment !== "paper" && !selectedIntegration && <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-sm text-amber-200">No active Binance {environment === "testnet" ? "Testnet" : "Live"} account is connected. The Account menu still lists every connected Binance account; add a separate Live connection with Testnet OFF before opening a Mainnet position.</div>}
         {selectedIntegration && exchangeBalanceQuery.data?.error && <div className="mt-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-200">Live balance could not be read from this account: {exchangeBalanceQuery.data.error}</div>}
         {environment === "live" && !st.allow_mainnet && <div className="mt-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-200">Live Mainnet is safety-blocked until the Binance exchange verification checklist is completed and the server explicitly enables it.</div>}
       </div>
@@ -279,7 +288,9 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
             </div>
           </div>
         </div>
-        {integrationId
+        {environment === "paper"
+          ? <div className="space-y-3"><MlAutopilotPanel workspaceId={workspaceId} mode="paper" /><div className="rounded-[24px] border border-sky-500/25 bg-sky-500/5 p-4 text-xs text-sky-200">Manual exchange order fields are disabled in Paper mode. V5 paper autopilot runs on its own internal ledger; switching to Testnet or Live restores the exchange form.</div></div>
+          : integrationId
           ? <ManualOrderForm workspaceId={workspaceId} status={st} integrationId={integrationId} symbols={availableSymbols} symbol={symbol} onSymbolChange={setSymbol} lastPrice={candles.lastPrice} onFormChange={onFormChange} />
           : <div className="rounded-[24px] border border-slate-800 bg-slate-950/80 p-6 text-sm text-amber-200">Select or connect a Binance {environment === "testnet" ? "Testnet" : "Live"} account to preview and open an order.</div>}
       </div>
