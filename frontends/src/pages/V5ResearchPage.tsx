@@ -42,6 +42,7 @@ type RankingSnapshot = {
   }[];
 };
 type KnowledgeItem = { id: string; title: string; status: string; evidence_level?: string; payload?: { category?: string; content?: string; source_type?: string; source_url?: string | null; verification?: Record<string, string>; training_eligible?: boolean } };
+type KnowledgeExperiment = { id: string; title: string; category: string; status: string; paper_track: string; training_eligible: boolean; execution_authorized: boolean; paper_trades: unknown[]; note: string };
 
 type DecisionDiagnostics = {
   sample_count: number;
@@ -198,6 +199,10 @@ export default function V5ResearchPage() {
     queryKey: ["v5-knowledge", workspaceId], enabled: Boolean(workspaceId), retry: false,
     queryFn: () => api.get<{ items: KnowledgeItem[] }>(`/workspaces/${workspaceId}/v5/research/knowledge`).then((response) => response.data),
   });
+  const knowledgeExperiments = useQuery({
+    queryKey: ["v5-knowledge-paper-experiments", workspaceId], enabled: Boolean(workspaceId), retry: false,
+    queryFn: () => api.get<{ items: KnowledgeExperiment[] }>(`/workspaces/${workspaceId}/v5/research/knowledge/paper-experiments`).then((response) => response.data),
+  });
   const createKnowledge = useMutation({
     mutationFn: () => api.post(`/workspaces/${workspaceId}/v5/research/knowledge`, { title: knowledgeTitle, content: knowledgeContent, category: knowledgeCategory, source_type: knowledgeSourceType }),
     onSuccess: () => { setKnowledgeTitle(""); setKnowledgeContent(""); queryClient.invalidateQueries({ queryKey: ["v5-knowledge", workspaceId] }); },
@@ -291,6 +296,18 @@ export default function V5ResearchPage() {
               <div className="flex flex-wrap items-center justify-between gap-2"><div><b>{item.title}</b><span className="ml-2 text-xs text-muted-foreground">{item.payload?.category} · {item.status}</span></div>{item.status === "PROPOSED" && <div className="flex gap-2"><button className="rounded border border-emerald-400/50 px-2 py-1 text-xs text-emerald-300" onClick={() => reviewKnowledge.mutate({ id: item.id, action: "APPROVED" })}>Approve knowledge</button><button className="rounded border border-rose-400/50 px-2 py-1 text-xs text-rose-300" onClick={() => reviewKnowledge.mutate({ id: item.id, action: "REJECTED" })}>Reject</button></div>}</div>
               <p className="mt-1 text-xs text-muted-foreground">Source: {item.payload?.source_type ?? "MANUAL_NOTE"}</p><p className="mt-1 text-xs text-muted-foreground">{item.payload?.content}</p><div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground"><span>Document: {item.payload?.verification?.document_review ?? "PENDING"}</span><span>Human: {item.payload?.verification?.human_review ?? "PENDING"}</span><span>Backtest: {item.payload?.verification?.backtest ?? "PENDING"}</span><span>Paper: {item.payload?.verification?.paper_trade ?? "PENDING"}</span><span>Holdout: {item.payload?.verification?.holdout ?? "PENDING"}</span><span>Training eligible: NO</span></div>
             </div>)}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>V5 Knowledge Experiments</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground">Separate paper-only experiment track. It never changes the baseline V5 ML autopilot and never places a live order. Approved items remain candidates until the isolated rule runner records paper outcomes.</p>
+            <div className="grid gap-2 sm:grid-cols-2"><div className="rounded border border-sky-400/30 bg-sky-400/5 p-3 text-xs"><b>Baseline track</b><div className="mt-1 text-muted-foreground">V5 ML Paper Autopilot · existing model signals</div></div><div className="rounded border border-violet-400/30 bg-violet-400/5 p-3 text-xs"><b>Knowledge track</b><div className="mt-1 text-muted-foreground">Approved knowledge · isolated experiment ledger</div></div></div>
+            {knowledgeExperiments.isLoading && <p className="text-xs text-muted-foreground">Loading experiment candidates…</p>}
+            {knowledgeExperiments.isError && <p className="text-xs text-destructive">Knowledge experiment status unavailable.</p>}
+            {!knowledgeExperiments.isLoading && !knowledgeExperiments.isError && !(knowledgeExperiments.data?.items?.length) && <p className="text-xs text-muted-foreground">No knowledge items yet. Upload and review a transcript or document above.</p>}
+            <div className="space-y-2">{(knowledgeExperiments.data?.items ?? []).map((item) => <div className="rounded border p-3" key={item.id}><div className="flex flex-wrap items-center justify-between gap-2"><div><b>{item.title}</b><span className="ml-2 text-xs text-muted-foreground">{item.category}</span></div><span className={item.status === "APPROVED" ? "text-xs text-emerald-300" : "text-xs text-amber-300"}>{item.paper_track.replaceAll("_", " ")}</span></div><div className="mt-2 grid gap-1 text-[11px] text-muted-foreground sm:grid-cols-3"><span>Paper trades: {item.paper_trades.length}</span><span>Training eligible: NO</span><span>Live execution: NO</span></div><p className="mt-2 text-xs text-muted-foreground">{item.note}</p></div>)}</div>
           </CardContent>
         </Card>
 
