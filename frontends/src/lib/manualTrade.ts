@@ -137,6 +137,7 @@ export interface ManualPosition {
   sl_pct: number | null;
   sl_basis: "price_movement";
   sl_trigger_price: number | null;
+  protection_pairs?: ManualProtectionPair[];
   tp_pct: number | null;
   trailing_pct: number | null;
   trailing_activation_pct: number | null;
@@ -207,6 +208,35 @@ export interface OrderForm {
   tpPct: number | null;
   trailingPct: number | null;
   trailingActivationPct: number | null;
+  protectionPairs: ProtectionPairInput[];
+}
+
+export interface ManualProtectionPair {
+  id: string;
+  level: number;
+  tp_mode: "percent" | "price";
+  tp_value: number;
+  tp_price: number | null;
+  sl_mode: "fixed" | "trailing";
+  sl_input_mode: "percent" | "price" | "distance";
+  sl_value: number;
+  sl_price: number | null;
+  trailing_distance: number | null;
+  peak_price: number | null;
+  trough_price: number | null;
+  active_stop_price: number | null;
+  status: string;
+  tp_status: string;
+  sl_status: string;
+  activated_at: string | null;
+}
+
+export interface ProtectionPairInput {
+  tpMode: "percent" | "price";
+  tpValue: number | null;
+  slMode: "fixed" | "trailing";
+  slInputMode: "percent" | "price" | "distance";
+  slValue: number | null;
 }
 
 /**
@@ -248,6 +278,7 @@ export function buildOpenRequest(form: OrderForm, ctx: { idempotencyKey: string;
     tp_pct: form.tpPct,
     trailing_pct: form.trailingPct,
     trailing_activation_pct: form.trailingActivationPct,
+    protection_pairs: form.protectionPairs.map((pair) => ({ tp_mode: pair.tpMode, tp_value: pair.tpValue, sl_mode: pair.slMode, sl_input_mode: pair.slInputMode, sl_value: pair.slValue })),
     reference_price: ctx.referencePrice,
     idempotency_key: ctx.idempotencyKey,
     integration_id: ctx.integrationId ?? undefined,
@@ -266,6 +297,7 @@ export function buildPreviewRequest(form: OrderForm, integrationId?: string | nu
     tp_pct: form.tpPct,
     trailing_pct: form.noStopLoss ? null : form.trailingPct,
     trailing_activation_pct: form.noStopLoss ? null : form.trailingActivationPct,
+    protection_pairs: form.protectionPairs.map((pair) => ({ tp_mode: pair.tpMode, tp_value: pair.tpValue, sl_mode: pair.slMode, sl_input_mode: pair.slInputMode, sl_value: pair.slValue })),
     integration_id: integrationId ?? undefined,
   };
 }

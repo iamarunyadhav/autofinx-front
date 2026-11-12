@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import {
@@ -24,6 +25,7 @@ import {
   protectionLabel,
   type ManualClosePreview,
   type ManualPosition,
+  type ManualProtectionPair,
 } from "@/lib/manualTrade";
 import {
   useCloseManualPosition,
@@ -31,6 +33,8 @@ import {
   useManualPosition,
   useRefreshManualPosition,
   useUpdateManualStopLoss,
+  useUpdateManualProtectionPair,
+  useCancelManualProtectionPair,
 } from "@/hooks/useQuickTradeManual";
 
 function Cell({ label, value, tone }: { label: string; value: string; tone?: "pos" | "neg" | "warn" }) {
@@ -66,6 +70,14 @@ function PositionCard({ workspaceId, position }: CardProps) {
   const [stopEditOpen, setStopEditOpen] = useState(false);
   const [stopPrice, setStopPrice] = useState("");
   const stopUpdate = useUpdateManualStopLoss(workspaceId);
+  const pairUpdate = useUpdateManualProtectionPair(workspaceId);
+  const pairCancel = useCancelManualProtectionPair(workspaceId);
+  const [pairEdit, setPairEdit] = useState<ManualProtectionPair | null>(null);
+  const [pairTp, setPairTp] = useState("");
+  const [pairSl, setPairSl] = useState("");
+  const [pairTpMode, setPairTpMode] = useState<"percent" | "price">("percent");
+  const [pairSlMode, setPairSlMode] = useState<"fixed" | "trailing">("fixed");
+  const [pairSlInput, setPairSlInput] = useState<"percent" | "price" | "distance">("percent");
 
   const prot = protectionLabel(p);
   const liq = live?.liquidation_price ?? p.exchange_liquidation_price ?? p.estimated_liquidation_price;
@@ -111,6 +123,15 @@ function PositionCard({ workspaceId, position }: CardProps) {
     stopUpdate.mutate({ positionId: p.id, stopLossPrice: value }, {
       onSuccess: () => setStopEditOpen(false),
     });
+  };
+
+  const openPairEditor = (pair: ManualProtectionPair) => {
+    setPairEdit(pair); setPairTp(String(pair.tp_value)); setPairSl(String(pair.sl_value)); setPairTpMode(pair.tp_mode); setPairSlMode(pair.sl_mode); setPairSlInput(pair.sl_input_mode);
+  };
+
+  const savePair = () => {
+    if (!pairEdit || !(Number(pairTp) > 0) || !(Number(pairSl) > 0)) return;
+    pairUpdate.mutate({ positionId: p.id, pairId: pairEdit.id, body: { tp_mode: pairTpMode, tp_value: Number(pairTp), sl_mode: pairSlMode, sl_input_mode: pairSlInput, sl_value: Number(pairSl) } }, { onSuccess: () => setPairEdit(null) });
   };
 
   return (
@@ -212,6 +233,37 @@ function PositionCard({ workspaceId, position }: CardProps) {
         </Button>
         {!p.can_close && !p.is_terminal && <span className="text-xs text-slate-500">Close is unavailable while the position is {STATUS_LABEL[p.status]?.toLowerCase()}.</span>}
       </div>
+
+      {p.protection_pairs && p.protection_pairs.length > 0 && (
+        <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-violet-200">TP / reversal stages</div>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+            {p.protection_pairs.map((pair) => (
+              <div key={pair.id} className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs">
+                <div className="flex justify-between font-semibold text-slate-200"><span>TP{pair.level} → SL{pair.level}</span><span className={pair.status === "ACTIVE" ? "text-emerald-300" : "text-slate-400"}>{pair.status}</span></div>
+                <div className="mt-1 text-slate-400">TP {fmtPrice(pair.tp_price)} · {pair.sl_mode === "trailing" ? "Trailing" : "Fixed"} SL {fmtPrice(pair.active_stop_price ?? pair.sl_price)}</div>
+                {pair.status === "ACTIVE" && pair.sl_mode === "trailing" && <div className="text-violet-300">Peak / trough: {fmtPrice(pair.peak_price ?? pair.trough_price)}</div>}
+                {!p.is_terminal && <div className="mt-1 flex gap-3"><Button size="sm" variant="ghost" className="px-0 text-amber-200" onClick={() => openPairEditor(pair)}>Edit TP{pair.level}/SL{pair.level}</Button><Button size="sm" variant="ghost" className="px-0 text-rose-300" disabled={pairCancel.isPending} onClick={() => pairCancel.mutate({ positionId: p.id, pairId: pair.id })}>Remove</Button></div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Dialog open={pairEdit !== null} onOpenChange={(open) => { if (!pairUpdate.isPending && !open) setPairEdit(null); }}>
+        <DialogContent className="border-slate-800 bg-slate-950 text-slate-100">
+          <DialogHeader><DialogTitle>Edit TP{pairEdit?.level} / SL{pairEdit?.level}</DialogTitle><DialogDescription className="text-slate-400">Active stops are replaced only after the exchange verifies the new order.</DialogDescription></DialogHeader>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="text-xs text-slate-400">TP value<Input value={pairTp} onChange={(e) => setPairTp(e.target.value)} type="number" step="any" className="mt-1 border-slate-700 bg-slate-900 text-slate-100" /></label>
+            <Select value={pairTpMode} onValueChange={(v: "percent" | "price") => setPairTpMode(v)}><SelectTrigger className="mt-5 border-slate-700 bg-slate-900 text-slate-100"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="percent">TP %</SelectItem><SelectItem value="price">TP price</SelectItem></SelectContent></Select>
+            <label className="text-xs text-slate-400">SL value<Input value={pairSl} onChange={(e) => setPairSl(e.target.value)} type="number" step="any" className="mt-1 border-slate-700 bg-slate-900 text-slate-100" /></label>
+            <Select value={pairSlInput} onValueChange={(v: "percent" | "price" | "distance") => setPairSlInput(v)}><SelectTrigger className="mt-5 border-slate-700 bg-slate-900 text-slate-100"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="percent">SL %</SelectItem><SelectItem value="price">SL price</SelectItem><SelectItem value="distance">Price distance</SelectItem></SelectContent></Select>
+            <Select value={pairSlMode} onValueChange={(v: "fixed" | "trailing") => setPairSlMode(v)}><SelectTrigger className="border-slate-700 bg-slate-900 text-slate-100"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="fixed">Fixed reversal</SelectItem><SelectItem value="trailing">Dynamic trailing</SelectItem></SelectContent></Select>
+          </div>
+          {pairUpdate.error && <div className="text-sm text-rose-300">{parseApiError((pairUpdate.error as Error).message).text}</div>}
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setPairEdit(null)} disabled={pairUpdate.isPending}>Cancel</Button><Button className="bg-amber-600 text-slate-950" onClick={savePair} disabled={pairUpdate.isPending || !(Number(pairTp) > 0) || !(Number(pairSl) > 0)}>{pairUpdate.isPending ? "Saving..." : "Save pair"}</Button></div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={stopEditOpen} onOpenChange={(open) => { if (!stopUpdate.isPending) setStopEditOpen(open); }}>
         <DialogContent className="border-slate-800 bg-slate-950 text-slate-100">

@@ -95,6 +95,30 @@ export function useUpdateManualStopLoss(workspaceId?: string) {
   });
 }
 
+export function useUpdateManualProtectionPair(workspaceId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ positionId, pairId, body }: { positionId: string; pairId: string; body: Record<string, unknown> }) =>
+      authorizedFetch(`${base(workspaceId!)}/positions/${positionId}/protection-pairs/${pairId}`, "PATCH", body) as Promise<ManualPosition>,
+    onSettled: (_data, _error, variables) => {
+      qc.invalidateQueries({ queryKey: ["qtm-positions", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["qtm-position", workspaceId, variables.positionId] });
+    },
+  });
+}
+
+export function useCancelManualProtectionPair(workspaceId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ positionId, pairId }: { positionId: string; pairId: string }) =>
+      authorizedFetch(`${base(workspaceId!)}/positions/${positionId}/protection-pairs/${pairId}`, "DELETE") as Promise<ManualPosition>,
+    onSettled: (_data, _error, variables) => {
+      qc.invalidateQueries({ queryKey: ["qtm-positions", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["qtm-position", workspaceId, variables.positionId] });
+    },
+  });
+}
+
 export function useManualClosePreview(workspaceId?: string) {
   return useMutation({
     mutationFn: (positionId: string) => authorizedFetch(`${base(workspaceId!)}/positions/${positionId}/close-preview`, "POST") as Promise<ManualClosePreview>,
