@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
+import type React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -36,6 +37,8 @@ interface Props {
   lastPrice: number | null;
   /** Reports the current form so the chart can draw the planned entry/SL/TP. */
   onFormChange: (f: OrderForm, preview: ManualPreview | null) => void;
+  protectionPairs: ProtectionPairInput[];
+  setProtectionPairs: React.Dispatch<React.SetStateAction<ProtectionPairInput[]>>;
 }
 
 const OUTCOME_TEXT: Record<string, { text: string; tone: "ok" | "warn" | "bad" }> = {
@@ -47,8 +50,12 @@ const OUTCOME_TEXT: Record<string, { text: string; tone: "ok" | "warn" | "bad" }
   entry_failed: { text: "The entry did not fill. Nothing is open and the reserved stake was released.", tone: "bad" },
 };
 
+export function ManualProtectionPairEditor({ pairs, setPairs, disabled = false }: { pairs: ProtectionPairInput[]; setPairs: React.Dispatch<React.SetStateAction<ProtectionPairInput[]>>; disabled?: boolean }) {
+  return <div className="rounded-2xl border border-violet-500/30 bg-violet-500/5 p-5"><div className="mb-4 flex items-center justify-between"><div><div className="text-base font-black uppercase tracking-[0.16em] text-violet-200">TP observation / reversal stages</div><div className="mt-1 text-sm text-slate-400">TP levels do not close the position; they activate their paired stop.</div></div><Button type="button" size="sm" variant="outline" disabled={disabled || pairs.length >= 20} onClick={() => setPairs((prev) => [...prev, { tpMode: "percent", tpValue: 1, slMode: "fixed", slInputMode: "percent", slValue: 0.5 }])}>+ Add TP/SL</Button></div><div className="space-y-3">{pairs.map((pair, index) => <div key={index} className="grid gap-3 rounded-xl border border-slate-700 bg-slate-950/80 p-4 md:grid-cols-[70px_120px_1fr_70px_150px_1fr_auto] md:items-end"><div><Label className="text-xs text-slate-500">TP level</Label><div className="mt-2 text-lg font-black text-emerald-300">TP{index + 1}</div></div><div><Label className="text-xs text-slate-400">TP type</Label><Select value={pair.tpMode} onValueChange={(value: "percent" | "price") => setPairs((prev) => prev.map((x, i) => i === index ? { ...x, tpMode: value } : x))}><SelectTrigger className="mt-1 border-slate-700 bg-slate-900 text-slate-100"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="percent">Percent %</SelectItem><SelectItem value="price">Exact price</SelectItem></SelectContent></Select></div><div><Label className="text-xs text-slate-400">TP{index + 1} value</Label><Input type="number" step="any" placeholder={pair.tpMode === "percent" ? "e.g. 1.0" : "e.g. 72500"} value={pair.tpValue ?? ""} onChange={(e) => setPairs((prev) => prev.map((x, i) => i === index ? { ...x, tpValue: e.target.value === "" ? null : Number(e.target.value) } : x))} className="mt-1 border-slate-700 bg-slate-900 text-slate-100" /></div><div><Label className="text-xs text-slate-500">SL level</Label><div className="mt-2 text-lg font-black text-orange-300">SL{index + 1}</div></div><div><Label className="text-xs text-slate-400">SL type</Label><Select value={pair.slMode} onValueChange={(value: "fixed" | "trailing") => setPairs((prev) => prev.map((x, i) => i === index ? { ...x, slMode: value, slInputMode: value === "trailing" && x.slInputMode === "price" ? "percent" : x.slInputMode } : x))}><SelectTrigger className="mt-1 border-slate-700 bg-slate-900 text-slate-100"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="fixed">Fixed stop</SelectItem><SelectItem value="trailing">Dynamic trailing</SelectItem></SelectContent></Select></div><div><Label className="text-xs text-slate-400">SL{index + 1} value</Label><div className="mt-1 flex gap-2"><Select value={pair.slInputMode} onValueChange={(value: "percent" | "price" | "distance") => setPairs((prev) => prev.map((x, i) => i === index ? { ...x, slInputMode: value } : x))}><SelectTrigger className="w-[120px] border-slate-700 bg-slate-900 text-slate-100"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="percent">Percent %</SelectItem><SelectItem value="price" disabled={pair.slMode === "trailing"}>Exact price</SelectItem><SelectItem value="distance">Distance</SelectItem></SelectContent></Select><Input type="number" step="any" placeholder="value" value={pair.slValue ?? ""} onChange={(e) => setPairs((prev) => prev.map((x, i) => i === index ? { ...x, slValue: e.target.value === "" ? null : Number(e.target.value) } : x))} className="border-slate-700 bg-slate-900 text-slate-100" /></div></div><Button type="button" variant="ghost" className="text-rose-300" onClick={() => setPairs((prev) => prev.filter((_, i) => i !== index))}>Remove</Button></div>)}</div></div>;
+}
+
 /** Order form for Manual SL/TP + the two-step (Review, then separate final confirmation) open flow. */
-export function ManualOrderForm({ workspaceId, status, integrationId, symbols, symbol, onSymbolChange, lastPrice, onFormChange }: Props) {
+export function ManualOrderForm({ workspaceId, status, integrationId, symbols, symbol, onSymbolChange, lastPrice, onFormChange, protectionPairs, setProtectionPairs }: Props) {
   const { toast } = useToast();
   const limits = status.limits;
   const [direction, setDirection] = useState<ManualDirection>("long");
@@ -58,7 +65,6 @@ export function ManualOrderForm({ workspaceId, status, integrationId, symbols, s
   const [tpPct, setTpPct] = useState<number | null>(null);
   const [trailingPct, setTrailingPct] = useState<number | null>(null);
   const [trailingActivationPct, setTrailingActivationPct] = useState<number | null>(null);
-  const [protectionPairs, setProtectionPairs] = useState<ProtectionPairInput[]>([]);
   const [noStop, setNoStop] = useState(false);
   const [noStopAck, setNoStopAck] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -182,7 +188,7 @@ export function ManualOrderForm({ workspaceId, status, integrationId, symbols, s
             </span>
           </div>
         </div>
-        <div className="col-span-2 rounded-xl border border-violet-500/30 bg-violet-500/5 p-3">
+        <div className="hidden col-span-2 rounded-xl border border-violet-500/30 bg-violet-500/5 p-3">
           <div className="mb-2 flex items-center justify-between">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-200">TP observation / reversal stages</div>
