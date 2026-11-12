@@ -106,6 +106,9 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
   };
 
   const openForSymbol = active.data?.find((p) => p.symbol === symbol && !p.is_terminal) ?? null;
+  // Keep the displayed plan anchored to the exchange-backed preview. Deriving
+  // it from every live ticker update made a 1% stop line move while reviewing.
+  // Submission still revalidates price freshness on the backend.
   const planned = useMemo(() => (form ? localEstimate(form, candles.lastPrice) : null), [form, candles.lastPrice]);
   const directionInsight = useMemo(() => {
     const closes = candles.bars.map((b) => b.close);
@@ -145,11 +148,14 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
         { price: liq, title: openForSymbol.exchange_liquidation_price != null ? "Liq" : "Liq (est)", color: "#f97316", dashed: true },
       ];
     }
-    if (form && form.symbol === symbol && planned) {
+    if (form && form.symbol === symbol && (preview || planned)) {
+      const planEntry = preview?.reference_price ?? candles.lastPrice;
+      const planSl = preview?.sl_trigger_price ?? planned?.slTrigger;
+      const planTp = preview?.take_profit?.trigger_price ?? planned?.tpTrigger;
       return [
-        { price: candles.lastPrice, title: "Plan entry", color: "#3b82f6", dashed: true, width: 1 },
-        { price: preview?.sl_trigger_price ?? planned.slTrigger, title: "Plan SL", color: "#ef4444", dashed: true, width: 1 },
-        { price: preview?.take_profit?.trigger_price ?? planned.tpTrigger, title: "Plan TP", color: "#22c55e", dashed: true, width: 1 },
+        { price: planEntry, title: "Plan entry", color: "#3b82f6", dashed: true, width: 1 },
+        { price: planSl, title: "Plan SL", color: "#ef4444", dashed: true, width: 1 },
+        { price: planTp, title: "Plan TP", color: "#22c55e", dashed: true, width: 1 },
         { price: preview?.estimated_liquidation_price, title: "Liq (est)", color: "#f97316", dashed: true, width: 1 },
       ];
     }

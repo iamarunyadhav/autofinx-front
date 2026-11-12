@@ -83,6 +83,18 @@ export function useRefreshManualPosition(workspaceId?: string) {
   });
 }
 
+export function useUpdateManualStopLoss(workspaceId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ positionId, stopLossPrice }: { positionId: string; stopLossPrice: number }) =>
+      authorizedFetch(`${base(workspaceId!)}/positions/${positionId}/stop-loss`, "PATCH", { stop_loss_price: stopLossPrice }) as Promise<ManualPosition>,
+    onSettled: (_data, _error, variables) => {
+      qc.invalidateQueries({ queryKey: ["qtm-positions", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["qtm-position", workspaceId, variables.positionId] });
+    },
+  });
+}
+
 export function useManualClosePreview(workspaceId?: string) {
   return useMutation({
     mutationFn: (positionId: string) => authorizedFetch(`${base(workspaceId!)}/positions/${positionId}/close-preview`, "POST") as Promise<ManualClosePreview>,
