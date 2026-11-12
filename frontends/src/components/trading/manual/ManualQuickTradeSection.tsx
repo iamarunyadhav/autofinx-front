@@ -14,6 +14,8 @@ import { ManualOrderForm } from "./ManualOrderForm";
 import { ManualPositionPanel } from "./ManualPositionPanel";
 import { ManualTradeChart, type ChartLine } from "./ManualTradeChart";
 import { MlAutopilotPanel } from "@/components/trading/MlAutopilotPanel";
+import { MarketPressurePanel } from "@/components/trading/MarketPressurePanel";
+import { MarketMoversPanel } from "@/components/trading/MarketMoversPanel";
 
 export interface ManualIntegrationOption {
   id: string;
@@ -144,6 +146,10 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
         { price: openForSymbol.entry_price, title: "Entry", color: "#3b82f6" },
         { price: openForSymbol.sl_trigger_price, title: "SL", color: "#ef4444" },
         { price: openForSymbol.tp_trigger_price, title: "TP", color: "#22c55e" },
+        ...((openForSymbol.protection_pairs ?? []).flatMap((pair, index) => [
+          { price: pair.tp_price, title: `TP${index + 1}`, color: "#22c55e", dashed: true, width: 1 as const },
+          { price: pair.active_stop_price ?? pair.sl_price, title: `SL${index + 1}`, color: "#f97316", dashed: true, width: 1 as const },
+        ])),
         { price: candles.lastPrice, title: "Price", color: "#e2e8f0", dashed: true, width: 1 },
         { price: liq, title: openForSymbol.exchange_liquidation_price != null ? "Liq" : "Liq (est)", color: "#f97316", dashed: true },
       ];
@@ -157,6 +163,11 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
         { price: planSl, title: "Plan SL", color: "#ef4444", dashed: true, width: 1 },
         { price: planTp, title: "Plan TP", color: "#22c55e", dashed: true, width: 1 },
         { price: preview?.estimated_liquidation_price, title: "Liq (est)", color: "#f97316", dashed: true, width: 1 },
+        ...form.protectionPairs.flatMap((pair, index) => {
+          const tp = pair.tpMode === "price" ? pair.tpValue : (form.direction === "short" ? planEntry * (1 - pair.tpValue / 100) : planEntry * (1 + pair.tpValue / 100));
+          const sl = pair.slMode === "fixed" && pair.slInputMode === "price" ? pair.slValue : pair.slInputMode === "distance" ? (form.direction === "short" ? tp + pair.slValue : tp - pair.slValue) : (form.direction === "short" ? tp * (1 + pair.slValue / 100) : tp * (1 - pair.slValue / 100));
+          return [{ price: tp, title: `TP${index + 1}`, color: "#22c55e", dashed: true, width: 1 as const }, { price: sl, title: `SL${index + 1}`, color: "#f97316", dashed: true, width: 1 as const }];
+        }),
       ];
     }
     return [{ price: candles.lastPrice, title: "Price", color: "#e2e8f0", dashed: true, width: 1 }];
@@ -296,7 +307,10 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
               <div><div className="text-slate-500">Confidence</div><div className="mt-1 font-bold text-violet-300">{directionInsight.confidence == null ? "—" : `${directionInsight.confidence}%`}</div></div>
               <div><div className="text-slate-500">Basis</div><div className="mt-1 text-slate-300">{directionInsight.basis}</div></div>
             </div>
+            {form && form.protectionPairs.length > 0 && <div className="mt-3 rounded-2xl border border-violet-500/30 bg-violet-500/5 p-4"><div className="mb-3 flex items-center justify-between"><div><div className="text-base font-black uppercase tracking-[0.16em] text-violet-200">TP observation / reversal stages</div><div className="mt-1 text-xs text-slate-400">TP levels do not close the position; they activate their paired stop.</div></div><Badge className="bg-violet-500/15 text-violet-200">{form.protectionPairs.length} stages</Badge></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{form.protectionPairs.map((pair, index) => <div key={index} className="rounded-xl border border-slate-700 bg-slate-950/80 p-4"><div className="flex items-center justify-between"><span className="text-lg font-black text-slate-100">TP{index + 1}</span><span className="text-xs uppercase text-slate-500">{pair.tpMode}</span></div><div className="mt-2 text-2xl font-black text-emerald-300">{pair.tpValue || "—"}{pair.tpMode === "percent" ? "%" : ""}</div><div className="mt-3 flex items-center justify-between border-t border-slate-800 pt-3"><span className="text-lg font-black text-slate-100">SL{index + 1}</span><span className="text-xs uppercase text-slate-500">{pair.slMode}</span></div><div className="mt-2 text-xl font-bold text-orange-300">{pair.slValue || "—"}{pair.slInputMode === "percent" ? "%" : pair.slInputMode === "distance" ? " distance" : " price"}</div></div>)}</div></div>}
           </div>
+          <MarketPressurePanel workspaceId={workspaceId} symbol={symbol} enabled={Boolean(workspaceId && symbol)} />
+          <MarketMoversPanel />
         </div>
         {environment === "paper"
           ? <div className="space-y-3"><MlAutopilotPanel workspaceId={workspaceId} mode="paper" /><div className="rounded-[24px] border border-sky-500/25 bg-sky-500/5 p-4 text-xs text-sky-200">Manual exchange order fields are disabled in Paper mode. V5 paper autopilot runs on its own internal ledger; switching to Testnet or Live restores the exchange form.</div></div>
