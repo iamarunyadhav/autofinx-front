@@ -161,6 +161,8 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
     return <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-6 text-sm text-rose-200">Manual SL/TP status is unavailable: {parseApiError((status.error as Error | null)?.message ?? "").text}</div>;
   }
   const st = status.data;
+  const availableCapabilities = Object.values(st.capabilities ?? {}).filter((item) => item.supported).length;
+  const unavailableCapabilities = Object.values(st.capabilities ?? {}).filter((item) => !item.supported).length;
 
   if (!st.enabled) {
     return (
@@ -230,6 +232,8 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Badge className={environment === "paper" ? "bg-sky-500/10 text-sky-300" : environment === "testnet" ? "bg-amber-500/10 text-amber-300" : "bg-emerald-500/10 text-emerald-300"}>{environment === "paper" ? "INTERNAL PAPER" : environment === "testnet" ? "SANDBOX TESTNET" : "LIVE MAINNET"}</Badge>
           <Badge className="bg-blue-500/10 text-blue-300">BINANCE</Badge>
+          <Badge className="bg-emerald-500/10 text-emerald-300">{availableCapabilities} supported controls</Badge>
+          <Badge className="bg-slate-700/50 text-slate-300">{unavailableCapabilities} safely unavailable</Badge>
           <Badge className="bg-slate-700/50 text-slate-300">{selectedIntegration?.display_name ?? "No matching account"}</Badge>
           <Badge className={selectedIntegration?.status === "active" ? "bg-emerald-500/10 text-emerald-300" : "bg-amber-500/10 text-amber-300"}>{selectedIntegration?.status === "active" ? "Account active" : "Connection required"}</Badge>
           <div className="ml-auto flex items-center gap-2">
