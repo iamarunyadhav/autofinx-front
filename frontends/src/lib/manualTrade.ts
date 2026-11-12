@@ -28,6 +28,7 @@ export interface ManualStatus {
   sl_basis: "price_movement";
   /** Server opt-in switch (default off): whether a trade WITHOUT a stop-loss may be requested at all. */
   allow_no_stop_loss: boolean;
+  capabilities: Record<string, { supported: boolean; verified?: boolean; note?: string; reason?: string }>;
   limits: {
     no_stop_loss_max_leverage: number;
     symbols: string[];

@@ -62,6 +62,7 @@ import { ForecastComparisonCard } from "@/components/trading/ForecastComparisonC
 import { MultiWindowForecastPanel } from "@/components/trading/MultiWindowForecastPanel";
 import { ManualQuickTradeSection } from "@/components/trading/manual/ManualQuickTradeSection";
 import { TradeModeSwitch, type TradeMode } from "@/components/trading/manual/TradeModeSwitch";
+import { MarketPressurePanel } from "@/components/trading/MarketPressurePanel";
 
 function useCountdown(expiresAt: string | undefined) {
   const [secs, setSecs] = useState(0);
@@ -934,6 +935,12 @@ export default function QuickTradePage() {
       <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(37,99,235,0.16),_transparent_28%),linear-gradient(180deg,#020617_0%,#020617_35%,#071120_100%)] text-slate-50">
         <div className="mx-auto max-w-7xl space-y-5 px-4 pb-28 pt-4 md:px-6">
           <TradeModeSwitch mode={tradeMode} onChange={setTradeMode} />
+
+          <MarketPressurePanel
+            workspaceId={workspaceId}
+            symbol={symbol}
+            enabled={assetClass === "CRYPTO" && selectedProvider === "binance" && Boolean(symbol)}
+          />
 
 
           {/* ── Top bar: balance + mode + provider ── */}
