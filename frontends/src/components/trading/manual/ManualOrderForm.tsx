@@ -22,6 +22,7 @@ import {
   type ManualPreview,
   type ManualStatus,
   type OrderForm,
+  type ProtectionPairInput,
 } from "@/lib/manualTrade";
 import { cn } from "@/lib/utils";
 
@@ -57,6 +58,7 @@ export function ManualOrderForm({ workspaceId, status, integrationId, symbols, s
   const [tpPct, setTpPct] = useState<number | null>(null);
   const [trailingPct, setTrailingPct] = useState<number | null>(null);
   const [trailingActivationPct, setTrailingActivationPct] = useState<number | null>(null);
+  const [protectionPairs, setProtectionPairs] = useState<ProtectionPairInput[]>([]);
   const [noStop, setNoStop] = useState(false);
   const [noStopAck, setNoStopAck] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -70,7 +72,7 @@ export function ManualOrderForm({ workspaceId, status, integrationId, symbols, s
   const noStopAllowed = status.allow_no_stop_loss === true;
   const noStopActive = noStopAllowed && noStop;
   const maxLeverage = noStopActive ? Math.min(limits.max_leverage, limits.no_stop_loss_max_leverage) : limits.max_leverage;
-  const form = useMemo<OrderForm>(() => ({ symbol, direction, stake, leverage, slPct, noStopLoss: noStopActive, tpPct, trailingPct: noStopActive ? null : trailingPct, trailingActivationPct: noStopActive ? null : trailingActivationPct }), [symbol, direction, stake, leverage, slPct, noStopActive, tpPct, trailingPct, trailingActivationPct]);
+  const form = useMemo<OrderForm>(() => ({ symbol, direction, stake, leverage, slPct, noStopLoss: noStopActive, tpPct, trailingPct: noStopActive ? null : trailingPct, trailingActivationPct: noStopActive ? null : trailingActivationPct, protectionPairs: noStopActive ? [] : protectionPairs }), [symbol, direction, stake, leverage, slPct, noStopActive, tpPct, trailingPct, trailingActivationPct, protectionPairs]);
   const preview = useManualPreview(workspaceId);
   const open = useOpenManualPosition(workspaceId);
 
@@ -178,6 +180,27 @@ export function ManualOrderForm({ workspaceId, status, integrationId, symbols, s
               <span>{symbolPage + 1}/{symbolPageCount}</span>
               <Button type="button" size="sm" variant="ghost" disabled={symbolPage >= symbolPageCount - 1} className="h-6 px-2" onClick={() => setSymbolPage((page) => Math.min(symbolPageCount - 1, page + 1))}>Next</Button>
             </span>
+          </div>
+        </div>
+        <div className="col-span-2 rounded-xl border border-violet-500/30 bg-violet-500/5 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-200">TP observation / reversal stages</div>
+              <div className="text-[11px] text-slate-400">TP levels do not close the position; they activate their paired stop.</div>
+            </div>
+            <Button type="button" size="sm" variant="outline" disabled={noStopActive || protectionPairs.length >= 20} onClick={() => { setTpPct(null); setProtectionPairs((prev) => [...prev, { tpMode: "percent", tpValue: 1, slMode: "fixed", slInputMode: "percent", slValue: 0.5 }]); }}>+ Add TP/SL</Button>
+          </div>
+          <div className="space-y-2">
+            {protectionPairs.map((pair, index) => (
+              <div key={index} className="grid grid-cols-2 gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-2 md:grid-cols-6">
+                <div className="text-xs font-semibold text-slate-300">TP{index + 1}</div>
+                <Select value={pair.tpMode} onValueChange={(value: "percent" | "price") => setProtectionPairs((prev) => prev.map((x, i) => i === index ? { ...x, tpMode: value } : x))}><SelectTrigger className="border-slate-800 bg-slate-900 text-slate-100"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="percent">%</SelectItem><SelectItem value="price">Price</SelectItem></SelectContent></Select>
+                <Input type="number" step="any" value={pair.tpValue ?? ""} onChange={(e) => setProtectionPairs((prev) => prev.map((x, i) => i === index ? { ...x, tpValue: e.target.value === "" ? null : Number(e.target.value) } : x))} className="border-slate-800 bg-slate-900 text-slate-100" />
+                <div className="text-xs font-semibold text-slate-300">SL{index + 1}</div>
+                <Select value={pair.slMode} onValueChange={(value: "fixed" | "trailing") => setProtectionPairs((prev) => prev.map((x, i) => i === index ? { ...x, slMode: value } : x))}><SelectTrigger className="border-slate-800 bg-slate-900 text-slate-100"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="fixed">Fixed</SelectItem><SelectItem value="trailing">Dynamic trailing</SelectItem></SelectContent></Select>
+                <div className="flex gap-1"><Input type="number" step="any" value={pair.slValue ?? ""} onChange={(e) => setProtectionPairs((prev) => prev.map((x, i) => i === index ? { ...x, slValue: e.target.value === "" ? null : Number(e.target.value) } : x))} className="border-slate-800 bg-slate-900 text-slate-100" /><Button type="button" size="sm" variant="ghost" className="text-rose-300" onClick={() => setProtectionPairs((prev) => prev.filter((_, i) => i !== index))}>×</Button></div>
+              </div>
+            ))}
           </div>
         </div>
         <div>
