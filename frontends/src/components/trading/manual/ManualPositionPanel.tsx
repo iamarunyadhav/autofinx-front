@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import {
@@ -29,6 +30,7 @@ import {
   useManualClosePreview,
   useManualPosition,
   useRefreshManualPosition,
+  useUpdateManualStopLoss,
 } from "@/hooks/useQuickTradeManual";
 
 function Cell({ label, value, tone }: { label: string; value: string; tone?: "pos" | "neg" | "warn" }) {
@@ -61,6 +63,9 @@ function PositionCard({ workspaceId, position }: CardProps) {
   const close = useCloseManualPosition(workspaceId);
   const [closePreview, setClosePreview] = useState<ManualClosePreview | null>(null);
   const [closeError, setCloseError] = useState<string | null>(null);
+  const [stopEditOpen, setStopEditOpen] = useState(false);
+  const [stopPrice, setStopPrice] = useState("");
+  const stopUpdate = useUpdateManualStopLoss(workspaceId);
 
   const prot = protectionLabel(p);
   const liq = live?.liquidation_price ?? p.exchange_liquidation_price ?? p.estimated_liquidation_price;
@@ -92,6 +97,19 @@ function PositionCard({ workspaceId, position }: CardProps) {
         }
       },
       onError: (e) => setCloseError(parseApiError((e as Error).message).text),
+    });
+  };
+
+  const openStopEditor = () => {
+    setStopPrice(p.sl_trigger_price == null ? "" : String(p.sl_trigger_price));
+    setStopEditOpen(true);
+  };
+
+  const saveStop = () => {
+    const value = Number(stopPrice);
+    if (!(value > 0)) return;
+    stopUpdate.mutate({ positionId: p.id, stopLossPrice: value }, {
+      onSuccess: () => setStopEditOpen(false),
     });
   };
 
@@ -186,11 +204,33 @@ function PositionCard({ workspaceId, position }: CardProps) {
           Manual Close
         </Button>
         <Button variant="outline" className="border-slate-700 bg-slate-900 text-slate-100" onClick={() => setDetailsOpen(true)}>View Order Details</Button>
+        {!p.no_stop_loss && !p.is_terminal && p.protection_status === "PROTECTED" && (
+          <Button variant="outline" className="border-amber-700/60 bg-slate-900 text-amber-200" onClick={openStopEditor}>Edit Stop Loss</Button>
+        )}
         <Button variant="ghost" className="text-slate-300" disabled={refresh.isPending} onClick={() => refresh.mutate(p.id)}>
           <RefreshCw className={cn("mr-1.5 h-4 w-4", refresh.isPending && "animate-spin")} /> Refresh
         </Button>
         {!p.can_close && !p.is_terminal && <span className="text-xs text-slate-500">Close is unavailable while the position is {STATUS_LABEL[p.status]?.toLowerCase()}.</span>}
       </div>
+
+      <Dialog open={stopEditOpen} onOpenChange={(open) => { if (!stopUpdate.isPending) setStopEditOpen(open); }}>
+        <DialogContent className="border-slate-800 bg-slate-950 text-slate-100">
+          <DialogHeader>
+            <DialogTitle>Edit Stop Loss - {p.symbol}</DialogTitle>
+            <DialogDescription className="text-slate-400">Enter an exact trigger price. The new exchange stop is placed and verified before the old stop is cancelled.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-xs text-slate-400">Fixed stop-loss trigger price</label>
+            <Input type="number" step="any" value={stopPrice} onChange={(e) => setStopPrice(e.target.value)} className="border-slate-700 bg-slate-900 text-slate-100" />
+            <div className="text-xs text-slate-500">Entry: {fmtPrice(p.entry_price)} · Current stop: {fmtPrice(p.sl_trigger_price)}</div>
+            {stopUpdate.error && <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-2 text-sm text-rose-200">{parseApiError((stopUpdate.error as Error).message).text}</div>}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setStopEditOpen(false)} disabled={stopUpdate.isPending}>Cancel</Button>
+            <Button className="bg-amber-600 text-slate-950 hover:bg-amber-500" onClick={saveStop} disabled={stopUpdate.isPending || !(Number(stopPrice) > 0)}>{stopUpdate.isPending ? "Saving..." : "Save fixed stop"}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={closeOpen} onOpenChange={(o) => { if (!close.isPending) setCloseOpen(o); }}>
         <AlertDialogContent className="border-slate-800 bg-slate-950 text-slate-100">
