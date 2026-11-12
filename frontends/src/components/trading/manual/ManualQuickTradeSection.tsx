@@ -10,7 +10,7 @@ import { DEFAULT_OVERLAYS, ema, type OverlayToggles } from "@/lib/chartStructure
 import { CHART_TIMEFRAMES, MANUAL_SYMBOLS, localEstimate, parseApiError, type ChartTimeframe, type ManualPreview, type OrderForm } from "@/lib/manualTrade";
 import { useManualChartCandles } from "@/hooks/useManualChartCandles";
 import { useManualExchangeBalance, useManualPositions, useManualStatus, useSetManualEnabled } from "@/hooks/useQuickTradeManual";
-import { ManualOrderForm } from "./ManualOrderForm";
+import { ManualOrderForm, ManualProtectionPairEditor } from "./ManualOrderForm";
 import { ManualPositionPanel } from "./ManualPositionPanel";
 import { ManualTradeChart, type ChartLine } from "./ManualTradeChart";
 import { MlAutopilotPanel } from "@/components/trading/MlAutopilotPanel";
@@ -56,6 +56,7 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
   const [toggles, setToggles] = useState<OverlayToggles>(DEFAULT_OVERLAYS);
   const [form, setForm] = useState<OrderForm | null>(null);
   const [preview, setPreview] = useState<ManualPreview | null>(null);
+  const [protectionPairs, setProtectionPairs] = useState<OrderForm["protectionPairs"]>([]);
   const binanceIntegrations = useMemo(() => integrations.filter((i) => i.provider_key.toLowerCase() === "binance"), [integrations]);
   const [environment, setEnvironment] = useState<"paper" | "testnet" | "live">(() =>
     binanceIntegrations.some((i) => i.environment === "testnet") ? "testnet" : "live"
@@ -307,7 +308,7 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
               <div><div className="text-slate-500">Confidence</div><div className="mt-1 font-bold text-violet-300">{directionInsight.confidence == null ? "—" : `${directionInsight.confidence}%`}</div></div>
               <div><div className="text-slate-500">Basis</div><div className="mt-1 text-slate-300">{directionInsight.basis}</div></div>
             </div>
-            {form && form.protectionPairs.length > 0 && <div className="mt-3 rounded-2xl border border-violet-500/30 bg-violet-500/5 p-4"><div className="mb-3 flex items-center justify-between"><div><div className="text-base font-black uppercase tracking-[0.16em] text-violet-200">TP observation / reversal stages</div><div className="mt-1 text-xs text-slate-400">TP levels do not close the position; they activate their paired stop.</div></div><Badge className="bg-violet-500/15 text-violet-200">{form.protectionPairs.length} stages</Badge></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{form.protectionPairs.map((pair, index) => <div key={index} className="rounded-xl border border-slate-700 bg-slate-950/80 p-4"><div className="flex items-center justify-between"><span className="text-lg font-black text-slate-100">TP{index + 1}</span><span className="text-xs uppercase text-slate-500">{pair.tpMode}</span></div><div className="mt-2 text-2xl font-black text-emerald-300">{pair.tpValue || "—"}{pair.tpMode === "percent" ? "%" : ""}</div><div className="mt-3 flex items-center justify-between border-t border-slate-800 pt-3"><span className="text-lg font-black text-slate-100">SL{index + 1}</span><span className="text-xs uppercase text-slate-500">{pair.slMode}</span></div><div className="mt-2 text-xl font-bold text-orange-300">{pair.slValue || "—"}{pair.slInputMode === "percent" ? "%" : pair.slInputMode === "distance" ? " distance" : " price"}</div></div>)}</div></div>}
+            <ManualProtectionPairEditor pairs={protectionPairs} setPairs={(next) => { setProtectionPairs(next); setForm((current) => current ? { ...current, protectionPairs: typeof next === "function" ? next(current.protectionPairs) : next } : current); }} />
           </div>
           <MarketPressurePanel workspaceId={workspaceId} symbol={symbol} enabled={Boolean(workspaceId && symbol)} />
           <MarketMoversPanel />
@@ -315,7 +316,7 @@ export function ManualQuickTradeSection({ workspaceId, symbols, integrations, fe
         {environment === "paper"
           ? <div className="space-y-3"><MlAutopilotPanel workspaceId={workspaceId} mode="paper" /><div className="rounded-[24px] border border-sky-500/25 bg-sky-500/5 p-4 text-xs text-sky-200">Manual exchange order fields are disabled in Paper mode. V5 paper autopilot runs on its own internal ledger; switching to Testnet or Live restores the exchange form.</div></div>
           : integrationId
-          ? <ManualOrderForm workspaceId={workspaceId} status={st} integrationId={integrationId} symbols={availableSymbols} symbol={symbol} onSymbolChange={setSymbol} lastPrice={candles.lastPrice} onFormChange={onFormChange} />
+          ? <ManualOrderForm workspaceId={workspaceId} status={st} integrationId={integrationId} symbols={availableSymbols} symbol={symbol} onSymbolChange={setSymbol} lastPrice={candles.lastPrice} onFormChange={onFormChange} protectionPairs={protectionPairs} setProtectionPairs={setProtectionPairs} />
           : <div className="rounded-[24px] border border-slate-800 bg-slate-950/80 p-6 text-sm text-amber-200">Select or connect a Binance {environment === "testnet" ? "Testnet" : "Live"} account to preview and open an order.</div>}
       </div>
 
